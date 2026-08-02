@@ -15,6 +15,50 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
+// ============================================================
+// Connection string normalization
+// ============================================================
+// Render's `fromDatabase` reference returns the connection string in
+// `postgresql://user:pass@host:port/db` URL format. Npgsql does NOT
+// accept this format in its ConnectionString property — it requires
+// `Host=...;Port=...;Database=...;Username=...;Password=...;`.
+//
+// We normalize the env var before any other code runs (including the
+// seed migration, which calls `Environment.GetEnvironmentVariable`
+// directly and would otherwise fail with
+// "Format of the initialization string does not conform to
+// specification starting at index 0").
+//
+// This makes render.yaml self-sufficient: `fromDatabase` works out of
+// the box, no manual `ConnectionStrings__Default` env var required.
+static string NormalizeConnectionString(string raw)
+{
+    if (string.IsNullOrWhiteSpace(raw)) return raw;
+    if (!raw.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) &&
+        !raw.StartsWith("postgres://",    StringComparison.OrdinalIgnoreCase))
+    {
+        // Already in key=value (Npgsql) format — nothing to do.
+        return raw;
+    }
+    // Use Npgsql's own builder to do the parsing; reading .ConnectionString
+    // back gives us the canonical key=value form. This is more robust than
+    // rolling our own URL parser (handles query-string sslmode, port
+    // detection, etc.).
+    var b = new Npgsql.NpgsqlConnectionStringBuilder(raw);
+    return b.ConnectionString;
+}
+
+var rawConn = Environment.GetEnvironmentVariable("ConnectionStrings__Default");
+string? normalized = null;
+if (!string.IsNullOrWhiteSpace(rawConn))
+{
+    normalized = NormalizeConnectionString(rawConn);
+    if (normalized != rawConn)
+    {
+        Environment.SetEnvironmentVariable("ConnectionStrings__Default", normalized);
+    }
+}
+
 // Use CreateSlimBuilder instead of CreateBuilder: it does NOT add the
 // default JSON config sources (appsettings.json + appsettings.{env}.json),
 // which means no FileSystemWatcher is ever created. Without this, the
@@ -48,6 +92,13 @@ builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteOptions>(options =>
 // or use the appsettings.Development.json pattern (not added here because
 // the production image must not depend on file watching).
 builder.Configuration.AddEnvironmentVariables();
+
+// Re-apply the normalized connection string to the configuration object
+// (AddEnvironmentVariables above cached the raw URL value).
+if (!string.IsNullOrWhiteSpace(normalized))
+{
+    builder.Configuration["ConnectionStrings:Default"] = normalized;
+}
 
 // ============================================================
 // Services
