@@ -153,13 +153,28 @@ echo ""
 # -------------------------
 # 8. Critical extension setup
 # -------------------------
-echo "[8/8] Checking that required PG extensions are created..."
+echo "[8/9] Checking that required PG extensions are created..."
 if ! grep -q "uuid-ossp" backend/Migrations/001_InitialSchema.cs; then
   echo "❌ InitialSchema does not CREATE EXTENSION \"uuid-ossp\""
   echo "   (FluentMigrator's SystemMethods.NewGuid emits uuid_generate_v4() which needs this)"
   exit 1
 fi
 echo "✅ uuid-ossp extension setup OK"
+echo ""
+
+# -------------------------
+# 9. No hardcoded connection strings in migrations
+# -------------------------
+echo "[9/9] Checking for hardcoded DB hostnames in migrations..."
+# The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
+# Any other migration with a hardcoded 'Host=' is a bug.
+violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v "002_SeedData.cs" || true)
+if [ -n "$violations" ]; then
+  echo "❌ Hardcoded DB hostname found in: $violations"
+  echo "   Use Environment.GetEnvironmentVariable(\"ConnectionStrings__Default\") instead."
+  exit 1
+fi
+echo "✅ No hardcoded DB hostnames in migrations (except 002 fallback)"
 echo ""
 
 echo "=========================================="
