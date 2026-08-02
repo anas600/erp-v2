@@ -91,8 +91,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Render free-tier web services expect to bind on port 10000
+      # by default. The Dockerfile and this env var must agree,
+      # otherwise Render's reverse proxy hits a port nothing is
+      # listening on and returns 502 Bad Gateway.
       - key: PORT
-        value: "3000"
+        value: "10000"
       - key: BACKEND_INTERNAL_URL
         value: http://erp-v2-backend:8080
       # Use fromService to dynamically reference the backend's URL.

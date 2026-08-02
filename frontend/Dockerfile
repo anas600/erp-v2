@@ -26,7 +26,13 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+# Render free tier expects services to listen on port 10000 by default.
+# Setting PORT=10000 in the env is what the env var name says, but the
+# actual value must match what Render's reverse proxy will hit. The
+# `EXPOSE 3000` is documentation only; the runtime PORT env var
+# determines where Node.js actually binds.
+ENV PORT=10000
+EXPOSE 10000
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
