@@ -9,15 +9,21 @@
  * The response interceptor clears the session on 401 and redirects to login,
  * which is why the auth context decodes the JWT for UI hints only — real
  * security checks always happen on the backend.
+ *
+ * IMPORTANT: we use a *relative* baseURL ("/api") so that all API calls
+ * stay on the same origin. The Next.js rewrite (configured in
+ * next.config.mjs as `/api/:path*` -> BACKEND_INTERNAL_URL) then forwards
+ * them to the .NET backend. This means we don't need to bake
+ * NEXT_PUBLIC_API_URL at build time, which would break every time Render
+ * re-creates the backend with a new URL suffix (e.g. -86pf). See the
+ * comment in render.yaml for the full rationale.
  */
 import axios, { AxiosError, AxiosInstance } from "axios";
 import Cookies from "js-cookie";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-
 /** Base Axios instance used by every page. */
 export const api: AxiosInstance = axios.create({
-  baseURL: `${API_URL}/api`,
+  baseURL: "/api",
   headers: { "Content-Type": "application/json" }
 });
 

@@ -17,7 +17,7 @@ echo ""
 # -------------------------
 # 1. Backend dotnet build
 # -------------------------
-echo "[1/17] Building .NET backend..."
+echo "[1/18] Building .NET backend..."
 cd backend
 if ! dotnet build --no-restore --nologo 2>&1 | tail -1; then
   echo "❌ Backend build FAILED"
@@ -30,7 +30,7 @@ echo ""
 # -------------------------
 # 2. Frontend npm install
 # -------------------------
-echo "[2/17] Checking frontend node_modules..."
+echo "[2/18] Checking frontend node_modules..."
 if [ ! -d "frontend/node_modules" ]; then
   echo "❌ frontend/node_modules missing; run: cd frontend && npm install"
   exit 1
@@ -41,7 +41,7 @@ echo ""
 # -------------------------
 # 3. Frontend tsc type-check
 # -------------------------
-echo "[3/17] TypeScript type-check..."
+echo "[3/18] TypeScript type-check..."
 cd frontend
 if ! npx tsc --noEmit 2>&1 | head -20; then
   echo "❌ TypeScript check FAILED"
@@ -54,7 +54,7 @@ echo ""
 # -------------------------
 # 4. Required files exist
 # -------------------------
-echo "[4/17] Checking required files..."
+echo "[4/18] Checking required files..."
 REQUIRED=(
   "docker-compose.yml"
   ".env.example"
@@ -85,7 +85,7 @@ echo ""
 # -------------------------
 # 5. All endpoints registered
 # -------------------------
-echo "[5/17] Verifying endpoint registration..."
+echo "[5/18] Verifying endpoint registration..."
 EXPECTED_ENDPOINTS=(
   "AuthEndpoints.Map"
   "CompanyEndpoints.Map"
@@ -110,7 +110,7 @@ echo ""
 # -------------------------
 # 6. All migrations present
 # -------------------------
-echo "[6/17] Verifying migrations..."
+echo "[6/18] Verifying migrations..."
 EXPECTED_MIGRATIONS=(
   "001_InitialSchema.cs"
   "002_SeedData.cs"
@@ -129,7 +129,7 @@ echo ""
 # -------------------------
 # 7. JSON validity of rule templates
 # -------------------------
-echo "[7/17] Validating rule templates JSON..."
+echo "[7/18] Validating rule templates JSON..."
 if ! python3 scripts/check_rules.py; then
   echo "❌ Rule templates JSON check FAILED (expected 6 templates)"
   exit 1
@@ -140,7 +140,7 @@ echo ""
 # -------------------------
 # 8. Critical extension setup
 # -------------------------
-echo "[8/17] Checking that required PG extensions are created..."
+echo "[8/18] Checking that required PG extensions are created..."
 if ! grep -q "uuid-ossp" backend/Migrations/001_InitialSchema.cs; then
   echo "❌ InitialSchema does not CREATE EXTENSION \"uuid-ossp\""
   echo "   (FluentMigrator's SystemMethods.NewGuid emits uuid_generate_v4() which needs this)"
@@ -152,7 +152,7 @@ echo ""
 # -------------------------
 # 9. No hardcoded connection strings in migrations
 # -------------------------
-echo "[9/17] Checking for hardcoded DB hostnames in migrations..."
+echo "[9/18] Checking for hardcoded DB hostnames in migrations..."
 # The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
 # Any other migration with a hardcoded 'Host=' is a bug.
 violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v "002_SeedData.cs" || true)
@@ -167,7 +167,7 @@ echo ""
 # -------------------------
 # 10. Production-safe config (CreateSlimBuilder)
 # -------------------------
-echo "[10/17] Checking that backend uses CreateSlimBuilder (no JSON file watchers)..."
+echo "[10/18] Checking that backend uses CreateSlimBuilder (no JSON file watchers)..."
 # The old code used CreateBuilder() + Sources.Clear() which was too late:
 # the file watchers are created during CreateBuilder() itself, before any
 # user code runs. CreateSlimBuilder() skips the JSON config sources entirely,
@@ -185,7 +185,7 @@ echo ""
 # -------------------------
 # 11. Polling file watcher env var in Dockerfile
 # -------------------------
-echo "[11/17] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
+echo "[11/18] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
 if ! grep -q "DOTNET_USE_POLLING_FILE_WATCHER" backend/Dockerfile; then
   echo "❌ backend/Dockerfile does not set DOTNET_USE_POLLING_FILE_WATCHER"
   echo "   (containers hit the inotify instance limit at startup)"
@@ -197,7 +197,7 @@ echo ""
 # -------------------------
 # 12. Seed migration is idempotent
 # -------------------------
-echo "[12/17] Checking that SeedData migration is idempotent (ON CONFLICT)..."
+echo "[12/18] Checking that SeedData migration is idempotent (ON CONFLICT)..."
 # At minimum, the bulk INSERTs in 002_SeedData must be idempotent.
 # We check the major tables: companies, users, accounts, business_rules.
 idempotent_fail=0
@@ -217,7 +217,7 @@ echo ""
 # -------------------------
 # 13. Multi-company unique constraints
 # -------------------------
-echo "[13/17] Checking that seed creates composite unique indexes..."
+echo "[13/18] Checking that seed creates composite unique indexes..."
 # 002_SeedData.cs must ensure (a) accounts are unique per company, and
 # (b) business_rules are unique per (name, event_name). Otherwise the
 # seed fails on re-deploy with 'no unique constraint matching the
@@ -251,7 +251,7 @@ echo ""
 # -------------------------
 # 14. Schema fix runs in separate connection (autocommit)
 # -------------------------
-echo "[14/17] Checking that schema fix runs OUTSIDE the seed transaction..."
+echo "[14/18] Checking that schema fix runs OUTSIDE the seed transaction..."
 # If the DDL is inside the same transaction as the seed, a failure
 # of the seed (which is common on re-deploys) will roll back the DDL
 # too, and we're back to the bug. The DDL must be in its own
@@ -268,7 +268,7 @@ echo ""
 # -------------------------
 # 15. Regex route constraint registered (SlimBuilder fix)
 # -------------------------
-echo "[15/17] Checking that regex route constraint is registered..."
+echo "[15/18] Checking that regex route constraint is registered..."
 # CreateSlimBuilder() does NOT register RegexInlineRouteConstraint by
 # default. Swashbuckle (Swagger) uses regex constraints in its route
 # templates, so without explicit registration, the app crashes at
@@ -294,7 +294,7 @@ echo ""
 # -------------------------
 # 16. Render blueprint has connection string binding
 # -------------------------
-echo "[16/17] Checking that render.yaml wires the connection string..."
+echo "[16/18] Checking that render.yaml wires the connection string..."
 # Without this, the backend starts with an empty connection string
 # and the migration runner throws:
 #   "Format of the initialization string does not conform to
@@ -312,9 +312,38 @@ echo "✅ render.yaml binds ConnectionStrings__Default to the database"
 echo ""
 
 # -------------------------
+# 17a. Frontend uses relative API paths (no NEXT_PUBLIC_API_URL)
+# -------------------------
+echo "[17/18] Checking that frontend uses relative /api paths..."
+# Hardcoding NEXT_PUBLIC_API_URL with fromService is fragile:
+#   - fromService only supports host/hostport/port/connectionString
+#     (not url), so the user's Blueprint fails to apply.
+#   - Render may suffix the backend URL (-86pf, etc.), so any
+#     hardcoded value goes stale on re-creation.
+# The robust approach: use relative paths (/api/...) and let
+# Next.js's rewrite forward to the backend at request time.
+if grep -E "process\.env\.NEXT_PUBLIC_API_URL|NEXT_PUBLIC_API_URL\s*=" frontend/src/lib/api.ts > /dev/null; then
+  echo "❌ frontend/src/lib/api.ts still uses NEXT_PUBLIC_API_URL as a value"
+  echo "   (use relative '/api' so Next.js rewrites forward to the backend)"
+  exit 1
+fi
+if ! grep -q 'baseURL: "/api"' frontend/src/lib/api.ts; then
+  echo "❌ frontend baseURL is not '/api'"
+  echo "   (Next.js rewrites need a relative path to forward)"
+  exit 1
+fi
+if grep -q "fromService" render.yaml && grep -A 2 "fromService" render.yaml | grep -q "property: url"; then
+  echo "❌ render.yaml still uses fromService with property: url (invalid)"
+  echo "   Render Blueprint rejects this; deploys will fail"
+  exit 1
+fi
+echo "✅ Frontend uses relative /api paths (no fromService url)"
+echo ""
+
+# -------------------------
 # 17. Program.cs normalizes postgresql:// URLs
 # -------------------------
-echo "[17/17] Checking that Program.cs normalizes postgresql:// URLs..."
+echo "[18/18] Checking that Program.cs normalizes postgresql:// URLs..."
 # Render's fromDatabase returns a postgresql:// URL. Npgsql requires
 # key=value format. Without normalization, the migration runner throws
 # 'Format of the initialization string does not conform to

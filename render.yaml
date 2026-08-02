@@ -97,18 +97,21 @@ services:
       # listening on and returns 502 Bad Gateway.
       - key: PORT
         value: "10000"
+      # The frontend makes *relative* API calls (/api/...). Next.js's
+      # rewrite (in next.config.mjs) forwards them to the backend
+      # using this URL. Render's internal DNS resolves
+      # `erp-v2-backend` to the actual deployed backend container
+      # (regardless of any URL suffix Render added), so this works
+      # even when the backend is at e.g. erp-v2-backend-86pf.
+      #
+      # We previously tried to bake NEXT_PUBLIC_API_URL with
+      # fromService at build time, but the only valid properties
+      # are connectionString/host/hostport/port — not `url`. And
+      # fromService resolution happens at deploy time, after the
+      # Next.js build has already inlined NEXT_PUBLIC_*. So the
+      # only robust approach is to never expose the backend URL to
+      # the client: rewrite at the Next.js layer.
       - key: BACKEND_INTERNAL_URL
         value: http://erp-v2-backend:8080
-      # Use fromService to dynamically reference the backend's URL.
-      # The `property: url` returns the full https URL of the
-      # deployed service, including any auto-generated suffix
-      # (e.g. https://erp-v2-backend-86pf.onrender.com). Hardcoding
-      # the URL here would break every time Render re-creates the
-      # backend with a new suffix.
-      - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: erp-v2-backend
-          property: url
       - key: WATCHPACK_POLLING
         value: "true"
