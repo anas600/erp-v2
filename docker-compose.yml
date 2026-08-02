@@ -1,0 +1,77 @@
+# ============================================================
+#  ERP-V2 - Multi-Company Accounting System
+#  Stack: Next.js 15 (frontend) + .NET 8 (backend) + PostgreSQL
+#  Usage: docker compose up -d
+#  Configurable: see .env (POSTGRES_VERSION = 15 or 17)
+# ============================================================
+# Note: the `version` key is obsolete in Docker Compose v2
+# (bundled with Docker Desktop 4.x+). Omit it to avoid warnings.
+
+services:
+  # -----------------------------
+  # Database
+  # -----------------------------
+  db:
+    image: postgres:${POSTGRES_VERSION:-17}
+    container_name: erp-v2-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - erp_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp} -d ${POSTGRES_DB:-erp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------
+  # Backend (.NET 8 Web API)
+  # -----------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: erp-v2-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-erp};Username=${POSTGRES_USER:-erp};Password=${POSTGRES_PASSWORD:-erp_secret}"
+      Jwt__Key: ${JWT_KEY:-change-this-in-production-use-a-long-random-secret-32-chars-min}
+      Jwt__Issuer: ${JWT_ISSUER:-erp-v2}
+      Jwt__Audience: ${JWT_AUDIENCE:-erp-v2-client}
+      Jwt__ExpiryMinutes: ${JWT_EXPIRY_MINUTES:-1440}
+      CORS__Origins: ${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-5000}:8080"
+
+  # -----------------------------
+  # Frontend (Next.js 14)
+  # -----------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+    container_name: erp-v2-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+      BACKEND_INTERNAL_URL: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  erp_db_data:
+    driver: local

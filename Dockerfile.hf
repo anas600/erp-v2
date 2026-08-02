@@ -1,0 +1,64 @@
+# ===========================================================
+# ERP-V2 - Hugging Face Space (single-container) build
+# Combines PostgreSQL + .NET 8 backend + Next.js 15 frontend
+# into ONE container, exposed on port 7860 (HF default).
+#
+# Trade-off vs docker-compose: a single container cannot scale
+# pieces independently. This image is meant for demo and preview,
+# not production. For production, use the regular docker-compose
+# on Hostinger VPS (see docs/deployment.md).
+# ===========================================================
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
+WORKDIR /src
+COPY ["backend/ErpV2.csproj", "backend/"]
+RUN cd backend && dotnet restore "ErpV2.csproj"
+COPY backend/. backend/
+RUN cd backend && dotnet publish "ErpV2.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM node:20-alpine AS frontend-build
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install --no-audit --no-fund --legacy-peer-deps
+COPY frontend/. .
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+RUN npm run build
+
+# ---- Runtime ----
+# debian-slim ships with apt so we can install PostgreSQL + supervisor.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ASPNETCORE_URLS=http://localhost:8080
+ENV NEXT_PUBLIC_API_URL=http://localhost:7860
+
+# Install PostgreSQL 15, supervisor, procps, and the .NET 8 ASP runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl gnupg lsb-release ca-certificates supervisor procps \
+    postgresql-15 postgresql-client-15 \
+    && curl -fsSL https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb \
+       -o /tmp/ms-prod.deb \
+    && dpkg -i /tmp/ms-prod.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends aspnetcore-runtime-8.0 \
+    && rm -rf /var/lib/apt/lists/* /tmp/ms-prod.deb
+
+# .NET backend publish output
+COPY --from=backend-build /app/publish /opt/backend
+
+# Next.js standalone build
+COPY --from=frontend-build /app/public /opt/frontend/public
+COPY --from=frontend-build /app/.next/standalone /opt/frontend
+COPY --from=frontend-build /app/.next/static /opt/frontend/.next/static
+
+# Runtime configs
+COPY supervisord-hf.conf /etc/supervisor/conf.d/supervisord.conf
+COPY start-hf.sh /usr/local/bin/start-hf.sh
+RUN chmod +x /usr/local/bin/start-hf.sh
+
+# Frontend listen port for HF
+ENV PORT=7860
+EXPOSE 7860
+
+CMD ["/usr/local/bin/start-hf.sh"]

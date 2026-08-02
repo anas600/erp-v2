@@ -1,0 +1,83 @@
+# ===========================================================
+# Render.com Blueprint for ERP-V2
+# Defines 3 services that deploy together:
+#   1. PostgreSQL database (managed by Render, free for 90 days)
+#   2. .NET 8 backend (Docker, listens on 8080)
+#   3. Next.js 15 frontend (Docker, listens on 3000)
+#
+# How to use:
+#   1. Push the repo to GitHub (or GitLab).
+#   2. In Render dashboard, choose "New" -> "Blueprint".
+#   3. Point Render at the repo; it reads this file and provisions everything.
+#
+# Service names are fixed to keep cross-service URLs predictable:
+#   erp-v2-db       -> internal connection string
+#   erp-v2-backend  -> https://erp-v2-backend.onrender.com
+#   erp-v2-frontend -> https://erp-v2-frontend.onrender.com
+# ===========================================================
+
+databases:
+  - name: erp-v2-db
+    databaseName: erp
+    user: erp
+    plan: free
+    region: oregon
+    ipAllowList: []   # only accessible from within Render
+
+services:
+
+  # -----------------------------------------------------------
+  # .NET 8 backend
+  # -----------------------------------------------------------
+  - type: web
+    name: erp-v2-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__Default
+        fromDatabase:
+          name: erp-v2-db
+          property: connectionString
+      - key: Jwt__Key
+        generateValue: true
+      - key: Jwt__Issuer
+        value: erp-v2
+      - key: Jwt__Audience
+        value: erp-v2-client
+      - key: Jwt__ExpiryMinutes
+        value: "1440"
+      - key: CORS__Origins
+        value: https://erp-v2-frontend.onrender.com
+
+  # -----------------------------------------------------------
+  # Next.js 15 frontend
+  # -----------------------------------------------------------
+  - type: web
+    name: erp-v2-frontend
+    runtime: docker
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: BACKEND_INTERNAL_URL
+        value: http://erp-v2-backend:8080
+      - key: NEXT_PUBLIC_API_URL
+        value: https://erp-v2-backend.onrender.com

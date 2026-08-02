@@ -1,0 +1,361 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api, getErrorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { FileText, Plus, Loader2, X, CheckCircle, Send } from "lucide-react";
+import { formatNumber, formatDate } from "@/lib/utils";
+
+interface Account {
+  id: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+  accountType: string;
+  nature: string;
+}
+
+interface JournalLine {
+  id: string;
+  accountId: string;
+  accountCode?: string;
+  accountName?: string;
+  debit: number;
+  credit: number;
+  description?: string;
+  lineNumber: number;
+}
+
+interface JournalEntry {
+  id: string;
+  companyId: string;
+  entryNumber: string;
+  entryDate: string;
+  narration?: string;
+  status: string;
+  source?: string;
+  lines: JournalLine[];
+  createdAt: string;
+  postedAt?: string;
+}
+
+export default function JournalPage() {
+  const { activeCompany } = useAuth();
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    entryDate: new Date().toISOString().slice(0, 10),
+    narration: "",
+    lines: [
+      { accountId: "", debit: 0, credit: 0, description: "" },
+      { accountId: "", debit: 0, credit: 0, description: "" }
+    ]
+  });
+
+  const load = async () => {
+    if (!activeCompany) return;
+    try {
+      setLoading(true);
+      const [entriesRes, accountsRes] = await Promise.all([
+        api.get(`/journal?companyId=${activeCompany.id}`),
+        api.get(`/accounts?companyId=${activeCompany.id}`)
+      ]);
+      setEntries(entriesRes.data);
+      setAccounts(accountsRes.data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [activeCompany]);
+
+  const addLine = () => {
+    setForm({
+      ...form,
+      lines: [...form.lines, { accountId: "", debit: 0, credit: 0, description: "" }]
+    });
+  };
+
+  const removeLine = (idx: number) => {
+    setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) });
+  };
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    const newLines = [...form.lines];
+    newLines[idx] = { ...newLines[idx], [field]: value };
+    setForm({ ...form, lines: newLines });
+  };
+
+  const totalDebit = form.lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
+  const totalCredit = form.lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCompany) return;
+    if (!isBalanced) {
+      setError("القيد غير متوازن - إجمالي المدين يجب أن يساوي إجمالي الدائن");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/journal", {
+        companyId: activeCompany.id,
+        entryDate: form.entryDate,
+        narration: form.narration,
+        lines: form.lines
+          .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0))
+          .map((l) => ({
+            accountId: l.accountId,
+            debit: Number(l.debit) || 0,
+            credit: Number(l.credit) || 0,
+            description: l.description
+          }))
+      });
+      setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", lines: [
+        { accountId: "", debit: 0, credit: 0, description: "" },
+        { accountId: "", debit: 0, credit: 0, description: "" }
+      ]});
+      setShowForm(false);
+      await load();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const postEntry = async (id: string) => {
+    try {
+      await api.post(`/journal/${id}/post`);
+      await load();
+    } catch (err) {
+      alert(getErrorMessage(err));
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">القيود اليومية</h1>
+          <p className="text-sm text-gray-600 mt-1">إنشاء وإدارة و ترحيل القيود المحاسبية</p>
+        </div>
+        <button onClick={() => setShowForm(true)} className="btn-primary">
+          <Plus size={18} />
+          قيد جديد
+        </button>
+      </div>
+
+      {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
+
+      <div className="card">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="animate-spin text-primary-500" size={32} />
+          </div>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>الرقم</th>
+                <th>التاريخ</th>
+                <th>البيان</th>
+                <th>المبلغ</th>
+                <th>الحالة</th>
+                <th>المصدر</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const total = e.lines.reduce((s, l) => s + Number(l.debit), 0);
+                return (
+                  <>
+                    <tr key={e.id} className="cursor-pointer hover:bg-gray-50" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>
+                      <td className="font-mono font-semibold">{e.entryNumber}</td>
+                      <td>{formatDate(e.entryDate)}</td>
+                      <td>{e.narration || "-"}</td>
+                      <td className="font-mono" dir="ltr">{formatNumber(total)}</td>
+                      <td>
+                        {e.status === "posted" && <span className="badge badge-success">مرحّل</span>}
+                        {e.status === "draft" && <span className="badge badge-warning">مسودة</span>}
+                        {e.status === "reversed" && <span className="badge badge-danger">معكوس</span>}
+                      </td>
+                      <td className="text-xs text-gray-500">{e.source || "يدوي"}</td>
+                      <td>
+                        {e.status === "draft" && (
+                          <button
+                            onClick={(ev) => { ev.stopPropagation(); postEntry(e.id); }}
+                            className="text-primary-600 hover:underline text-sm"
+                          >
+                            <Send size={14} className="inline ml-1" />
+                            ترحيل
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {expanded === e.id && (
+                      <tr key={e.id + "-detail"}>
+                        <td colSpan={7} className="bg-gray-50 p-4">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-xs text-gray-600">
+                                <th className="text-right py-1">الحساب</th>
+                                <th className="text-right py-1">البيان</th>
+                                <th className="text-left py-1">مدين</th>
+                                <th className="text-left py-1">دائن</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {e.lines.map((l) => (
+                                <tr key={l.id}>
+                                  <td className="py-1">
+                                    <span className="font-mono text-xs text-gray-500">{l.accountCode}</span>{" "}
+                                    {l.accountName}
+                                  </td>
+                                  <td className="py-1 text-gray-600">{l.description || "-"}</td>
+                                  <td className="py-1 font-mono" dir="ltr">{formatNumber(l.debit)}</td>
+                                  <td className="py-1 font-mono" dir="ltr">{formatNumber(l.credit)}</td>
+                                </tr>
+                              ))}
+                              <tr className="border-t font-semibold">
+                                <td colSpan={2} className="py-1">الإجمالي</td>
+                                <td className="py-1 font-mono" dir="ltr">{formatNumber(totalDebit)}</td>
+                                <td className="py-1 font-mono" dir="ltr">{formatNumber(totalDebit)}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+              {entries.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center text-gray-500 py-6">لا توجد قيود</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 my-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">قيد يومية جديد</h2>
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={submit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">التاريخ *</label>
+                  <input type="date" className="input" value={form.entryDate} onChange={(e) => setForm({ ...form, entryDate: e.target.value })} required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">البيان</label>
+                  <input className="input" value={form.narration} onChange={(e) => setForm({ ...form, narration: e.target.value })} placeholder="وصف القيد" />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold">بنود القيد</h3>
+                  <button type="button" onClick={addLine} className="text-sm text-primary-600 hover:underline">
+                    + بند جديد
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {form.lines.map((line, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                      <select
+                        className="input col-span-5"
+                        value={line.accountId}
+                        onChange={(e) => updateLine(idx, "accountId", e.target.value)}
+                      >
+                        <option value="">- اختر حساب -</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} - {a.nameAr || a.name} ({a.nature === "Debit" ? "مدين" : "دائن"})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="input col-span-2"
+                        placeholder="مدين"
+                        value={line.debit || ""}
+                        onChange={(e) => updateLine(idx, "debit", e.target.value)}
+                        dir="ltr"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="input col-span-2"
+                        placeholder="دائن"
+                        value={line.credit || ""}
+                        onChange={(e) => updateLine(idx, "credit", e.target.value)}
+                        dir="ltr"
+                      />
+                      <input
+                        className="input col-span-2"
+                        placeholder="بيان البند"
+                        value={line.description}
+                        onChange={(e) => updateLine(idx, "description", e.target.value)}
+                      />
+                      <button type="button" onClick={() => removeLine(idx)} className="text-red-500 hover:text-red-700 col-span-1">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 p-3 bg-gray-50 rounded-md flex items-center justify-between text-sm">
+                  <div className="flex gap-6">
+                    <div>
+                      <span className="text-gray-600 ml-2">إجمالي المدين:</span>
+                      <span className="font-mono font-semibold" dir="ltr">{formatNumber(totalDebit)}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600 ml-2">إجمالي الدائن:</span>
+                      <span className="font-mono font-semibold" dir="ltr">{formatNumber(totalCredit)}</span>
+                    </div>
+                  </div>
+                  {isBalanced ? (
+                    <span className="badge badge-success"><CheckCircle size={12} className="ml-1" /> متوازن</span>
+                  ) : (
+                    <span className="badge badge-danger">غير متوازن</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="submit" disabled={submitting || !isBalanced} className="btn-primary flex-1">
+                  {submitting ? "جاري الحفظ..." : "حفظ كمسودة"}
+                </button>
+                <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
