@@ -64,19 +64,16 @@ public class ProductsAndInvoiceItems : Migration
             .WithColumn("is_active").AsBoolean().NotNullable().WithDefaultValue(true)
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
 
-        // Unique index on (company_id, code). FluentMigrator v5 can't
-        // easily express a multi-column unique index inline, so we use
-        // raw SQL with IF NOT EXISTS — same idempotent pattern as the
-        // other unique indexes in 002_SeedData.
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
-            ?? "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret";
-        using (var schemaConn = new Npgsql.NpgsqlConnection(connectionString))
-        {
-            schemaConn.Open();
-            schemaConn.Execute(@"
-                CREATE UNIQUE INDEX IF NOT EXISTS uk_products_company_code
-                ON products(company_id, code);");
-        }
+        // Unique index on (company_id, code). Must run in the same
+        // transaction as Create.Table — a separate autocommit connection
+        // can't see the uncommitted table (we hit exactly that bug on
+        // the first deploy: 42P01 relation "products" does not exist).
+        // FluentMigrator's Create.Index().Unique() emits CREATE UNIQUE
+        // INDEX, which Postgres treats as DDL inside the same TX.
+        Create.Index("uk_products_company_code").OnTable("products")
+            .OnColumn("company_id").Ascending()
+            .OnColumn("code").Ascending()
+            .WithOptions().Unique();
 
         // ============================================================
         // invoice_lines — additive changes
@@ -84,8 +81,6 @@ public class ProductsAndInvoiceItems : Migration
 
         // Make account_id nullable so a line can be product-based
         // or free-form, not just an account entry.
-        // ExistingRows: do nothing for rows that already have an
-        // account_id; only relax the constraint.
         Alter.Column("account_id").OnTable("invoice_lines")
             .AsGuid().Nullable().ForeignKey("accounts", "id");
 
@@ -99,7 +94,6 @@ public class ProductsAndInvoiceItems : Migration
         }
 
         // Add line_total_with_tax (pre-computed by InvoiceService).
-        // Decimal 18,2 to match amount.
         if (!Schema.Table("invoice_lines").Column("line_total_with_tax").Exists())
         {
             Alter.Table("invoice_lines")
