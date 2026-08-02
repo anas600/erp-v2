@@ -17,6 +17,17 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Disable hot-reload of appsettings.json. In production containers
+// (e.g. Render free tier) the FileSystemWatcher exhausts the kernel's
+// inotify instance limit (128) and the host crashes at startup.
+// We don't need file reload anyway: configuration comes from env vars
+// on Render and the env vars only change via a redeploy.
+builder.Configuration.Sources.Clear();
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables();
+
 // ============================================================
 // Services
 // ============================================================
