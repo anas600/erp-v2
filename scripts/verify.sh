@@ -130,20 +130,7 @@ echo ""
 # 7. JSON validity of rule templates
 # -------------------------
 echo "[7/8] Validating rule templates JSON..."
-if ! python3 -c "
-import re
-import sys
-import os
-import json
-
-seed_file = 'backend/Migrations/002_SeedData.cs'
-with open(seed_file, 'r') as f:
-    content = f.read()
-
-matches = re.findall(r'rule_json\s*=\s*@\"', content)
-print(f'   Found {len(matches)} rule_json templates in seed file')
-sys.exit(0 if len(matches) >= 6 else 1)
-"; then
+if ! python3 scripts/check_rules.py; then
   echo "❌ Rule templates JSON check FAILED (expected 6 templates)"
   exit 1
 fi
@@ -192,13 +179,33 @@ echo ""
 # -------------------------
 # 11. Polling file watcher env var in Dockerfile
 # -------------------------
-echo "[11/11] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
+echo "[11/12] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
 if ! grep -q "DOTNET_USE_POLLING_FILE_WATCHER" backend/Dockerfile; then
   echo "❌ backend/Dockerfile does not set DOTNET_USE_POLLING_FILE_WATCHER"
   echo "   (containers hit the inotify instance limit at startup)"
   exit 1
 fi
 echo "✅ Dockerfile uses polling file watcher (container-safe)"
+echo ""
+
+# -------------------------
+# 12. Seed migration is idempotent
+# -------------------------
+echo "[12/12] Checking that SeedData migration is idempotent (ON CONFLICT)..."
+# At minimum, the bulk INSERTs in 002_SeedData must be idempotent.
+# We check the major tables: companies, users, accounts, business_rules.
+idempotent_fail=0
+for keyword in "ON CONFLICT (code) DO NOTHING" "ON CONFLICT (email) DO NOTHING" "ON CONFLICT (company_id, code) DO NOTHING" "ON CONFLICT (name, event_name) DO NOTHING"; do
+  if ! grep -qF "$keyword" backend/Migrations/002_SeedData.cs; then
+    echo "❌ Missing ON CONFLICT pattern: $keyword"
+    idempotent_fail=1
+  fi
+done
+if [ "$idempotent_fail" -eq 1 ]; then
+  echo "   (deploys on cloud will re-run this migration; inserts must be idempotent)"
+  exit 1
+fi
+echo "✅ SeedData is idempotent (safe to re-run on cloud deploys)"
 echo ""
 
 echo "=========================================="
