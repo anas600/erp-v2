@@ -28,6 +28,19 @@ using Microsoft.OpenApi.Models;
 // which is exactly what we want in a Render free-tier container.
 var builder = WebApplication.CreateSlimBuilder(args);
 
+// CreateSlimBuilder does NOT register the regex route constraint by
+// default. Swashbuckle (Swagger) uses regex constraints in its internal
+// route templates, so without this, the app crashes at startup with:
+//
+//   "A route parameter uses the regex constraint, which isn't registered.
+//    If this application was configured using CreateSlimBuilder(...) or
+//    AddRoutingCore(...) then this constraint is not registered by default."
+//
+// We re-register the regex constraint here. This is the only required
+// manual re-registration when using SlimBuilder for this app.
+builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteOptions>(options =>
+    options.SetParameterPolicy<Microsoft.AspNetCore.Routing.Constraints.RegexInlineRouteConstraint>("regex"));
+
 // Configuration comes exclusively from environment variables in production
 // (the 12-factor way). We deliberately do NOT add any JSON file sources:
 // they require file watchers, and the env var is the source of truth on
