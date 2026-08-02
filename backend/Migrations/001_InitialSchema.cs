@@ -11,8 +11,13 @@ public class InitialSchema : Migration
 {
     public override void Up()
     {
-        // Enable UUID generation (PG 13+ has gen_random_uuid in pgcrypto)
+        // Enable both extensions before any table is created:
+        // - pgcrypto: for gen_random_uuid() (PG 13+ core also exposes this).
+        // - uuid-ossp: for uuid_generate_v4(), which is what FluentMigrator emits
+        //   when you write `.WithDefault(SystemMethods.NewGuid)` on a UUID column.
+        // Both are no-ops on a re-run.
         Execute.Sql("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
+        Execute.Sql("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";");
 
         // ============= USERS =============
         Create.Table("users")

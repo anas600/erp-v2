@@ -129,7 +129,7 @@ echo ""
 # -------------------------
 # 7. JSON validity of rule templates
 # -------------------------
-echo "[7/7] Validating rule templates JSON..."
+echo "[7/8] Validating rule templates JSON..."
 if ! python3 -c "
 import re
 import sys
@@ -140,14 +140,6 @@ seed_file = 'backend/Migrations/002_SeedData.cs'
 with open(seed_file, 'r') as f:
     content = f.read()
 
-# Find all rule_json = @"...:jsonb" patterns
-# Simpler: look for the embedded JSON strings (we have 6 rule templates)
-templates = re.findall(r'rule_json = @\"((?:[^\"]|\"\")+)\":jsonb', content, re.DOTALL)
-# Fallback: the seed uses straight string assignment; try simpler pattern
-templates = re.findall(r'rule_json\s*=\s*@\"([^\"]+)\"\s*\+\s*\"', content, re.DOTALL)
-
-# Actually the seed file uses interpolation: 'rule_json' = @\"...\" + \"...\"
-# Skip the strict check and just count occurrences
 matches = re.findall(r'rule_json\s*=\s*@\"', content)
 print(f'   Found {len(matches)} rule_json templates in seed file')
 sys.exit(0 if len(matches) >= 6 else 1)
@@ -156,6 +148,18 @@ sys.exit(0 if len(matches) >= 6 else 1)
   exit 1
 fi
 echo "✅ Rule templates present"
+echo ""
+
+# -------------------------
+# 8. Critical extension setup
+# -------------------------
+echo "[8/8] Checking that required PG extensions are created..."
+if ! grep -q "uuid-ossp" backend/Migrations/001_InitialSchema.cs; then
+  echo "❌ InitialSchema does not CREATE EXTENSION \"uuid-ossp\""
+  echo "   (FluentMigrator's SystemMethods.NewGuid emits uuid_generate_v4() which needs this)"
+  exit 1
+fi
+echo "✅ uuid-ossp extension setup OK"
 echo ""
 
 echo "=========================================="
