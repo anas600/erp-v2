@@ -44,6 +44,8 @@ services:
         value: http://+:8080
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      - key: DOTNET_USE_POLLING_FILE_WATCHER
+        value: "true"
       - key: ConnectionStrings__Default
         fromDatabase:
           name: erp-v2-db
@@ -81,3 +83,5 @@ services:
         value: http://erp-v2-backend:8080
       - key: NEXT_PUBLIC_API_URL
         value: https://erp-v2-backend.onrender.com
+      - key: WATCHPACK_POLLING
+        value: "true"
