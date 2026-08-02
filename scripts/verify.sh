@@ -191,7 +191,7 @@ echo ""
 # -------------------------
 # 12. Seed migration is idempotent
 # -------------------------
-echo "[12/12] Checking that SeedData migration is idempotent (ON CONFLICT)..."
+echo "[12/13] Checking that SeedData migration is idempotent (ON CONFLICT)..."
 # At minimum, the bulk INSERTs in 002_SeedData must be idempotent.
 # We check the major tables: companies, users, accounts, business_rules.
 idempotent_fail=0
@@ -206,6 +206,31 @@ if [ "$idempotent_fail" -eq 1 ]; then
   exit 1
 fi
 echo "✅ SeedData is idempotent (safe to re-run on cloud deploys)"
+echo ""
+
+# -------------------------
+# 13. Multi-company unique constraints
+# -------------------------
+echo "[13/13] Checking that seed creates composite unique indexes..."
+# 002_SeedData.cs must ensure (a) accounts are unique per company, and
+# (b) business_rules are unique per (name, event_name). Otherwise the
+# seed fails on re-deploy with 'no unique constraint matching the
+# ON CONFLICT specification'.
+constraints_fail=0
+for needle in \
+    "ALTER TABLE accounts DROP CONSTRAINT IF EXISTS uk_accounts_code" \
+    "CREATE UNIQUE INDEX IF NOT EXISTS uk_accounts_company_code" \
+    "CREATE UNIQUE INDEX IF NOT EXISTS uk_business_rules_name_event"; do
+  if ! grep -qF "$needle" backend/Migrations/002_SeedData.cs; then
+    echo "❌ Missing schema-fix statement: $needle"
+    constraints_fail=1
+  fi
+done
+if [ "$constraints_fail" -eq 1 ]; then
+  echo "   (cloud deploys will fail at seed with SQLSTATE 42P10)"
+  exit 1
+fi
+echo "✅ Composite unique indexes created idempotently"
 echo ""
 
 echo "=========================================="

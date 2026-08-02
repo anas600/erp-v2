@@ -43,6 +43,27 @@ public class SeedData : Migration
         try
         {
             // ============================================================
+            // 0. Schema fixes for multi-company + idempotent seeding
+            // ============================================================
+            // The original 001_InitialSchema migration created a global
+            // unique index on `accounts.code` and no unique constraint on
+            // `business_rules (name, event_name)`. The first prevents two
+            // companies from sharing an account code (e.g. both have a
+            // 1000-Cash account), and the second prevents the seed from
+            // being idempotent. Both are fixed here, idempotently, so the
+            // seed can use ON CONFLICT (natural_key) safely.
+            //
+            // These statements are safe to re-run on every deploy.
+            conn.Execute(@"
+                ALTER TABLE accounts DROP CONSTRAINT IF EXISTS uk_accounts_code;", transaction: tx);
+            conn.Execute(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_accounts_company_code
+                ON accounts(company_id, code);", transaction: tx);
+            conn.Execute(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_business_rules_name_event
+                ON business_rules(name, event_name);", transaction: tx);
+
+            // ============================================================
             // 1. Permissions
             // ============================================================
             var permissions = new[]
