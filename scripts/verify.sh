@@ -180,13 +180,25 @@ echo ""
 # -------------------------
 # 10. Production-safe config (no hot-reload)
 # -------------------------
-echo "[10/10] Checking that appsettings.json hot-reload is disabled..."
+echo "[10/11] Checking that appsettings.json hot-reload is disabled..."
 if grep -q "AddJsonFile.*appsettings.json" backend/Program.cs && ! grep -q "reloadOnChange: false" backend/Program.cs; then
   echo "❌ Program.cs has AddJsonFile without reloadOnChange: false"
   echo "   (would cause inotify exhaustion in production containers)"
   exit 1
 fi
 echo "✅ Config hot-reload is disabled (safe for containers)"
+echo ""
+
+# -------------------------
+# 11. Polling file watcher env var in Dockerfile
+# -------------------------
+echo "[11/11] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
+if ! grep -q "DOTNET_USE_POLLING_FILE_WATCHER" backend/Dockerfile; then
+  echo "❌ backend/Dockerfile does not set DOTNET_USE_POLLING_FILE_WATCHER"
+  echo "   (containers hit the inotify instance limit at startup)"
+  exit 1
+fi
+echo "✅ Dockerfile uses polling file watcher (container-safe)"
 echo ""
 
 echo "=========================================="
