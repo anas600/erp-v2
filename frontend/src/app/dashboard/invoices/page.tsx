@@ -1,29 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { FileText, Plus, Loader2, X, Send, XCircle, Eye } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
-interface Account {
+/**
+ * Invoices are now product-based. Each line picks a product from
+ * the catalogue (code + name + unit price + tax rate), and the user
+ * only has to enter a quantity. The backend `InvoiceService`
+ * auto-fills description / unit_price / tax_rate from the product
+ * if the user leaves them blank, then computes line_total and
+ * line_total_with_tax server-side to avoid floating-point drift.
+ *
+ * Posting an invoice delegates to the Business Rule
+ * (`SalesInvoiceApproved` / `PurchaseInvoiceApproved`) which builds
+ * the journal entry from the rule's account mapping.
+ */
+
+interface Product {
   id: string;
   code: string;
   name: string;
   nameAr?: string;
-  accountType: string;
+  unitPrice: number;
+  defaultTaxRate: number;
 }
 
 interface InvoiceLine {
   id: string;
-  accountId: string;
+  accountId?: string;
   accountCode?: string;
   accountName?: string;
+  productId?: string;
+  productCode?: string;
+  productName?: string;
+  productNameAr?: string;
   description: string;
   quantity: number;
   unitPrice: number;
   taxRate: number;
   amount: number;
+  lineTotalWithTax: number;
   lineNumber: number;
 }
 
@@ -43,10 +62,26 @@ interface Invoice {
   lines: InvoiceLine[];
 }
 
+interface FormLine {
+  productId: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+}
+
+const emptyFormLine: FormLine = {
+  productId: "",
+  description: "",
+  quantity: 1,
+  unitPrice: 0,
+  taxRate: 0
+};
+
 export default function InvoicesPage() {
   const { activeCompany, user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -60,23 +95,19 @@ export default function InvoicesPage() {
     partyName: "",
     partyNameAr: "",
     taxRate: 0,
-    lines: [
-      { accountId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 }
-    ]
+    lines: [emptyFormLine] as FormLine[]
   });
 
   const load = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const [invoicesRes, accountsRes] = await Promise.all([
+      const [invoicesRes, productsRes] = await Promise.all([
         api.get(`/invoices?companyId=${activeCompany.id}&limit=100`),
-        api.get(`/accounts?companyId=${activeCompany.id}`)
+        api.get(`/products?companyId=${activeCompany.id}`)
       ]);
       setInvoices(invoicesRes.data);
-      setAccounts(accountsRes.data.filter((a: Account) =>
-        a.accountType === "Expense" || a.accountType === "Revenue" || a.accountType === "Asset"
-      ));
+      setProducts(productsRes.data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -86,26 +117,48 @@ export default function InvoicesPage() {
 
   useEffect(() => { load(); }, [activeCompany]);
 
+  const productMap = useMemo(() => {
+    const m = new Map<string, Product>();
+    products.forEach((p) => m.set(p.id, p));
+    return m;
+  }, [products]);
+
   const addLine = () => {
-    setForm({
-      ...form,
-      lines: [...form.lines, { accountId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 }]
-    });
+    setForm({ ...form, lines: [...form.lines, { ...emptyFormLine }] });
   };
 
   const removeLine = (idx: number) => {
     setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) });
   };
 
-  const updateLine = (idx: number, field: string, value: any) => {
+  const updateLine = (idx: number, field: keyof FormLine, value: any) => {
     const newLines = [...form.lines];
-    newLines[idx] = { ...newLines[idx], [field]: value };
+    const line: FormLine = { ...newLines[idx], [field]: value };
+    // When the user picks a product, auto-fill description,
+    // unit_price, and tax_rate from the catalogue — the user
+    // can still override.
+    if (field === "productId" && value) {
+      const p = productMap.get(value);
+      if (p) {
+        line.description = line.description || p.nameAr || p.name;
+        line.unitPrice = line.unitPrice || p.unitPrice;
+        // Only override tax if the user hasn't set one yet.
+        if (!line.taxRate) line.taxRate = p.defaultTaxRate;
+      }
+    }
+    newLines[idx] = line;
     setForm({ ...form, lines: newLines });
   };
 
-  const subtotal = form.lines.reduce((s, l) => s + (l.quantity * l.unitPrice), 0);
-  const taxAmount = form.lines.reduce((s, l) => s + (l.quantity * l.unitPrice * (l.taxRate || form.taxRate)), 0);
-  const total = subtotal + taxAmount;
+  const subtotal = form.lines.reduce(
+    (s, l) => s + (l.quantity * l.unitPrice),
+    0
+  );
+  const lineTotalsWithTax = form.lines.map(
+    (l) => l.quantity * l.unitPrice * (1 + (l.taxRate || form.taxRate))
+  );
+  const total = lineTotalsWithTax.reduce((s, x) => s + x, 0);
+  const taxAmount = total - subtotal;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,9 +174,9 @@ export default function InvoicesPage() {
         partyNameAr: form.partyNameAr || null,
         taxRate: form.taxRate,
         lines: form.lines
-          .filter((l) => l.accountId)
+          .filter((l) => l.productId)
           .map((l) => ({
-            accountId: l.accountId,
+            productId: l.productId,
             description: l.description,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
@@ -136,7 +189,7 @@ export default function InvoicesPage() {
         partyName: "",
         partyNameAr: "",
         taxRate: 0,
-        lines: [{ accountId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 }]
+        lines: [{ ...emptyFormLine }]
       });
       setShowForm(false);
       await load();
@@ -178,7 +231,9 @@ export default function InvoicesPage() {
             <FileText size={24} className="text-primary-600" />
             الفواتير
           </h1>
-          <p className="text-sm text-gray-600 mt-1">فواتير المشتريات والمبيعات</p>
+          <p className="text-sm text-gray-600 mt-1">
+            فواتير المشتريات والمبيعات — مبنية على المنتجات
+          </p>
         </div>
         <button onClick={() => setShowForm(true)} className="btn-primary">
           <Plus size={18} />
@@ -252,7 +307,8 @@ export default function InvoicesPage() {
         <InvoiceForm
           form={form}
           setForm={setForm}
-          accounts={accounts}
+          products={products}
+          lineTotalsWithTax={lineTotalsWithTax}
           subtotal={subtotal}
           taxAmount={taxAmount}
           total={total}
@@ -319,39 +375,49 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-600">
-                  <th className="text-right py-1">الحساب</th>
+                  <th className="text-right py-1">المنتج</th>
                   <th className="text-right py-1">البيان</th>
                   <th className="text-right py-1">الكمية</th>
                   <th className="text-left py-1">السعر</th>
                   <th className="text-left py-1">الضريبة</th>
                   <th className="text-left py-1">المبلغ</th>
+                  <th className="text-left py-1">شامل الضريبة</th>
                 </tr>
               </thead>
               <tbody>
                 {inv.lines.map((l: InvoiceLine) => (
                   <tr key={l.id}>
                     <td className="py-1">
-                      <span className="font-mono text-xs text-gray-500">{l.accountCode}</span>{" "}
-                      {l.accountName}
+                      {l.productCode ? (
+                        <>
+                          <span className="font-mono text-xs text-gray-500">{l.productCode}</span>{" "}
+                          {l.productNameAr || l.productName}
+                        </>
+                      ) : (
+                        <span className="text-gray-400 text-xs">بدون منتج</span>
+                      )}
                     </td>
                     <td className="py-1">{l.description}</td>
                     <td className="py-1 font-mono" dir="ltr">{l.quantity}</td>
                     <td className="py-1 font-mono" dir="ltr">{formatNumber(l.unitPrice)}</td>
                     <td className="py-1 font-mono" dir="ltr">{(l.taxRate * 100).toFixed(1)}%</td>
                     <td className="py-1 font-mono" dir="ltr">{formatNumber(l.amount)}</td>
+                    <td className="py-1 font-mono font-semibold" dir="ltr">
+                      {formatNumber(l.lineTotalWithTax)}
+                    </td>
                   </tr>
                 ))}
                 <tr className="border-t font-semibold">
-                  <td colSpan={5} className="py-1">الإجمالي الفرعي</td>
+                  <td colSpan={6} className="py-1">الإجمالي الفرعي</td>
                   <td className="py-1 font-mono" dir="ltr">{formatNumber(inv.subtotal)}</td>
                 </tr>
                 <tr>
-                  <td colSpan={5} className="py-1">الضريبة</td>
+                  <td colSpan={6} className="py-1">الضريبة</td>
                   <td className="py-1 font-mono" dir="ltr">{formatNumber(inv.taxAmount)}</td>
                 </tr>
-                <tr className="font-bold">
-                  <td colSpan={5} className="py-1">الإجمالي</td>
-                  <td className="py-1 font-mono" dir="ltr">{formatNumber(inv.total)}</td>
+                <tr className="font-bold bg-primary-50">
+                  <td colSpan={6} className="py-2">الإجمالي الكلي</td>
+                  <td className="py-2 font-mono text-primary-700" dir="ltr">{formatNumber(inv.total)}</td>
                 </tr>
               </tbody>
             </table>
@@ -362,10 +428,15 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
   );
 }
 
-function InvoiceForm({ form, setForm, accounts, subtotal, taxAmount, total, submitting, error, onSubmit, onAddLine, onRemoveLine, onUpdateLine, onCancel }: any) {
+function InvoiceForm({
+  form, setForm, products, lineTotalsWithTax,
+  subtotal, taxAmount, total,
+  submitting, error,
+  onSubmit, onAddLine, onRemoveLine, onUpdateLine, onCancel
+}: any) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 my-8">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl p-6 my-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">فاتورة جديدة</h2>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
@@ -397,15 +468,16 @@ function InvoiceForm({ form, setForm, accounts, subtotal, taxAmount, total, subm
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">نسبة الضريبة %</label>
+              <label className="block text-sm font-medium mb-1">الضريبة الافتراضية %</label>
               <input
                 type="number"
                 step="0.01"
                 className="input"
-                value={form.taxRate}
+                value={(form.taxRate * 100).toFixed(2)}
                 onChange={(e) => setForm({ ...form, taxRate: Number(e.target.value) / 100 })}
                 dir="ltr"
                 placeholder="e.g., 15"
+                title="يُطبَّق على البنود التي لا تحدد نسبة الضريبة الخاصة بها"
               />
             </div>
           </div>
@@ -441,59 +513,70 @@ function InvoiceForm({ form, setForm, accounts, subtotal, taxAmount, total, subm
             </div>
             <div className="space-y-2">
               {form.lines.map((line: any, idx: number) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded">
                   <select
                     className="input col-span-4"
-                    value={line.accountId}
-                    onChange={(e) => onUpdateLine(idx, "accountId", e.target.value)}
+                    value={line.productId}
+                    onChange={(e) => onUpdateLine(idx, "productId", e.target.value)}
                     required
                   >
-                    <option value="">- اختر حساب -</option>
-                    {accounts.map((a: Account) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} - {a.nameAr || a.name}
+                    <option value="">- اختر منتج -</option>
+                    {products.map((p: Product) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code} - {p.nameAr || p.name} ({formatNumber(p.unitPrice)})
                       </option>
                     ))}
                   </select>
                   <input
                     className="input col-span-3"
-                    placeholder="البيان"
+                    placeholder="البيان (اختياري)"
                     value={line.description}
                     onChange={(e) => onUpdateLine(idx, "description", e.target.value)}
                   />
                   <input
                     type="number"
                     step="0.01"
+                    min="0.01"
                     className="input col-span-1"
                     placeholder="كمية"
                     value={line.quantity}
                     onChange={(e) => onUpdateLine(idx, "quantity", Number(e.target.value))}
                     dir="ltr"
+                    title="الكمية"
                   />
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     className="input col-span-2"
-                    placeholder="سعر"
+                    placeholder="سعر الوحدة"
                     value={line.unitPrice}
                     onChange={(e) => onUpdateLine(idx, "unitPrice", Number(e.target.value))}
                     dir="ltr"
+                    title="سعر الوحدة (يتم التعبئة من المنتج إذا تُرك فارغاً)"
                   />
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     className="input col-span-1"
                     placeholder="%"
                     value={(line.taxRate * 100).toFixed(2)}
                     onChange={(e) => onUpdateLine(idx, "taxRate", Number(e.target.value) / 100)}
                     dir="ltr"
+                    title="نسبة الضريبة %"
                   />
-                  <button type="button" onClick={() => onRemoveLine(idx)} className="text-red-500 hover:text-red-700 col-span-1">
+                  <button type="button" onClick={() => onRemoveLine(idx)} className="text-red-500 hover:text-red-700 col-span-1 flex justify-center">
                     <X size={16} />
                   </button>
                 </div>
               ))}
             </div>
+            {products.length === 0 && (
+              <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded mt-2">
+                ⚠ لا توجد منتجات لهذه الشركة. أضف منتجات أولاً من صفحة "المنتجات".
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-md">
@@ -506,8 +589,8 @@ function InvoiceForm({ form, setForm, accounts, subtotal, taxAmount, total, subm
               <p className="text-lg font-bold" dir="ltr">{formatNumber(taxAmount)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-600">الإجمالي</p>
-              <p className="text-lg font-bold text-primary-600" dir="ltr">{formatNumber(total)}</p>
+              <p className="text-xs text-gray-600">الإجمالي (شامل الضريبة)</p>
+              <p className="text-xl font-bold text-primary-600" dir="ltr">{formatNumber(total)}</p>
             </div>
           </div>
 
