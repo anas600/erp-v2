@@ -6,13 +6,20 @@ const nextConfig = {
     serverActions: { allowedOrigins: ["localhost:3000", "localhost:5000"] }
   },
   async rewrites() {
-    // Hardcoded fallback matches the render.yaml default
-    // (BACKEND_INTERNAL_URL=http://erp-v2-backend:8080). The env
-    // var is the source of truth, but if the Blueprint sync drops
-    // it, we still proxy to a sensible address instead of an
-    // unresolvable "backend" hostname.
+    // Use the public HTTPS URL as the rewrite target. The public
+    // URL is what we know works (it has DNS, it has TLS, it has
+    // a working backend listening on it). The internal DNS
+    // (http://erp-v2-backend:8080) does NOT resolve from inside
+    // the frontend container on Render — confirmed via
+    // 'getaddrinfo ENOTFOUND erp-v2-backend' in production logs.
+    //
+    // Going via the public URL means an extra hop (browser → Next.js
+    // → Render edge → backend), but the added latency is negligible
+    // and the trade-off is worth it for a working demo. The env
+    // var BACKEND_INTERNAL_URL still wins if set, so production
+    // users with a working internal DNS can override.
     const apiUrl = process.env.BACKEND_INTERNAL_URL
-      || "http://erp-v2-backend:8080";
+      || "https://erp-v2-backend-mkyg.onrender.com";
     return [
       { source: "/api/:path*", destination: `${apiUrl}/api/:path*` }
     ];
