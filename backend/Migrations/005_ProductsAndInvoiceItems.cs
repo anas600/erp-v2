@@ -81,8 +81,15 @@ public class ProductsAndInvoiceItems : Migration
 
         // Make account_id nullable so a line can be product-based
         // or free-form, not just an account entry.
+        //
+        // We must NOT call .ForeignKey("accounts", "id") here: the
+        // constraint FK_invoice_lines_account_id_accounts_id was
+        // already created in migration 001, and Postgres rejects a
+        // second CREATE with the same name (42710). Just changing
+        // the column's nullability leaves the existing FK in place,
+        // which is what we want — FK columns are allowed to be NULL.
         Alter.Column("account_id").OnTable("invoice_lines")
-            .AsGuid().Nullable().ForeignKey("accounts", "id");
+            .AsGuid().Nullable();
 
         // Add product_id (nullable, ON DELETE SET NULL so deleting
         // a product doesn't delete the historical invoice line).
