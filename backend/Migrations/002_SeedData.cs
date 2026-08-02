@@ -17,8 +17,13 @@ public class SeedData : Migration
 {
     public override void Up()
     {
-        var conn = new Npgsql.NpgsqlConnection(
-            "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret");
+        // Read the connection string from the same env var that Program.cs
+        // uses for the runtime. Falls back to the docker-compose hostname
+        // for local development where the env var is not set.
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
+            ?? "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret";
+
+        var conn = new Npgsql.NpgsqlConnection(connectionString);
         conn.Open();
 
         var hasher = new BcryptPasswordHasher();
