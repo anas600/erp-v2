@@ -17,7 +17,7 @@ echo ""
 # -------------------------
 # 1. Backend dotnet build
 # -------------------------
-echo "[1/7] Building .NET backend..."
+echo "[1/13] Building .NET backend..."
 cd backend
 if ! dotnet build --no-restore --nologo 2>&1 | tail -1; then
   echo "❌ Backend build FAILED"
@@ -30,7 +30,7 @@ echo ""
 # -------------------------
 # 2. Frontend npm install
 # -------------------------
-echo "[2/7] Checking frontend node_modules..."
+echo "[2/13] Checking frontend node_modules..."
 if [ ! -d "frontend/node_modules" ]; then
   echo "❌ frontend/node_modules missing; run: cd frontend && npm install"
   exit 1
@@ -41,7 +41,7 @@ echo ""
 # -------------------------
 # 3. Frontend tsc type-check
 # -------------------------
-echo "[3/7] TypeScript type-check..."
+echo "[3/13] TypeScript type-check..."
 cd frontend
 if ! npx tsc --noEmit 2>&1 | head -20; then
   echo "❌ TypeScript check FAILED"
@@ -54,7 +54,7 @@ echo ""
 # -------------------------
 # 4. Required files exist
 # -------------------------
-echo "[4/7] Checking required files..."
+echo "[4/13] Checking required files..."
 REQUIRED=(
   "docker-compose.yml"
   ".env.example"
@@ -85,7 +85,7 @@ echo ""
 # -------------------------
 # 5. All endpoints registered
 # -------------------------
-echo "[5/7] Verifying endpoint registration..."
+echo "[5/13] Verifying endpoint registration..."
 EXPECTED_ENDPOINTS=(
   "AuthEndpoints.Map"
   "CompanyEndpoints.Map"
@@ -110,7 +110,7 @@ echo ""
 # -------------------------
 # 6. All migrations present
 # -------------------------
-echo "[6/7] Verifying migrations..."
+echo "[6/13] Verifying migrations..."
 EXPECTED_MIGRATIONS=(
   "001_InitialSchema.cs"
   "002_SeedData.cs"
@@ -129,7 +129,7 @@ echo ""
 # -------------------------
 # 7. JSON validity of rule templates
 # -------------------------
-echo "[7/8] Validating rule templates JSON..."
+echo "[7/13] Validating rule templates JSON..."
 if ! python3 scripts/check_rules.py; then
   echo "❌ Rule templates JSON check FAILED (expected 6 templates)"
   exit 1
@@ -140,7 +140,7 @@ echo ""
 # -------------------------
 # 8. Critical extension setup
 # -------------------------
-echo "[8/9] Checking that required PG extensions are created..."
+echo "[8/13] Checking that required PG extensions are created..."
 if ! grep -q "uuid-ossp" backend/Migrations/001_InitialSchema.cs; then
   echo "❌ InitialSchema does not CREATE EXTENSION \"uuid-ossp\""
   echo "   (FluentMigrator's SystemMethods.NewGuid emits uuid_generate_v4() which needs this)"
@@ -152,7 +152,7 @@ echo ""
 # -------------------------
 # 9. No hardcoded connection strings in migrations
 # -------------------------
-echo "[9/10] Checking for hardcoded DB hostnames in migrations..."
+echo "[9/13] Checking for hardcoded DB hostnames in migrations..."
 # The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
 # Any other migration with a hardcoded 'Host=' is a bug.
 violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v "002_SeedData.cs" || true)
@@ -165,21 +165,27 @@ echo "✅ No hardcoded DB hostnames in migrations (except 002 fallback)"
 echo ""
 
 # -------------------------
-# 10. Production-safe config (no hot-reload)
+# 10. Production-safe config (CreateSlimBuilder)
 # -------------------------
-echo "[10/11] Checking that appsettings.json hot-reload is disabled..."
-if grep -q "AddJsonFile.*appsettings.json" backend/Program.cs && ! grep -q "reloadOnChange: false" backend/Program.cs; then
-  echo "❌ Program.cs has AddJsonFile without reloadOnChange: false"
-  echo "   (would cause inotify exhaustion in production containers)"
+echo "[10/13] Checking that backend uses CreateSlimBuilder (no JSON file watchers)..."
+# The old code used CreateBuilder() + Sources.Clear() which was too late:
+# the file watchers are created during CreateBuilder() itself, before any
+# user code runs. CreateSlimBuilder() skips the JSON config sources entirely,
+# so no file watchers are ever created. This is the only way to be safe in
+# a container with the 128-instance inotify limit.
+if ! grep -q "WebApplication.CreateSlimBuilder" backend/Program.cs; then
+  echo "❌ Program.cs does not use WebApplication.CreateSlimBuilder"
+  echo "   (CreateBuilder + Sources.Clear() is too late; file watchers"
+  echo "    are created before user code runs)"
   exit 1
 fi
-echo "✅ Config hot-reload is disabled (safe for containers)"
+echo "✅ Backend uses CreateSlimBuilder (no JSON file watchers)"
 echo ""
 
 # -------------------------
 # 11. Polling file watcher env var in Dockerfile
 # -------------------------
-echo "[11/12] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
+echo "[11/13] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
 if ! grep -q "DOTNET_USE_POLLING_FILE_WATCHER" backend/Dockerfile; then
   echo "❌ backend/Dockerfile does not set DOTNET_USE_POLLING_FILE_WATCHER"
   echo "   (containers hit the inotify instance limit at startup)"

@@ -14,6 +14,11 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Ensure the public directory exists. Next.js's standalone build expects
+# /app/public to be COPY-able. If the project has no static files in
+# public/, the directory is missing and the next stage fails with
+# "failed to calculate checksum of ref ... /app/public: not found".
+RUN mkdir -p ./public
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build

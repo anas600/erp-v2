@@ -15,18 +15,26 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
-var builder = WebApplication.CreateBuilder(args);
+// Use CreateSlimBuilder instead of CreateBuilder: it does NOT add the
+// default JSON config sources (appsettings.json + appsettings.{env}.json),
+// which means no FileSystemWatcher is ever created. Without this, the
+// container hits the inotify instance limit (128) at startup and crashes
+// before any of our code runs.
+//
+// `Sources.Clear()` in a CreateBuilder() flow is too late: the watchers
+// are constructed inside CreateBuilder() before any user code runs.
+//
+// SlimBuilder also skips Kestrel HTTPS binding and the developer page,
+// which is exactly what we want in a Render free-tier container.
+var builder = WebApplication.CreateSlimBuilder(args);
 
-// Disable hot-reload of appsettings.json. In production containers
-// (e.g. Render free tier) the FileSystemWatcher exhausts the kernel's
-// inotify instance limit (128) and the host crashes at startup.
-// We don't need file reload anyway: configuration comes from env vars
-// on Render and the env vars only change via a redeploy.
-builder.Configuration.Sources.Clear();
-builder.Configuration
-    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables();
+// Configuration comes exclusively from environment variables in production
+// (the 12-factor way). We deliberately do NOT add any JSON file sources:
+// they require file watchers, and the env var is the source of truth on
+// Render anyway. Local dev can `dotnet run` with .env loaded by the shell
+// or use the appsettings.Development.json pattern (not added here because
+// the production image must not depend on file watching).
+builder.Configuration.AddEnvironmentVariables();
 
 // ============================================================
 // Services
