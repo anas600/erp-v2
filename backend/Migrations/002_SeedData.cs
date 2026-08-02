@@ -34,6 +34,49 @@ public class SeedData : Migration
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
             ?? "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret";
 
+        // ============================================================
+        // 0. Schema fixes — RUN FIRST, IN A SEPARATE CONNECTION
+        // ============================================================
+        // Two problems with the original 001_InitialSchema:
+        //   1. accounts has a global unique index on `code` alone, which
+        //      prevents two companies from sharing an account code
+        //      (e.g. both companies need a 1000-Cash account).
+        //   2. business_rules has no unique constraint on
+        //      (name, event_name), so the seed's ON CONFLICT clause
+        //      fails with SQLSTATE 42P10.
+        //
+        // We fix both here, BUT in a separate connection without an
+        // explicit transaction. Why? Because this migration runs as
+        // part of a FluentMigrator transaction, and the seed below
+        // will fail on a re-deploy (the database has rows from a
+        // previous partial run). If the DDL is inside the same
+        // transaction, the rollback on seed failure would also revert
+        // the DDL — and we'd be back where we started.
+        //
+        // Running in autocommit mode (no explicit transaction) makes
+        // the DDL permanent even if the seed below fails. The DDL
+        // statements are themselves idempotent (DROP INDEX IF EXISTS,
+        // CREATE UNIQUE INDEX IF NOT EXISTS), so it's safe to re-run
+        // them on every deploy.
+        //
+        // Note: uk_accounts_code is a UNIQUE INDEX (not a constraint),
+        // so we use DROP INDEX, not DROP CONSTRAINT. The FluentMigrator
+        // .Unique() method on Create.Index() generates CREATE UNIQUE
+        // INDEX, which creates an index, not an ALTER TABLE constraint.
+        using (var schemaConn = new Npgsql.NpgsqlConnection(connectionString))
+        {
+            schemaConn.Open();
+            schemaConn.Execute("DROP INDEX IF EXISTS uk_accounts_code;");
+            schemaConn.Execute(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_accounts_company_code
+                ON accounts(company_id, code);");
+            schemaConn.Execute(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_business_rules_name_event
+                ON business_rules(name, event_name);");
+        }
+
+        // Now the actual seed, in its own connection+transaction so the
+        // whole thing rolls back on any single failure.
         using var conn = new Npgsql.NpgsqlConnection(connectionString);
         conn.Open();
         using var tx = conn.BeginTransaction();
@@ -42,27 +85,6 @@ public class SeedData : Migration
 
         try
         {
-            // ============================================================
-            // 0. Schema fixes for multi-company + idempotent seeding
-            // ============================================================
-            // The original 001_InitialSchema migration created a global
-            // unique index on `accounts.code` and no unique constraint on
-            // `business_rules (name, event_name)`. The first prevents two
-            // companies from sharing an account code (e.g. both have a
-            // 1000-Cash account), and the second prevents the seed from
-            // being idempotent. Both are fixed here, idempotently, so the
-            // seed can use ON CONFLICT (natural_key) safely.
-            //
-            // These statements are safe to re-run on every deploy.
-            conn.Execute(@"
-                ALTER TABLE accounts DROP CONSTRAINT IF EXISTS uk_accounts_code;", transaction: tx);
-            conn.Execute(@"
-                CREATE UNIQUE INDEX IF NOT EXISTS uk_accounts_company_code
-                ON accounts(company_id, code);", transaction: tx);
-            conn.Execute(@"
-                CREATE UNIQUE INDEX IF NOT EXISTS uk_business_rules_name_event
-                ON business_rules(name, event_name);", transaction: tx);
-
             // ============================================================
             // 1. Permissions
             // ============================================================

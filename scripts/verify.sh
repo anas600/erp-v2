@@ -17,7 +17,7 @@ echo ""
 # -------------------------
 # 1. Backend dotnet build
 # -------------------------
-echo "[1/13] Building .NET backend..."
+echo "[1/14] Building .NET backend..."
 cd backend
 if ! dotnet build --no-restore --nologo 2>&1 | tail -1; then
   echo "❌ Backend build FAILED"
@@ -30,7 +30,7 @@ echo ""
 # -------------------------
 # 2. Frontend npm install
 # -------------------------
-echo "[2/13] Checking frontend node_modules..."
+echo "[2/14] Checking frontend node_modules..."
 if [ ! -d "frontend/node_modules" ]; then
   echo "❌ frontend/node_modules missing; run: cd frontend && npm install"
   exit 1
@@ -41,7 +41,7 @@ echo ""
 # -------------------------
 # 3. Frontend tsc type-check
 # -------------------------
-echo "[3/13] TypeScript type-check..."
+echo "[3/14] TypeScript type-check..."
 cd frontend
 if ! npx tsc --noEmit 2>&1 | head -20; then
   echo "❌ TypeScript check FAILED"
@@ -54,7 +54,7 @@ echo ""
 # -------------------------
 # 4. Required files exist
 # -------------------------
-echo "[4/13] Checking required files..."
+echo "[4/14] Checking required files..."
 REQUIRED=(
   "docker-compose.yml"
   ".env.example"
@@ -85,7 +85,7 @@ echo ""
 # -------------------------
 # 5. All endpoints registered
 # -------------------------
-echo "[5/13] Verifying endpoint registration..."
+echo "[5/14] Verifying endpoint registration..."
 EXPECTED_ENDPOINTS=(
   "AuthEndpoints.Map"
   "CompanyEndpoints.Map"
@@ -110,7 +110,7 @@ echo ""
 # -------------------------
 # 6. All migrations present
 # -------------------------
-echo "[6/13] Verifying migrations..."
+echo "[6/14] Verifying migrations..."
 EXPECTED_MIGRATIONS=(
   "001_InitialSchema.cs"
   "002_SeedData.cs"
@@ -129,7 +129,7 @@ echo ""
 # -------------------------
 # 7. JSON validity of rule templates
 # -------------------------
-echo "[7/13] Validating rule templates JSON..."
+echo "[7/14] Validating rule templates JSON..."
 if ! python3 scripts/check_rules.py; then
   echo "❌ Rule templates JSON check FAILED (expected 6 templates)"
   exit 1
@@ -140,7 +140,7 @@ echo ""
 # -------------------------
 # 8. Critical extension setup
 # -------------------------
-echo "[8/13] Checking that required PG extensions are created..."
+echo "[8/14] Checking that required PG extensions are created..."
 if ! grep -q "uuid-ossp" backend/Migrations/001_InitialSchema.cs; then
   echo "❌ InitialSchema does not CREATE EXTENSION \"uuid-ossp\""
   echo "   (FluentMigrator's SystemMethods.NewGuid emits uuid_generate_v4() which needs this)"
@@ -152,7 +152,7 @@ echo ""
 # -------------------------
 # 9. No hardcoded connection strings in migrations
 # -------------------------
-echo "[9/13] Checking for hardcoded DB hostnames in migrations..."
+echo "[9/14] Checking for hardcoded DB hostnames in migrations..."
 # The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
 # Any other migration with a hardcoded 'Host=' is a bug.
 violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v "002_SeedData.cs" || true)
@@ -167,7 +167,7 @@ echo ""
 # -------------------------
 # 10. Production-safe config (CreateSlimBuilder)
 # -------------------------
-echo "[10/13] Checking that backend uses CreateSlimBuilder (no JSON file watchers)..."
+echo "[10/14] Checking that backend uses CreateSlimBuilder (no JSON file watchers)..."
 # The old code used CreateBuilder() + Sources.Clear() which was too late:
 # the file watchers are created during CreateBuilder() itself, before any
 # user code runs. CreateSlimBuilder() skips the JSON config sources entirely,
@@ -185,7 +185,7 @@ echo ""
 # -------------------------
 # 11. Polling file watcher env var in Dockerfile
 # -------------------------
-echo "[11/13] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
+echo "[11/14] Checking that Dockerfile sets DOTNET_USE_POLLING_FILE_WATCHER..."
 if ! grep -q "DOTNET_USE_POLLING_FILE_WATCHER" backend/Dockerfile; then
   echo "❌ backend/Dockerfile does not set DOTNET_USE_POLLING_FILE_WATCHER"
   echo "   (containers hit the inotify instance limit at startup)"
@@ -197,7 +197,7 @@ echo ""
 # -------------------------
 # 12. Seed migration is idempotent
 # -------------------------
-echo "[12/13] Checking that SeedData migration is idempotent (ON CONFLICT)..."
+echo "[12/14] Checking that SeedData migration is idempotent (ON CONFLICT)..."
 # At minimum, the bulk INSERTs in 002_SeedData must be idempotent.
 # We check the major tables: companies, users, accounts, business_rules.
 idempotent_fail=0
@@ -217,14 +217,18 @@ echo ""
 # -------------------------
 # 13. Multi-company unique constraints
 # -------------------------
-echo "[13/13] Checking that seed creates composite unique indexes..."
+echo "[13/14] Checking that seed creates composite unique indexes..."
 # 002_SeedData.cs must ensure (a) accounts are unique per company, and
 # (b) business_rules are unique per (name, event_name). Otherwise the
 # seed fails on re-deploy with 'no unique constraint matching the
 # ON CONFLICT specification'.
+#
+# The schema fix must use DROP INDEX (not DROP CONSTRAINT) because
+# uk_accounts_code was created as a unique index by FluentMigrator's
+# Create.Index().Unique(), not as an ALTER TABLE constraint.
 constraints_fail=0
 for needle in \
-    "ALTER TABLE accounts DROP CONSTRAINT IF EXISTS uk_accounts_code" \
+    "DROP INDEX IF EXISTS uk_accounts_code" \
     "CREATE UNIQUE INDEX IF NOT EXISTS uk_accounts_company_code" \
     "CREATE UNIQUE INDEX IF NOT EXISTS uk_business_rules_name_event"; do
   if ! grep -qF "$needle" backend/Migrations/002_SeedData.cs; then
@@ -232,11 +236,33 @@ for needle in \
     constraints_fail=1
   fi
 done
+# Also catch the historical bug: using DROP CONSTRAINT on an index.
+if grep -qF "ALTER TABLE accounts DROP CONSTRAINT IF EXISTS uk_accounts_code" backend/Migrations/002_SeedData.cs; then
+  echo "❌ DROP CONSTRAINT is wrong — uk_accounts_code is an INDEX, not a constraint"
+  constraints_fail=1
+fi
 if [ "$constraints_fail" -eq 1 ]; then
-  echo "   (cloud deploys will fail at seed with SQLSTATE 42P10)"
+  echo "   (cloud deploys will fail at seed with SQLSTATE 42P10 or 23505)"
   exit 1
 fi
 echo "✅ Composite unique indexes created idempotently"
+echo ""
+
+# -------------------------
+# 14. Schema fix runs in separate connection (autocommit)
+# -------------------------
+echo "[14/14] Checking that schema fix runs OUTSIDE the seed transaction..."
+# If the DDL is inside the same transaction as the seed, a failure
+# of the seed (which is common on re-deploys) will roll back the DDL
+# too, and we're back to the bug. The DDL must be in its own
+# connection (no explicit transaction) so it commits before the seed
+# even starts.
+if ! sed -n '/public override void Up/,/using var conn = new Npgsql.NpgsqlConnection/p' backend/Migrations/002_SeedData.cs | grep -q "schemaConn.Open()"; then
+  echo "❌ Schema fix must be in its own connection (schemaConn.Open())"
+  echo "   so it commits independently of the seed transaction"
+  exit 1
+fi
+echo "✅ Schema fix runs in autocommit (survives seed failures)"
 echo ""
 
 echo "=========================================="
