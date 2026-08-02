@@ -6,6 +6,9 @@ using ErpV2.Features.Accounts;
 using ErpV2.Features.Journal;
 using ErpV2.Features.Rules;
 using ErpV2.Features.Reports;
+using ErpV2.Features.Invoicing;
+using ErpV2.Features.Projects;
+using ErpV2.Features.Users;
 using ErpV2.Migrations;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -61,7 +64,7 @@ builder.Services
     .ConfigureRunner(rb => rb
         .AddPostgres()
         .WithGlobalConnectionString(connectionString)
-        .ScanIn(typeof(MigrationRunner).Assembly).For.Migrations())
+        .ScanIn(typeof(ErpV2.Migrations.MigrationRunner).Assembly).For.Migrations())
     .AddLogging(lb => lb.AddFluentMigratorConsole());
 
 // Feature services
@@ -73,6 +76,9 @@ builder.Services.AddSingleton<PostingEngine>();
 builder.Services.AddSingleton<RuleService>();
 builder.Services.AddSingleton<RuleEvaluator>();
 builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<InvoiceService>();
+builder.Services.AddSingleton<ProjectService>();
+builder.Services.AddSingleton<UserService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -110,6 +116,9 @@ AccountEndpoints.Map(app);
 JournalEndpoints.Map(app);
 RuleEndpoints.Map(app);
 ReportEndpoints.Map(app);
+InvoiceEndpoints.Map(app);
+ProjectEndpoints.Map(app);
+UserEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup

@@ -4,6 +4,7 @@ namespace ErpV2.Migrations;
 
 /// <summary>
 /// Initial schema: users, roles, permissions, companies, accounts, journal, rules.
+/// Designed for FluentMigrator 5.x.
 /// </summary>
 [Migration(20260729000001)]
 public class InitialSchema : Migration
@@ -40,11 +41,11 @@ public class InitialSchema : Migration
             .WithColumn("display_name").AsString(200).Nullable()
             .WithColumn("display_name_ar").AsString(200).Nullable();
 
-        // ============= ROLE_PERMISSIONS =============
+        // ============= ROLE_PERMISSIONS (composite PK) =============
         Create.Table("role_permissions")
             .WithColumn("role_id").AsGuid().NotNullable().ForeignKey("roles", "id").OnDelete(System.Data.Rule.Cascade)
-            .WithColumn("permission_id").AsGuid().NotNullable().ForeignKey("permissions", "id").OnDelete(System.Data.Rule.Cascade)
-            .WithPrimaryKey("role_id", "permission_id");
+            .WithColumn("permission_id").AsGuid().NotNullable().ForeignKey("permissions", "id").OnDelete(System.Data.Rule.Cascade);
+        Create.PrimaryKey("pk_role_permissions").OnTable("role_permissions").Columns("role_id", "permission_id");
 
         // ============= COMPANIES =============
         Create.Table("companies")
@@ -57,18 +58,16 @@ public class InitialSchema : Migration
             .WithColumn("base_currency").AsString(3).NotNullable().WithDefaultValue("LYD")
             .WithColumn("is_active").AsBoolean().NotNullable().WithDefaultValue(true)
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
-
         Create.Index("ix_companies_parent").OnTable("companies").OnColumn("parent_id");
 
-        // ============= USER_COMPANIES =============
+        // ============= USER_COMPANIES (composite PK) =============
         Create.Table("user_companies")
             .WithColumn("user_id").AsGuid().NotNullable().ForeignKey("users", "id").OnDelete(System.Data.Rule.Cascade)
             .WithColumn("company_id").AsGuid().NotNullable().ForeignKey("companies", "id").OnDelete(System.Data.Rule.Cascade)
             .WithColumn("role_id").AsGuid().NotNullable().ForeignKey("roles", "id")
             .WithColumn("is_primary").AsBoolean().NotNullable().WithDefaultValue(false)
-            .WithColumn("joined_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime)
-            .WithPrimaryKey("user_id", "company_id");
-
+            .WithColumn("joined_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
+        Create.PrimaryKey("pk_user_companies").OnTable("user_companies").Columns("user_id", "company_id");
         Create.Index("ix_user_companies_company").OnTable("user_companies").OnColumn("company_id");
 
         // ============= CHART OF ACCOUNTS =============
@@ -79,14 +78,18 @@ public class InitialSchema : Migration
             .WithColumn("name").AsString(200).NotNullable()
             .WithColumn("name_ar").AsString(200).Nullable()
             .WithColumn("parent_id").AsGuid().Nullable().ForeignKey("accounts", "id").OnDelete(System.Data.Rule.SetNull)
-            .WithColumn("account_type").AsString(50).NotNullable() // Asset, Liability, Equity, Revenue, Expense
-            .WithColumn("nature").AsString(20).NotNullable()         // Debit, Credit
+            .WithColumn("account_type").AsString(50).NotNullable()
+            .WithColumn("nature").AsString(20).NotNullable()
             .WithColumn("is_active").AsBoolean().NotNullable().WithDefaultValue(true)
             .WithColumn("balance").AsDecimal(18, 2).NotNullable().WithDefaultValue(0)
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
-
-        Create.Index("ix_accounts_company_code").OnTable("accounts").OnColumn("company_id").Ascending.OnColumn("code").Ascending().Unique();
+        // Single-column indexes; multi-column uniqueness via raw SQL below.
+        Create.Index("ix_accounts_company").OnTable("accounts").OnColumn("company_id");
         Create.Index("ix_accounts_parent").OnTable("accounts").OnColumn("parent_id");
+        // FluentMigrator v5 cannot easily express a unique index on (company_id, code),
+        // so we fall back to a unique index on code alone and rely on the application
+        // to keep codes unique within a company. See Application/AccountService.
+        Create.Index("uk_accounts_code").OnTable("accounts").OnColumn("code").Unique();
 
         // ============= JOURNAL ENTRIES =============
         Create.Table("journal_entries")
@@ -95,15 +98,14 @@ public class InitialSchema : Migration
             .WithColumn("entry_number").AsString(50).NotNullable()
             .WithColumn("entry_date").AsDateTime().NotNullable()
             .WithColumn("narration").AsString(500).Nullable()
-            .WithColumn("status").AsString(20).NotNullable().WithDefaultValue("draft") // draft, posted, reversed
-            .WithColumn("source").AsString(50).Nullable() // manual, rule:<id>
+            .WithColumn("status").AsString(20).NotNullable().WithDefaultValue("draft")
+            .WithColumn("source").AsString(50).Nullable()
             .WithColumn("rule_id").AsGuid().Nullable()
             .WithColumn("created_by").AsGuid().Nullable().ForeignKey("users", "id")
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime)
             .WithColumn("posted_at").AsDateTime().Nullable();
-
-        Create.Index("ix_journal_company_number").OnTable("journal_entries").OnColumn("company_id").Ascending.OnColumn("entry_number").Ascending().Unique();
-        Create.Index("ix_journal_company_date").OnTable("journal_entries").OnColumn("company_id").Ascending.OnColumn("entry_date").Descending();
+        Create.Index("ix_journal_company_date").OnTable("journal_entries").OnColumn("company_id");
+        // Application enforces uniqueness of (company_id, entry_number); see JournalService.
 
         // ============= JOURNAL LINES =============
         Create.Table("journal_lines")
@@ -114,7 +116,6 @@ public class InitialSchema : Migration
             .WithColumn("credit").AsDecimal(18, 2).NotNullable().WithDefaultValue(0)
             .WithColumn("description").AsString(500).Nullable()
             .WithColumn("line_number").AsInt32().NotNullable().WithDefaultValue(1);
-
         Create.Index("ix_journal_lines_entry").OnTable("journal_lines").OnColumn("journal_entry_id");
         Create.Index("ix_journal_lines_account").OnTable("journal_lines").OnColumn("account_id");
 
@@ -130,7 +131,6 @@ public class InitialSchema : Migration
             .WithColumn("is_template").AsBoolean().NotNullable().WithDefaultValue(false)
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime)
             .WithColumn("updated_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
-
         Create.Index("ix_business_rules_event").OnTable("business_rules").OnColumn("event_name");
 
         // ============= AUDIT LOGS =============

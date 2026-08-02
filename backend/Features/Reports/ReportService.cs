@@ -14,7 +14,7 @@ public class ReportService
         var asOfDate = asOf ?? DateTime.UtcNow;
         using var conn = _db.CreateConnection();
 
-        var company = await conn.QuerySingleAsync<(string name)>(
+        var company = await conn.QuerySingleAsync<string>(
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
@@ -55,7 +55,7 @@ public class ReportService
         }
 
         return new TrialBalanceReport(
-            companyId, company.name, asOfDate, lines, totalDebit, totalCredit,
+            companyId, company, asOfDate, lines, totalDebit, totalCredit,
             Math.Abs(totalDebit - totalCredit) < 0.01m
         );
     }
@@ -64,12 +64,12 @@ public class ReportService
     {
         using var conn = _db.CreateConnection();
 
-        var company = await conn.QuerySingleAsync<(string name)>(
+        var company = await conn.QuerySingleAsync<string>(
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
         // Sum movements (debit - credit) for each account over the period
-        var movements = await conn.QueryAsync<(string code, string name, string account_type, decimal net)>(@"
+        var movements = await conn.QueryAsync<IncomeMovementRow>(@"
             SELECT a.code, a.name, a.account_type,
                    COALESCE(SUM(jl.debit - jl.credit), 0) AS net
             FROM accounts a
@@ -105,7 +105,7 @@ public class ReportService
         }
 
         return new IncomeStatementReport(
-            companyId, company.name, fromDate, toDate,
+            companyId, company, fromDate, toDate,
             revenues, expenses, totalRevenue, totalExpense,
             totalRevenue - totalExpense
         );
@@ -116,7 +116,7 @@ public class ReportService
         var asOfDate = asOf ?? DateTime.UtcNow;
         using var conn = _db.CreateConnection();
 
-        var company = await conn.QuerySingleAsync<(string name)>(
+        var company = await conn.QuerySingleAsync<string>(
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
@@ -166,7 +166,7 @@ public class ReportService
         }
 
         return new BalanceSheetReport(
-            companyId, company.name, asOfDate,
+            companyId, company, asOfDate,
             assets, liabilities, equity,
             totalAssets, totalLiabilities, totalEquity,
             Math.Abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01m
@@ -175,4 +175,5 @@ public class ReportService
 
     private record TrialBalanceRow(string code, string name, string account_type, string nature, decimal balance);
     private record BalanceRow(string code, string name, string account_type, decimal balance);
+    private record IncomeMovementRow(string code, string name, string account_type, decimal net);
 }

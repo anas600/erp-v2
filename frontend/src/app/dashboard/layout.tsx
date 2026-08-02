@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -37,9 +37,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard, exact: true },
     { href: "/dashboard/companies", label: "الشركات", icon: Building2, perm: "companies.read" },
     { href: "/dashboard/accounts", label: "شجرة الحسابات", icon: BookOpen, perm: "finance.read" },
+    { href: "/dashboard/invoices", label: "الفواتير", icon: FileText, perm: "finance.read" },
     { href: "/dashboard/journal", label: "القيود اليومية", icon: FileText, perm: "finance.read" },
+    { href: "/dashboard/projects", label: "المشاريع", icon: FolderKanban, perm: "projects.read" },
+    { href: "/dashboard/users", label: "المستخدمون", icon: Users, perm: "users.read" },
     { href: "/dashboard/rules", label: "قواعد العمل", icon: Zap, perm: "rules.read" },
-    { href: "/dashboard/reports/trial-balance", label: "ميزان المراجعة", icon: BarChart3, perm: "reports.read" }
+    { href: "/dashboard/reports/trial-balance", label: "ميزان المراجعة", icon: BarChart3, perm: "reports.read" },
+    { href: "/dashboard/reports/income-statement", label: "قائمة الدخل", icon: BarChart3, perm: "reports.read" },
+    { href: "/dashboard/reports/balance-sheet", label: "الميزانية", icon: BarChart3, perm: "reports.read" }
   ];
 
   const visibleNav = navItems.filter((item) => !item.perm || user.isSuperAdmin || true);

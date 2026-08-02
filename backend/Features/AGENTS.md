@@ -17,6 +17,9 @@ Modules currently in this tree:
 - `Journal/` — manual journal entries and the **Posting Engine**.
 - `Rules/` — business rules engine, evaluator, rule templates.
 - `Reports/` — trial balance, income statement, balance sheet.
+- `Invoicing/` — purchase and sales invoices with automatic journal entry creation.
+- `Projects/` — projects and milestones, fires `ProjectMilestoneCompleted` events.
+- `Users/` — user accounts, company-role memberships, self-service password change.
 
 ## Local Contracts
 - A module never reaches into another module's files. Cross-module access goes through DI or events.
@@ -47,3 +50,6 @@ Modules currently in this tree:
 - `Journal/AGENTS.md` — **contains the Posting Engine, read this carefully.**
 - `Rules/AGENTS.md` — **contains the Rules Engine, read this carefully.**
 - `Reports/AGENTS.md`
+- `Invoicing/AGENTS.md`
+- `Projects/AGENTS.md`
+- `Users/AGENTS.md`
