@@ -324,9 +324,22 @@ if ! grep -q "NormalizeConnectionString" backend/Program.cs; then
   echo "   (Npgsql will reject the URL format from Render's fromDatabase)"
   exit 1
 fi
-if ! grep -q "NpgsqlConnectionStringBuilder(raw)" backend/Program.cs; then
-  echo "❌ Normalization is not using NpgsqlConnectionStringBuilder"
-  echo "   (custom URL parsing is fragile; use the official builder)"
+if ! grep -q "postgresql://" backend/Program.cs; then
+  echo "❌ Program.cs doesn't reference postgresql:// URL format"
+  echo "   (normalization code missing)"
+  exit 1
+fi
+# Confirm we use a manual URL parser (System.Uri) and NOT a naive
+# pass-through to NpgsqlConnectionStringBuilder, which cannot parse
+# URL format and would throw ArgumentException on the first deploy.
+if grep -q "new Npgsql.NpgsqlConnectionStringBuilder(raw)" backend/Program.cs; then
+  echo "❌ Normalization passes the URL directly to NpgsqlConnectionStringBuilder"
+  echo "   That class only accepts key=value format. The URL must be parsed"
+  echo "   manually with System.Uri first."
+  exit 1
+fi
+if ! grep -q "new System.Uri\|new Uri(raw)\|new Uri(raw" backend/Program.cs; then
+  echo "❌ Normalization is not using System.Uri to parse the URL"
   exit 1
 fi
 echo "✅ Program.cs normalizes postgresql:// URLs to Npgsql format"

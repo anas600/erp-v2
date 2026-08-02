@@ -40,12 +40,70 @@ static string NormalizeConnectionString(string raw)
         // Already in key=value (Npgsql) format — nothing to do.
         return raw;
     }
-    // Use Npgsql's own builder to do the parsing; reading .ConnectionString
-    // back gives us the canonical key=value form. This is more robust than
-    // rolling our own URL parser (handles query-string sslmode, port
-    // detection, etc.).
-    var b = new Npgsql.NpgsqlConnectionStringBuilder(raw);
-    return b.ConnectionString;
+
+    // It's a URL — parse it manually. We can't pass it to
+    // NpgsqlConnectionStringBuilder because that class only accepts
+    // key=value format (it inherits from DbConnectionStringBuilder,
+    // which uses '=' as separator and throws ArgumentException on
+    // 'postgresql://' with the exact message we used to see in prod).
+    var uri = new Uri(raw);
+    var userInfo = uri.UserInfo.Split(':', 2);
+    var user = Uri.UnescapeDataString(userInfo[0]);
+    var pass = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host     = uri.Host,
+        Port     = uri.IsDefaultPort ? 5432 : uri.Port,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = user,
+        Password = pass,
+    };
+
+    // Map common query-string params to Npgsql equivalents. Render's
+    // postgresql:// URLs may include ?sslmode=Require and similar.
+    if (!string.IsNullOrEmpty(uri.Query))
+    {
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length != 2) continue;
+            var key   = Uri.UnescapeDataString(kv[0]).ToLowerInvariant();
+            var value = Uri.UnescapeDataString(kv[1]);
+            switch (key)
+            {
+                case "sslmode":
+                    builder.SslMode = value.ToLowerInvariant() switch
+                    {
+                        "disable"     => Npgsql.SslMode.Disable,
+                        "allow"       => Npgsql.SslMode.Allow,
+                        "prefer"      => Npgsql.SslMode.Prefer,
+                        "require"     => Npgsql.SslMode.Require,
+                        "verify-ca"   => Npgsql.SslMode.VerifyCA,
+                        "verify-full" => Npgsql.SslMode.VerifyFull,
+                        _             => Npgsql.SslMode.Require
+                    };
+                    break;
+                case "sslcert":
+                case "sslkey":
+                case "sslrootcert":
+                    // Path-based TLS settings — pass through if present.
+                    // NpgsqlConnectionStringBuilder exposes them as named
+                    // properties; we set by name to keep this switch lean.
+                    try
+                    {
+                        builder.GetType().GetProperty(
+                            key == "sslrootcert" ? "RootCertificate" : key,
+                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
+                        )?.SetValue(builder, value);
+                    }
+                    catch { /* best-effort */ }
+                    break;
+            }
+        }
+    }
+
+    return builder.ConnectionString;
 }
 
 var rawConn = Environment.GetEnvironmentVariable("ConnectionStrings__Default");
