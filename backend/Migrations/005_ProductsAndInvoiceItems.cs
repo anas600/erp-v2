@@ -50,22 +50,6 @@ public class ProductsAndInvoiceItems : Migration
     public override void Up()
     {
         // ============================================================
-        // Schema fixes (idempotent, autocommit). Mirrors the pattern
-        // in 002_SeedData: separate connection so the DDL is
-        // committed even if anything below this point rolls back.
-        // ============================================================
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
-            ?? "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret";
-
-        using (var schemaConn = new Npgsql.NpgsqlConnection(connectionString))
-        {
-            schemaConn.Open();
-            schemaConn.Execute(@"
-                CREATE UNIQUE INDEX IF NOT EXISTS uk_products_company_code
-                ON products(company_id, code);");
-        }
-
-        // ============================================================
         // Products
         // ============================================================
         Create.Table("products")
@@ -76,9 +60,23 @@ public class ProductsAndInvoiceItems : Migration
             .WithColumn("name").AsString(200).NotNullable()
             .WithColumn("name_ar").AsString(200).Nullable()
             .WithColumn("unit_price").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-            .WithColumn("default_tax_rate").AsDecimal(5, 2).NotNullable().WithDefaultValue(0)
+            .WithColumn("default_tax_rate").AsDecimal(6, 4).NotNullable().WithDefaultValue(0)
             .WithColumn("is_active").AsBoolean().NotNullable().WithDefaultValue(true)
             .WithColumn("created_at").AsDateTime().NotNullable().WithDefaultValue(SystemMethods.CurrentDateTime);
+
+        // Unique index on (company_id, code). FluentMigrator v5 can't
+        // easily express a multi-column unique index inline, so we use
+        // raw SQL with IF NOT EXISTS — same idempotent pattern as the
+        // other unique indexes in 002_SeedData.
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
+            ?? "Host=db;Port=5432;Database=erp;Username=erp;Password=erp_secret";
+        using (var schemaConn = new Npgsql.NpgsqlConnection(connectionString))
+        {
+            schemaConn.Open();
+            schemaConn.Execute(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS uk_products_company_code
+                ON products(company_id, code);");
+        }
 
         // ============================================================
         // invoice_lines — additive changes
