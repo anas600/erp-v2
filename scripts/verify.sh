@@ -165,7 +165,7 @@ echo ""
 # -------------------------
 # 9. No hardcoded connection strings in migrations
 # -------------------------
-echo "[9/9] Checking for hardcoded DB hostnames in migrations..."
+echo "[9/10] Checking for hardcoded DB hostnames in migrations..."
 # The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
 # Any other migration with a hardcoded 'Host=' is a bug.
 violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v "002_SeedData.cs" || true)
@@ -175,6 +175,18 @@ if [ -n "$violations" ]; then
   exit 1
 fi
 echo "✅ No hardcoded DB hostnames in migrations (except 002 fallback)"
+echo ""
+
+# -------------------------
+# 10. Production-safe config (no hot-reload)
+# -------------------------
+echo "[10/10] Checking that appsettings.json hot-reload is disabled..."
+if grep -q "AddJsonFile.*appsettings.json" backend/Program.cs && ! grep -q "reloadOnChange: false" backend/Program.cs; then
+  echo "❌ Program.cs has AddJsonFile without reloadOnChange: false"
+  echo "   (would cause inotify exhaustion in production containers)"
+  exit 1
+fi
+echo "✅ Config hot-reload is disabled (safe for containers)"
 echo ""
 
 echo "=========================================="
