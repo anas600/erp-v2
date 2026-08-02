@@ -25,14 +25,19 @@ public record InvoiceDto(
 
 public record InvoiceLineDto(
     Guid Id,
-    Guid AccountId,
+    Guid? AccountId,
     string? AccountCode,
     string? AccountName,
-    string Description,
+    Guid? ProductId,
+    string? ProductCode,
+    string? ProductName,
+    string? ProductNameAr,
+    string? Description,
     decimal Quantity,
     decimal UnitPrice,
     decimal TaxRate,
     decimal Amount,
+    decimal LineTotalWithTax,
     int LineNumber
 );
 
@@ -49,11 +54,12 @@ public record CreateInvoiceRequest(
 );
 
 public record CreateInvoiceLineRequest(
-    Guid AccountId,
+    Guid? AccountId,           // legacy: GL-account line
+    Guid? ProductId,           // new: product-based line (auto-fills description, unitPrice, taxRate)
     string Description,
     decimal Quantity,
     decimal UnitPrice,
-    decimal? TaxRate           // per-line override
+    decimal? TaxRate           // per-line override (otherwise inherits from invoice or product)
 );
 
 public record PostInvoiceRequest(Guid InvoiceId);

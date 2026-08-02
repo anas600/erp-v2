@@ -19,12 +19,14 @@ public class InvoiceService
     private readonly IDbConnectionFactory _db;
     private readonly Features.Journal.JournalService _journal;
     private readonly Features.Journal.PostingEngine _posting;
+    private readonly Features.Rules.RuleEvaluator _rules;
 
-    public InvoiceService(IDbConnectionFactory db, Features.Journal.JournalService journal, Features.Journal.PostingEngine posting)
+    public InvoiceService(IDbConnectionFactory db, Features.Journal.JournalService journal, Features.Journal.PostingEngine posting, Features.Rules.RuleEvaluator rules)
     {
         _db = db;
         _journal = journal;
         _posting = posting;
+        _rules = rules;
     }
 
     public async Task<List<InvoiceDto>> GetByCompanyAsync(Guid companyId, int limit = 100)
@@ -58,10 +60,14 @@ public class InvoiceService
         if (inv is null) return null;
 
         var lines = (await conn.QueryAsync<InvoiceLineRow>(@"
-            SELECT il.id, il.invoice_id, il.account_id, a.code AS account_code, a.name AS account_name,
-                   il.description, il.quantity, il.unit_price, il.tax_rate, il.amount, il.line_number
+            SELECT il.id, il.invoice_id, il.account_id, il.product_id,
+                   a.code AS account_code, a.name AS account_name,
+                   p.code AS product_code, p.name AS product_name, p.name_ar AS product_name_ar,
+                   il.description, il.quantity, il.unit_price, il.tax_rate,
+                   il.amount, il.line_total_with_tax, il.line_number
             FROM invoice_lines il
-            JOIN accounts a ON a.id = il.account_id
+            LEFT JOIN accounts a ON a.id = il.account_id
+            LEFT JOIN products p ON p.id = il.product_id
             WHERE il.invoice_id = @id
             ORDER BY il.line_number;",
             new { id })).ToList();
@@ -72,7 +78,9 @@ public class InvoiceService
             inv.subtotal, inv.tax_amount, inv.total, inv.status, inv.created_at, inv.posted_at,
             lines.Select(l => new InvoiceLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
-                l.description, l.quantity, l.unit_price, l.tax_rate, l.amount, l.line_number
+                l.product_id, l.product_code, l.product_name, l.product_name_ar,
+                l.description, l.quantity, l.unit_price, l.tax_rate,
+                l.amount, l.line_total_with_tax, l.line_number
             )).ToList()
         );
     }
@@ -85,23 +93,61 @@ public class InvoiceService
         if (req.InvoiceType != "purchase" && req.InvoiceType != "sales")
             throw new InvalidOperationException("نوع الفاتورة يجب أن يكون purchase أو sales");
 
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+
+        // Pre-resolve products so we can auto-fill description,
+        // unit_price, and tax_rate in a single round trip.
+        var productIds = req.Lines
+            .Where(l => l.ProductId.HasValue)
+            .Select(l => l.ProductId!.Value)
+            .Distinct()
+            .ToList();
+        var productMap = new Dictionary<Guid, (string code, string name, string? nameAr, decimal unitPrice, decimal defaultTaxRate)>();
+        if (productIds.Count > 0)
+        {
+            var rows = await conn.QueryAsync<(Guid id, string code, string name, string? nameAr, decimal unitPrice, decimal defaultTaxRate)>(@"
+                SELECT id, code, name, name_ar AS nameAr, unit_price AS unitPrice, default_tax_rate AS defaultTaxRate
+                FROM products
+                WHERE company_id = @companyId AND id = ANY(@ids);",
+                new { companyId = req.CompanyId, ids = productIds }, tx);
+            foreach (var r in rows) productMap[r.id] = (r.code, r.name, r.nameAr, r.unitPrice, r.defaultTaxRate);
+        }
+
         decimal subtotal = 0;
         decimal totalTax = 0;
-        var computedLines = new List<(Guid accountId, string description, decimal quantity, decimal unitPrice, decimal taxRate, decimal amount, decimal taxAmount)>();
+        var computedLines = new List<(Guid? accountId, Guid? productId, string description, decimal quantity, decimal unitPrice, decimal taxRate, decimal amount, decimal amountWithTax)>();
 
         foreach (var line in req.Lines)
         {
-            var amount = Math.Round(line.Quantity * line.UnitPrice, 2);
-            var lineTaxRate = line.TaxRate ?? req.TaxRate;
-            var lineTax = Math.Round(amount * lineTaxRate, 2);
+            // Auto-fill from product if a product was chosen.
+            string description = line.Description;
+            decimal unitPrice = line.UnitPrice;
+            decimal taxRate = line.TaxRate ?? req.TaxRate;
+            Guid? productId = line.ProductId;
+
+            if (productId.HasValue)
+            {
+                if (!productMap.TryGetValue(productId.Value, out var p))
+                    throw new InvalidOperationException($"المنتج غير موجود في هذه الشركة: {productId}");
+
+                // Use the product's defaults if the user didn't override.
+                if (string.IsNullOrWhiteSpace(description)) description = p.name;
+                if (unitPrice == 0) unitPrice = p.unitPrice;
+                if (line.TaxRate is null) taxRate = p.defaultTaxRate;
+            }
+
+            // Pre-compute the two totals. Rounding to 2dp (the same
+            // precision as the column type) avoids banker's-rounding
+            // surprises later when the business rule sums them.
+            var amount = Math.Round(line.Quantity * unitPrice, 2);
+            var amountWithTax = Math.Round(amount * (1 + taxRate), 2);
             subtotal += amount;
-            totalTax += lineTax;
-            computedLines.Add((line.AccountId, line.Description, line.Quantity, line.UnitPrice, lineTaxRate, amount, lineTax));
+            totalTax += amountWithTax - amount;
+            computedLines.Add((line.AccountId, productId, description, line.Quantity, unitPrice, taxRate, amount, amountWithTax));
         }
         var total = subtotal + totalTax;
 
-        using var conn = _db.CreateConnection();
-        using var tx = conn.BeginTransaction();
         try
         {
             var id = Guid.NewGuid();
@@ -135,18 +181,22 @@ public class InvoiceService
             foreach (var cl in computedLines)
             {
                 await conn.ExecuteAsync(@"
-                    INSERT INTO invoice_lines (id, invoice_id, account_id, description, quantity, unit_price, tax_rate, amount, line_number)
-                    VALUES (@id, @invoiceId, @accountId, @description, @quantity, @unitPrice, @taxRate, @amount, @lineNum);",
+                    INSERT INTO invoice_lines (id, invoice_id, account_id, product_id, description,
+                        quantity, unit_price, tax_rate, amount, line_total_with_tax, line_number)
+                    VALUES (@id, @invoiceId, @accountId, @productId, @description,
+                        @quantity, @unitPrice, @taxRate, @amount, @amountWithTax, @lineNum);",
                     new
                     {
                         id = Guid.NewGuid(),
                         invoiceId = id,
                         accountId = cl.accountId,
+                        productId = cl.productId,
                         description = cl.description,
                         quantity = cl.quantity,
                         unitPrice = cl.unitPrice,
                         taxRate = cl.taxRate,
                         amount = cl.amount,
+                        amountWithTax = cl.amountWithTax,
                         lineNum = lineNum++
                     }, tx);
             }
@@ -175,66 +225,45 @@ public class InvoiceService
         if (inv.Lines.Count == 0)
             throw new InvalidOperationException("الفاتورة بدون بنود");
 
-        // Build the journal entry
-        var journalLines = new List<Features.Journal.CreateJournalLineRequest>();
-
-        // The default "other side" account depends on invoice type
-        // For sales: AR (account 1200). For purchase: AP (account 2000).
-        // In a real system these would be configurable per company.
-        var counterAccountCode = inv.InvoiceType == "sales" ? "1200" : "2000";
-
-        using (var conn = _db.CreateConnection())
+        // Build the event payload that the Business Rule templates
+        // expect. The existing templates (seeded in 002) read these
+        // exact fields: invoice.number, invoice.total, invoice.tax,
+        // and party.name. We use `party` (not `supplier`/`customer`)
+        // so the same payload shape works for both purchase and sales
+        // — the rule template just uses the values, the type doesn't
+        // matter to it.
+        var payload = new Dictionary<string, object>
         {
-            var counterAccount = await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
-                SELECT id, nature FROM accounts
-                WHERE company_id = @companyId AND code = @code AND is_active = true
-                LIMIT 1;",
-                new { companyId = inv.CompanyId, code = counterAccountCode });
-            if (counterAccount.id == Guid.Empty)
-                throw new InvalidOperationException($"الحساب {counterAccountCode} غير موجود في شجرة الحسابات");
-
-            if (inv.InvoiceType == "sales")
+            ["invoice"] = new Dictionary<string, object>
             {
-                // Debit the counter account (AR) for the total, credit each line account for its amount
-                journalLines.Add(new Features.Journal.CreateJournalLineRequest(
-                    counterAccount.id, inv.Total, 0,
-                    $"مدينون - {inv.PartyName}"));
-                foreach (var l in inv.Lines)
-                {
-                    var (debit, credit) = _posting.ComputePlacement(
-                        await GetAccountNature(l.AccountId), "credit", l.Amount);
-                    journalLines.Add(new Features.Journal.CreateJournalLineRequest(
-                        l.AccountId, debit, credit, l.Description));
-                }
-            }
-            else // purchase
+                ["id"] = inv.Id,
+                ["number"] = inv.InvoiceNumber,
+                ["type"] = inv.InvoiceType,
+                ["date"] = inv.InvoiceDate,
+                ["subtotal"] = inv.SubTotal,
+                ["tax"] = inv.TaxAmount,
+                ["total"] = inv.Total,
+                ["lineCount"] = inv.Lines.Count,
+                ["lineTotalWithTaxSum"] = inv.Lines.Sum(l => l.LineTotalWithTax)
+            },
+            ["party"] = new Dictionary<string, object>
             {
-                // Debit each line account for its amount, credit the counter account (AP) for the total
-                foreach (var l in inv.Lines)
-                {
-                    var (debit, credit) = _posting.ComputePlacement(
-                        await GetAccountNature(l.AccountId), "debit", l.Amount);
-                    journalLines.Add(new Features.Journal.CreateJournalLineRequest(
-                        l.AccountId, debit, credit, l.Description));
-                }
-                journalLines.Add(new Features.Journal.CreateJournalLineRequest(
-                    counterAccount.id, 0, inv.Total,
-                    $"دائنون - {inv.PartyName}"));
+                ["name"] = inv.PartyName,
+                ["nameAr"] = inv.PartyNameAr ?? inv.PartyName,
+                ["taxId"] = inv.PartyTaxId
             }
-        }
+        };
 
-        var req = new Features.Journal.CreateJournalEntryRequest(
-            inv.CompanyId,
-            inv.InvoiceDate,
-            $"فاتورة {inv.InvoiceType} رقم {inv.InvoiceNumber} - {inv.PartyName}",
-            journalLines
-        );
+        // The rule template handles the actual journal entry creation
+        // (it knows which accounts to debit/credit). We just kick the
+        // event off and trust the user's configured rules. If no rule
+        // is enabled, the journal is simply not created — the user can
+        // inspect and re-enable rules from the Business Rules page.
+        var eventName = inv.InvoiceType == "sales" ? "SalesInvoiceApproved" : "PurchaseInvoiceApproved";
+        var entries = await _rules.TriggerEventAsync(inv.CompanyId, null, eventName, payload);
 
-        await _journal.CreateDraftAsync(req, null);
-        // Note: we don't auto-post the journal entry here; the user can review and post.
-        // The invoice just becomes "ready" to be posted once the journal entry is approved.
-
-        // For simplicity in MVP, mark the invoice as posted directly.
+        // Mark the invoice as posted regardless of how many rules
+        // fired — the user has approved it, the rest is bookkeeping.
         using (var conn = _db.CreateConnection())
         {
             await conn.ExecuteAsync(
@@ -243,14 +272,6 @@ public class InvoiceService
         }
 
         return (await GetByIdAsync(invoiceId))!;
-    }
-
-    private async Task<string> GetAccountNature(Guid accountId)
-    {
-        using var conn = _db.CreateConnection();
-        return await conn.ExecuteScalarAsync<string>(
-            "SELECT nature FROM accounts WHERE id = @id;",
-            new { id = accountId }) ?? "Debit";
     }
 
     public async Task<bool> CancelAsync(Guid invoiceId)
@@ -288,6 +309,9 @@ public class InvoiceService
         decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at);
 
     private record InvoiceLineRow(
-        Guid id, Guid invoice_id, Guid account_id, string? account_code, string? account_name,
-        string description, decimal quantity, decimal unit_price, decimal tax_rate, decimal amount, int line_number);
+        Guid id, Guid invoice_id, Guid? account_id, Guid? product_id,
+        string? account_code, string? account_name,
+        string? product_code, string? product_name, string? product_name_ar,
+        string? description, decimal quantity, decimal unit_price, decimal tax_rate,
+        decimal amount, decimal line_total_with_tax, int line_number);
 }

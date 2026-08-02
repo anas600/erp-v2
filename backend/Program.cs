@@ -9,6 +9,7 @@ using ErpV2.Features.Reports;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Projects;
 using ErpV2.Features.Users;
+using ErpV2.Features.Products;
 using ErpV2.Migrations;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -220,6 +221,7 @@ builder.Services.AddSingleton<ReportService>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<UserService>();
+builder.Services.AddSingleton<ProductService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -260,6 +262,7 @@ ReportEndpoints.Map(app);
 InvoiceEndpoints.Map(app);
 ProjectEndpoints.Map(app);
 UserEndpoints.Map(app);
+ProductEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup
