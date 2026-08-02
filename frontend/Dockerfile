@@ -32,6 +32,13 @@ ENV NODE_ENV=production
 # `EXPOSE 3000` is documentation only; the runtime PORT env var
 # determines where Node.js actually binds.
 ENV PORT=10000
+# Next.js standalone's server.js reads HOSTNAME to decide which
+# interface to bind to. Without this, it may default to `localhost`
+# (or `::1`), which would be unreachable by Render's reverse proxy
+# (which connects from outside the container's network namespace).
+# Forcing HOSTNAME=0.0.0.0 makes the server bind to all interfaces.
+ENV HOSTNAME=0.0.0.0
+ENV HOST=0.0.0.0
 EXPOSE 10000
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
