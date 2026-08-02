@@ -46,6 +46,20 @@ services:
         value: Production
       - key: DOTNET_USE_POLLING_FILE_WATCHER
         value: "true"
+      # NOTE on ConnectionStrings__Default:
+      #
+      # We use `fromDatabase` to bind to the database defined in this
+      # blueprint. The reference is by the *blueprint* name (erp-v2-db),
+      # not the deployed name (which Render may suffix, e.g.
+      # erp-v2-db-1oz7, to avoid conflicts). The reference resolves at
+      # deploy time to the live database's connectionString property.
+      #
+      # If this env var ends up empty on a fresh deploy, the most common
+      # cause is a deleted-then-recreated database: Render keeps the old
+      # reference, and the suffix on the new DB breaks the lookup. The
+      # fix is to set the value manually in the dashboard (use the
+      # External Database URL converted to Npgsql format) or to delete
+      # the blueprint entirely and create a fresh one.
       - key: ConnectionStrings__Default
         fromDatabase:
           name: erp-v2-db
