@@ -30,7 +30,9 @@ public record CreateJournalEntryRequest(
     Guid CompanyId,
     DateTime EntryDate,
     string? Narration,
-    List<CreateJournalLineRequest> Lines
+    List<CreateJournalLineRequest> Lines,
+    string? Source = null,   // "manual" | "invoice" | "rule:{ruleId}" — defaults to "manual" in the service
+    Guid? RuleId = null      // FK back to business_rules.id when Source starts with "rule:"
 );
 
 public record CreateJournalLineRequest(

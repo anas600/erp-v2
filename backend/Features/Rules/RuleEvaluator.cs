@@ -232,12 +232,18 @@ public class RuleEvaluator
             companyId,
             DateTime.UtcNow,
             SubstituteTokens(action.Narration ?? "", payload),
-            lines
+            lines,
+            Source: $"rule:{ruleId}",   // mark the entry as rule-generated for auditing
+            RuleId: ruleId
         );
 
+        _log.LogInformation("Rule {RuleId}: creating journal entry with {Count} lines, source=rule:{RuleId}", ruleId, lines.Count, ruleId);
         var entry = await new JournalService(_db, _posting).CreateDraftAsync(req, userId);
+        _log.LogInformation("Rule {RuleId}: draft entry {EntryId} created", ruleId, entry.Id);
         // Auto-post
-        return await _posting.PostAsync(entry.Id);
+        var posted = await _posting.PostAsync(entry.Id);
+        _log.LogInformation("Rule {RuleId}: entry {EntryId} posted", ruleId, posted.Id);
+        return posted;
     }
 
     private static decimal EvaluateAmount(string formula, Dictionary<string, object> payload)

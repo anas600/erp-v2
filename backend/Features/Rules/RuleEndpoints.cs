@@ -49,19 +49,22 @@ public static class RuleEndpoints
         });
 
         // Test/trigger an event
-        grp.MapPost("/trigger", async ([FromBody] TriggerEventRequest req, RuleEvaluator evaluator, HttpContext ctx) =>
+        grp.MapPost("/trigger", async ([FromBody] TriggerEventRequest req, RuleEvaluator evaluator, HttpContext ctx, ILogger<Program> log) =>
         {
             var companyId = ctx.GetActiveCompanyIdFromHeader();
             if (companyId is null) return Results.BadRequest(new { error = "X-Company-Id header required" });
             var userId = ctx.GetUserId();
             try
             {
+                log.LogInformation("Trigger endpoint: event={Event} company={Company}", req.EventName, companyId);
                 var entries = await evaluator.TriggerEventAsync(companyId.Value, userId, req.EventName, req.Payload);
+                log.LogInformation("Trigger endpoint: returned {Count} entries", entries.Count);
                 return Results.Ok(new { triggered = entries.Count, entries });
             }
             catch (Exception ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                log.LogError(ex, "Trigger endpoint failed for event {Event}", req.EventName);
+                return Results.BadRequest(new { error = ex.Message, stackTrace = ex.StackTrace });
             }
         });
     }

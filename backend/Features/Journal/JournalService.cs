@@ -48,9 +48,15 @@ public class JournalService
             var entryId = Guid.NewGuid();
             var entryNumber = await GenerateEntryNumberAsync(req.CompanyId, conn, tx);
 
+            // Source resolution order:
+            //   1. Caller-provided source (e.g. "rule:{ruleId}" from the
+            //      rules engine, or "invoice" from InvoiceService)
+            //   2. Default to "manual" so existing callers keep working
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source;
+
             await conn.ExecuteAsync(@"
-                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, created_by)
-                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, 'draft', 'manual', @createdBy);",
+                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by)
+                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, 'draft', @source, @ruleId, @createdBy);",
                 new
                 {
                     id = entryId,
@@ -58,6 +64,8 @@ public class JournalService
                     entryNumber,
                     entryDate = req.EntryDate,
                     narration = req.Narration,
+                    source,
+                    ruleId = req.RuleId,
                     createdBy
                 }, tx);
 
