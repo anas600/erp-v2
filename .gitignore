@@ -29,3 +29,6 @@ Thumbs.db
 
 # Lock files (regenerated)
 package-lock.json
+
+# Mavis visual pages (generated, ephemeral)
+.mavis/visual/
