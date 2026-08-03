@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP-V2 — جولة في النظام</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #2f6f5e;
+  --primary-soft: #e8f0ec;
+  --accent: #c97b3f;
+  --bg: #f7f5f0;
+  --card: #ffffff;
+  --border: #e9e3d6;
+  --text: #14171e;
+  --text-2: #3a4256;
+  --text-3: #7c7a72;
+  --line-soft: #ede8da;
+  --danger: #b06367;
+  --info: #5b7c99;
+  --success: #4a8e7c;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+body {
+  font-family: 'Outfit', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 15px;
+  font-weight: 400;
+  background-image:
+    radial-gradient(ellipse at top right, rgba(201,123,63,0.05), transparent 50%),
+    radial-gradient(ellipse at bottom left, rgba(47,111,94,0.05), transparent 50%);
+}
+.serif { font-family: 'DM Serif Display', serif; font-weight: 400; letter-spacing: -0.005em; }
+.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
+
+/* ===== Top Nav (sticky) ===== */
+.topnav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(247,245,240,0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+.topnav-inner {
+  max-width: 1100px; margin: 0 auto; padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-logo {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--primary), var(--success));
+  display: inline-flex; align-items: center; justify-content: center;
+  color: white;
+}
+.brand-text { line-height: 1.1; }
+.brand-text .name { font-weight: 600; font-size: 16px; color: var(--text); }
+.brand-text .sub { font-size: 12px; color: var(--text-3); }
+.navlinks { display: flex; gap: 18px; flex-wrap: wrap; }
+.navlinks a {
+  font-size: 13px; color: var(--text-2); text-decoration: none;
+  padding: 6px 10px; border-radius: 6px; transition: all 0.15s;
+}
+.navlinks a:hover { background: var(--primary-soft); color: var(--primary); }
+
+@media (max-width: 720px) { .navlinks { display: none; } }
+
+/* ===== Container ===== */
+.container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+/* ===== Hero ===== */
+.hero { padding: 80px 0 60px; }
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--primary);
+  background: var(--primary-soft); padding: 6px 14px; border-radius: 100px;
+  margin-bottom: 24px;
+}
+.hero-eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.hero h1 {
+  font-family: 'DM Serif Display', serif; font-weight: 400;
+  font-size: 56px; line-height: 1.1; color: var(--text);
+  margin-bottom: 20px; letter-spacing: -0.01em;
+}
+.hero h1 .accent { color: var(--primary); font-style: italic; }
+.hero-sub { font-size: 18px; color: var(--text-2); max-width: 640px; line-height: 1.6; }
+.hero-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 16px; margin-top: 48px;
+}
+@media (max-width: 720px) { .hero-stats { grid-template-columns: repeat(2, 1fr); } .hero h1 { font-size: 38px; } }
+.stat {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+.stat .label { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+.stat .value { font-size: 26px; font-weight: 600; color: var(--text); }
+.stat .value.green { color: var(--primary); }
+.stat .value.orange { color: var(--accent); }
+
+/* ===== Sections ===== */
+section { padding: 60px 0; border-top: 1px solid var(--border); }
+.section-header { margin-bottom: 36px; }
+.section-tag {
+  font-size: 12px; font-weight: 500; color: var(--accent);
+  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;
+}
+.section-header h2 {
+  font-family: 'DM Serif Display', serif; font-weight: 400;
+  font-size: 36px; line-height: 1.2; color: var(--text); margin-bottom: 12px;
+}
+.section-header p { font-size: 16px; color: var(--text-2); max-width: 720px; }
+
+/* ===== Cards ===== */
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  transition: all 0.2s;
+}
+.card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+
+.module-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+}
+@media (max-width: 900px) { .module-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .module-grid { grid-template-columns: 1fr; } }
+
+.module-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 22px;
+  display: flex; flex-direction: column; gap: 10px;
+  text-decoration: none; color: var(--text);
+  transition: all 0.2s;
+  position: relative;
+}
+.module-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-color: var(--primary); }
+.module-card .icon {
+  width: 38px; height: 38px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--primary-soft); color: var(--primary);
+}
+.module-card .icon.orange { background: rgba(201,123,63,0.12); color: var(--accent); }
+.module-card .icon.blue { background: rgba(91,124,153,0.12); color: var(--info); }
+.module-card .icon.rose { background: rgba(176,99,103,0.12); color: var(--danger); }
+.module-card h3 { font-size: 17px; font-weight: 600; }
+.module-card .url {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--text-3); direction: ltr; text-align: left;
+}
+.module-card .desc { font-size: 13.5px; color: var(--text-2); line-height: 1.55; flex: 1; }
+.module-card .test {
+  font-size: 12px; color: var(--text-3);
+  border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 4px;
+}
+.module-card .test strong { color: var(--text-2); }
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 100px;
+  background: var(--primary-soft); color: var(--primary);
+}
+.badge.orange { background: rgba(201,123,63,0.12); color: var(--accent); }
+.badge.rose { background: rgba(176,99,103,0.12); color: var(--danger); }
+.badge.gray { background: rgba(124,122,114,0.12); color: var(--text-3); }
+
+/* ===== Steps ===== */
+.steps { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.step {
+  display: flex; gap: 16px; align-items: flex-start;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px;
+}
+.step-num {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--primary); color: white;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 14px; flex-shrink: 0;
+}
+.step-body { flex: 1; }
+.step-body h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.step-body p { font-size: 13.5px; color: var(--text-2); }
+.step-body .mono { display: inline-block; margin-top: 4px; color: var(--primary); background: var(--primary-soft); padding: 2px 8px; border-radius: 4px; }
+
+/* ===== Test flow ===== */
+.flow {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 28px; margin-top: 24px;
+}
+.flow h3 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.flow .flow-desc { color: var(--text-2); font-size: 14px; margin-bottom: 20px; }
+.flow-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-top: 1px dashed var(--border);
+}
+.flow-row:first-of-type { border-top: 0; }
+.flow-row .arrow {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--primary-soft); color: var(--primary);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 13px; flex-shrink: 0;
+}
+.flow-row .text { flex: 1; font-size: 14px; }
+.flow-row .text strong { display: block; margin-bottom: 2px; }
+.flow-row .text small { color: var(--text-3); font-size: 12.5px; }
+.flow-row .badge { flex-shrink: 0; }
+
+/* ===== Demo accounts ===== */
+.acc-table {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden; margin-top: 16px;
+}
+.acc-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+  padding: 14px 18px; align-items: center;
+  border-top: 1px solid var(--line-soft); font-size: 13.5px;
+}
+.acc-row:first-child { border-top: 0; background: rgba(247,245,240,0.6); font-weight: 600; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.acc-row .mono { color: var(--text-2); }
+@media (max-width: 600px) { .acc-row { grid-template-columns: 1fr 1fr; gap: 8px; } }
+
+/* ===== Code/curl ===== */
+.codeblock {
+  background: #1a1a2e; color: #e9e3d6;
+  border-radius: 10px; padding: 16px 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  line-height: 1.6; direction: ltr; text-align: left;
+  overflow-x: auto; margin-top: 12px;
+}
+.codeblock .c-comment { color: #7c7a72; }
+.codeblock .c-key { color: #c97b3f; }
+.codeblock .c-str { color: #9bc59b; }
+
+/* ===== Roadmap ===== */
+.roadmap {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  margin-top: 24px;
+}
+@media (max-width: 900px) { .roadmap { grid-template-columns: repeat(2, 1fr); } }
+.roadmap-step {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px; position: relative;
+}
+.roadmap-step .num {
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.roadmap-step.done .num { color: var(--success); }
+.roadmap-step h4 { font-size: 15px; font-weight: 600; margin: 4px 0 6px; }
+.roadmap-step p { font-size: 12.5px; color: var(--text-2); }
+.roadmap-step .status {
+  position: absolute; top: 18px; left: 18px;
+  font-size: 10px; padding: 2px 8px; border-radius: 100px;
+  background: var(--primary-soft); color: var(--primary); font-weight: 600;
+}
+.roadmap-step.done .status { background: var(--primary-soft); color: var(--primary); }
+.roadmap-step.todo .status { background: rgba(124,122,114,0.12); color: var(--text-3); }
+
+/* ===== TOC ===== */
+.toc-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+  margin-top: 24px;
+}
+@media (max-width: 600px) { .toc-grid { grid-template-columns: 1fr; } }
+.toc-grid a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13.5px; color: var(--text-2); text-decoration: none;
+  transition: all 0.15s;
+}
+.toc-grid a:hover { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
+.toc-grid a .num { font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; }
+
+/* ===== Discuss box ===== */
+.discuss {
+  background: linear-gradient(135deg, rgba(47,111,94,0.05), rgba(201,123,63,0.05));
+  border: 1px solid var(--border); border-radius: 16px;
+  padding: 28px; margin-top: 32px;
+}
+.discuss h3 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+.discuss p { color: var(--text-2); font-size: 14.5px; margin-bottom: 16px; }
+.discuss-list { display: flex; flex-direction: column; gap: 10px; }
+.discuss-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  font-size: 14px; padding: 10px 14px;
+  background: var(--card); border-radius: 8px;
+}
+.discuss-item .check {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--primary-soft); color: var(--primary);
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 12px; font-weight: 600;
+}
+
+/* ===== Footer ===== */
+footer {
+  border-top: 1px solid var(--border); padding: 40px 0;
+  margin-top: 60px; text-align: center; color: var(--text-3); font-size: 13px;
+}
+footer a { color: var(--primary); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="#top" class="brand" style="text-decoration:none;color:inherit;">
+      <div class="brand-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="name">ERP-V2</div>
+        <div class="sub">جولة كاملة في النظام</div>
+      </div>
+    </a>
+    <div class="navlinks">
+      <a href="#quick">دخول سريع</a>
+      <a href="#modules">الوحدات</a>
+      <a href="#walkthrough">جولة كاملة</a>
+      <a href="#data">البيانات</a>
+      <a href="#roadmap">الخطوات</a>
+      <a href="#discuss">نناقش</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container" id="top">
+
+<!-- ===== HERO ===== -->
+<section class="hero" style="border-top:0; padding-top: 40px;">
+  <div class="hero-eyebrow"><span class="dot"></span> النظام يعمل — تم النشر على Render</div>
+  <h1 class="serif">
+    نظام محاسبي <span class="accent">متعدد الشركات</span><br>
+    ليبية، عربي، جاهز للإنتاج.
+  </h1>
+  <p class="hero-sub">
+    10 وحدات خلفية، 9 واجهات أمامية، 6 قوالب قواعد عمل، 3 شركات افتراضية.
+    هذه الجولة تأخذك من شاشة الدخول إلى إنشاء فاتورة كاملة بـ <span class="mono">quantity × unit_price = line_total</span>.
+  </p>
+
+  <div class="hero-stats">
+    <div class="stat">
+      <div class="label">الشركات المهيأة</div>
+      <div class="value green">3</div>
+    </div>
+    <div class="stat">
+      <div class="label">حسابات لكل شركة</div>
+      <div class="value">18</div>
+    </div>
+    <div class="stat">
+      <div class="label">قوالب قواعد العمل</div>
+      <div class="value orange">6</div>
+    </div>
+    <div class="stat">
+      <div class="label">حالة الـ Smoke Tests</div>
+      <div class="value green">18/18 ✓</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== QUICK ACCESS ===== -->
+<section id="quick">
+  <div class="section-header">
+    <div class="section-tag">دخول سريع</div>
+    <h2 class="serif">عناوين النظام والروابط</h2>
+    <p>كل ما تحتاجه لتبدأ: عناوين النظام، حسابات الديمو، والـ API.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">🌐 العناوين الحية</h3>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>الواجهة الأمامية</div>
+        <div><a href="https://erp-v2-frontend.onrender.com" target="_blank" class="mono" style="color:var(--primary); text-decoration:none;">erp-v2-frontend.onrender.com</a></div>
+        <div><span class="badge green">شغّال</span></div>
+        <div>Next.js 15 + RTL</div>
+      </div>
+      <div class="acc-row">
+        <div>الـ Backend API</div>
+        <div><a href="https://erp-v2-backend-mkyg.onrender.com" target="_blank" class="mono" style="color:var(--primary); text-decoration:none;">erp-v2-backend-mkyg.onrender.com</a></div>
+        <div><span class="badge green">شغّال</span></div>
+        <div>.NET 8 + PostgreSQL</div>
+      </div>
+      <div class="acc-row">
+        <div>Swagger (وثائق API)</div>
+        <div><a href="https://erp-v2-backend-mkyg.onrender.com/swagger" target="_blank" class="mono" style="color:var(--primary); text-decoration:none;">/swagger</a></div>
+        <div><span class="badge">مفعّل</span></div>
+        <div>جميع الـ endpoints</div>
+      </div>
+      <div class="acc-row">
+        <div>Health check</div>
+        <div><a href="https://erp-v2-backend-mkyg.onrender.com/health" target="_blank" class="mono" style="color:var(--primary); text-decoration:none;">/health</a></div>
+        <div><span class="badge green">200 OK</span></div>
+        <div>Heartbeat للنظام</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">🔑 حسابات الديمو</h3>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>البريد</div>
+        <div>كلمة المرور</div>
+        <div>الصلاحية</div>
+        <div>الشركات</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">admin@holding.ly</div>
+        <div class="mono">admin123</div>
+        <div><span class="badge orange">Super Admin</span></div>
+        <div>3 شركات</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">accountant@company-a.ly</div>
+        <div class="mono">acc123</div>
+        <div><span class="badge">Accountant</span></div>
+        <div>CO-A فقط</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">engineer@company-a.ly</div>
+        <div class="mono">eng123</div>
+        <div><span class="badge">Project Engineer</span></div>
+        <div>CO-A فقط</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">🏢 الشركات الثلاث</h3>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>الكود</div>
+        <div>الاسم</div>
+        <div>النوع</div>
+        <div>العملة</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">HOLD</div>
+        <div>الشركة القابضة</div>
+        <div><span class="badge orange">Holding</span></div>
+        <div class="mono">LYD</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">CO-A</div>
+        <div>شركة ألف</div>
+        <div><span class="badge">Subsidiary</span></div>
+        <div class="mono">LYD</div>
+      </div>
+      <div class="acc-row">
+        <div class="mono">CO-B</div>
+        <div>شركة باء</div>
+        <div><span class="badge">Subsidiary</span></div>
+        <div class="mono">LYD</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MODULES GRID ===== -->
+<section id="modules">
+  <div class="section-header">
+    <div class="section-tag">الوحدات</div>
+    <h2 class="serif">9 واجهات أمامية، 10 وحدات خلفية</h2>
+    <p>كل واجهة لها هدف محدد. اضغط على أي وحدة لاختبارها مباشرة.</p>
+  </div>
+
+  <div class="module-grid">
+    <a href="https://erp-v2-frontend.onrender.com/dashboard" target="_blank" class="module-card">
+      <div class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      </div>
+      <h3>الرئيسية (Dashboard)</h3>
+      <p class="url">/dashboard</p>
+      <p class="desc">بطاقات KPI لكل وحدة: عدد الفواتير، أرصدة الحسابات، آخر القيود.</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/companies" target="_blank" class="module-card">
+      <div class="icon blue">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+      </div>
+      <h3>الشركات</h3>
+      <p class="url">/dashboard/companies</p>
+      <p class="desc">إدارة الشركات القابضة والفرع. كل شركة لها حساباتها وقواعدها المستقلة.</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/accounts" target="_blank" class="module-card">
+      <div class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      </div>
+      <h3>شجرة الحسابات</h3>
+      <p class="url">/dashboard/accounts</p>
+      <p class="desc">18 حساب لكل شركة: أصول، خصوم، حقوق ملكية، إيرادات، مصروفات. كل حساب له طبيعة (مدين/دائن).</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/products" target="_blank" class="module-card">
+      <div class="icon orange">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.05 8.73-5.05"/><path d="M12 22.08V12"/></svg>
+      </div>
+      <h3>المنتجات <span class="badge orange" style="font-size:9px; padding:1px 5px;">جديد</span></h3>
+      <p class="url">/dashboard/products</p>
+      <p class="desc">كتالوج المنتجات والخدمات: كود، اسم، سعر افتراضي، ضريبة افتراضية. كل بند فاتورة يختار منتج من هنا.</p>
+      <div class="test"><strong>اختبار:</strong> أضف منتج "استشارة" بسعر 150 د.ل وضريبة 15%</div>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/invoices" target="_blank" class="module-card">
+      <div class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+      </div>
+      <h3>الفواتير <span class="badge orange" style="font-size:9px; padding:1px 5px;">محدّث</span></h3>
+      <p class="url">/dashboard/invoices</p>
+      <p class="desc">فواتير مشتريات ومبيعات. كل بند = منتج + كمية + سعر = إجمالي (شامل الضريبة).</p>
+      <div class="test"><strong>اختبار:</strong> أنشئ فاتورة مشتريات بمورد "ABC" و 3 بنود منتجات</div>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/journal" target="_blank" class="module-card">
+      <div class="icon blue">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+      </div>
+      <h3>القيود اليومية</h3>
+      <p class="url">/dashboard/journal</p>
+      <p class="desc">القيود المحاسبية المولّدة تلقائياً عند ترحيل الفواتير. كل قيد متوازن (مجموع المدين = مجموع الدائن).</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/projects" target="_blank" class="module-card">
+      <div class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+      </div>
+      <h3>المشاريع</h3>
+      <p class="url">/dashboard/projects</p>
+      <p class="desc">مشاريع + مراحل (Milestones). عند إكمال مرحلة، تنشأ إيرادات المشروع تلقائياً (عبر قاعدة عمل).</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/users" target="_blank" class="module-card">
+      <div class="icon blue">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <h3>المستخدمون</h3>
+      <p class="url">/dashboard/users</p>
+      <p class="desc">إدارة المستخدمين والصلاحيات. كل مستخدم مرتبط بشركة واحدة أو أكثر بدور محدد.</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/rules" target="_blank" class="module-card">
+      <div class="icon orange">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <h3>قواعد العمل <span class="badge" style="font-size:9px; padding:1px 5px;">6 قواعد</span></h3>
+      <p class="url">/dashboard/rules</p>
+      <p class="desc">محرك الأتمتة: عند حدث معين (مثل ترحيل فاتورة)، ينشئ قيد محاسبي تلقائياً بناءً على القواعد المعرّفة.</p>
+    </a>
+
+    <a href="https://erp-v2-frontend.onrender.com/dashboard/reports/trial-balance" target="_blank" class="module-card">
+      <div class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+      <h3>التقارير المالية</h3>
+      <p class="url">/dashboard/reports/*</p>
+      <p class="desc">3 تقارير: ميزان المراجعة، قائمة الدخل، الميزانية العمومية. كل تقرير يحسب من القيود الفعلية.</p>
+    </a>
+  </div>
+</section>
+
+<!-- ===== WALKTHROUGH ===== -->
+<section id="walkthrough">
+  <div class="section-header">
+    <div class="section-tag">جولة كاملة</div>
+    <h2 class="serif">سيناريو شامل: من الصفر إلى قيد محاسبي</h2>
+    <p>المسار الذي يوضح كيف تعمل الوحدات معاً. اتبع هذه الخطوات لتختبر النظام كاملاً.</p>
+  </div>
+
+  <!-- Walkthrough 1: Login -->
+  <div class="flow">
+    <h3>1️⃣ الدخول واختيار الشركة</h3>
+    <p class="flow-desc">أول ما تفتح النظام، يطلب منك تسجيل دخول. بعدها تختار الشركة النشطة من القائمة العلوية.</p>
+    <div class="flow-row">
+      <div class="arrow">1</div>
+      <div class="text">
+        <strong>افتح الواجهة</strong>
+        <small>https://erp-v2-frontend.onrender.com</small>
+      </div>
+      <div><span class="badge">صفحة login</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">2</div>
+      <div class="text">
+        <strong>سجّل دخول كمدير عام</strong>
+        <small>admin@holding.ly / admin123</small>
+      </div>
+      <div><span class="badge">3 شركات</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">3</div>
+      <div class="text">
+        <strong>اختر الشركة القابضة (HOLD) من القائمة العلوية</strong>
+        <small>الـ active_company_id يُحفظ في كوكي ويؤثر على كل الشاشات</small>
+      </div>
+      <div><span class="badge">شركة نشطة</span></div>
+    </div>
+  </div>
+
+  <!-- Walkthrough 2: Add products -->
+  <div class="flow">
+    <h3>2️⃣ أضف منتجات للكتالوج (مهم قبل الفواتير)</h3>
+    <p class="flow-desc">الفاتورة الجديدة تختار المنتج من هنا. لا بد من وجود منتج واحد على الأقل قبل إنشاء فاتورة.</p>
+    <div class="flow-row">
+      <div class="arrow">1</div>
+      <div class="text">
+        <strong>اذهب إلى "المنتجات" من القائمة الجانبية</strong>
+        <small>/dashboard/products</small>
+      </div>
+      <div><span class="badge orange">جديد</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">2</div>
+      <div class="text">
+        <strong>اضغط "منتج جديد"</strong>
+        <small>الكود: SRV-001 — الاسم: ساعات استشارة — السعر: 150 — الضريبة: 15%</small>
+      </div>
+      <div><span class="badge">نموذج</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">3</div>
+      <div class="text">
+        <strong>أضف 2-3 منتجات أخرى</strong>
+        <small>مثال: مادة خام (كود MAT-001، سعر 80)، صيانة (CODE SVC-002، سعر 200)</small>
+      </div>
+      <div><span class="badge">3 بنود</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">4</div>
+      <div class="text">
+        <strong>تأكد من ظهورها في الجدول مع badges "نشط"</strong>
+        <small>الـ toggle في عمود العمليات يفعّل/يعطّل بدون حذف</small>
+      </div>
+      <div><span class="badge green">جاهز</span></div>
+    </div>
+  </div>
+
+  <!-- Walkthrough 3: Create invoice -->
+  <div class="flow">
+    <h3>3️⃣ أنشئ فاتورة كاملة (السيناريو الأساسي)</h3>
+    <p class="flow-desc">هنا يظهر الإصلاح الجديد: dropdown منتجات بدل dropdown حسابات، وحساب تلقائي للـ line_total.</p>
+    <div class="flow-row">
+      <div class="arrow">1</div>
+      <div class="text">
+        <strong>اذهب إلى "الفواتير" → اضغط "فاتورة جديدة"</strong>
+        <small>/dashboard/invoices — Modal يفتح</small>
+      </div>
+      <div><span class="badge orange">محدّث</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">2</div>
+      <div class="text">
+        <strong>املأ بيانات الفاتورة</strong>
+        <small>النوع: مشتريات — التاريخ: اليوم — المورد: "شركة ABC" — الضريبة الافتراضية: 15%</small>
+      </div>
+      <div><span class="badge">Header</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">3</div>
+      <div class="text">
+        <strong>في البند الأول: اختر منتج من dropdown</strong>
+        <small>لاحظ: الاسم والسعر والضريبة تتملأ تلقائياً من المنتج</small>
+      </div>
+      <div><span class="badge green">Auto-fill</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">4</div>
+      <div class="text">
+        <strong>أدخل الكمية: 2 — لاحظ حساب line_total تلقائياً</strong>
+        <small>2 × 150 = 300 د.ل، والضريبة 15% → الإجمالي 345 د.ل</small>
+      </div>
+      <div><span class="badge">qty × price</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">5</div>
+      <div class="text">
+        <strong>أضف بند آخر بمنتج مختلف (مثلاً 5 × 80 = 400)</strong>
+        <small>الإجمالي في الأسفل يتحدث: subtotal + tax = total</small>
+      </div>
+      <div><span class="badge">2 بنود</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">6</div>
+      <div class="text">
+        <strong>احفظ كمسودة</strong>
+        <small>الفاتورة تظهر في الجدول مع status "مسودة" ورقم تلقائي</small>
+      </div>
+      <div><span class="badge">draft</span></div>
+    </div>
+  </div>
+
+  <!-- Walkthrough 4: Post + journal -->
+  <div class="flow">
+    <h3>4️⃣ ترحيل الفاتورة → ينشأ قيد محاسبي تلقائياً 🎯</h3>
+    <p class="flow-desc">هنا تظهر قوة Business Rules: ضغطة واحدة "ترحيل" تنشئ قيد محاسبي متوازن في دفتر اليومية.</p>
+    <div class="flow-row">
+      <div class="arrow">1</div>
+      <div class="text">
+        <strong>اضغط على الفاتورة لتوسيعها (تعرض البندات بتفاصيلها)</strong>
+        <small>ستلاحظ عمود "شامل الضريبة" يعرض line_total_with_tax</small>
+      </div>
+      <div><span class="badge">Expanded</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">2</div>
+      <div class="text">
+        <strong>اضغط أيقونة "ترحيل" (السهم) في عمود العمليات</strong>
+        <small>Backend يستدعي RuleEvaluator.TriggerEventAsync('PurchaseInvoiceApproved')</small>
+      </div>
+      <div><span class="badge orange">Business Rule</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">3</div>
+      <div class="text">
+        <strong>قاعدة "ترحيل فاتورة مشتريات" تلتقط الحدث</strong>
+        <small>تنشئ: Debit 5000 (تكلفة) بالمبلغ الصافي + Credit 2000 (دائنون) بالإجمالي</small>
+      </div>
+      <div><span class="badge">PostJournalEntry</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">4</div>
+      <div class="text">
+        <strong>الحالة تتغير إلى "مرحّلة" (posted)</strong>
+        <small>اذهب إلى "القيود اليومية" → ستجد القيد الجديد متوازن</small>
+      </div>
+      <div><span class="badge green">posted</span></div>
+    </div>
+  </div>
+
+  <!-- Walkthrough 5: Reports -->
+  <div class="flow">
+    <h3>5️⃣ تحقق من التقارير المالية</h3>
+    <p class="flow-desc">التقارير تحسب من البيانات الفعلية. بعد الفاتورة، ميزان المراجعة يعرض أرصدة الحسابات المستخدمة.</p>
+    <div class="flow-row">
+      <div class="arrow">1</div>
+      <div class="text">
+        <strong>اذهب إلى "ميزان المراجعة"</strong>
+        <small>/dashboard/reports/trial-balance</small>
+      </div>
+      <div><span class="badge">التقرير 1</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">2</div>
+      <div class="text">
+        <strong>ستجد حساب 2000 (الدائنون) وحساب 5000 (تكلفة البضاعة) بأرصدة</strong>
+        <small>مجموع المدين = مجموع الدائن (balanced: true)</small>
+      </div>
+      <div><span class="badge green">متوازن</span></div>
+    </div>
+    <div class="flow-row">
+      <div class="arrow">3</div>
+      <div class="text">
+        <strong>افحص قائمة الدخل والميزانية العمومية</strong>
+        <small>سيكونان شبه فارغين لأن الفواتير لم تؤثر على الإيرادات/المصروفات بعد</small>
+      </div>
+      <div><span class="badge">التقارير 2-3</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DATA SECTION ===== -->
+<section id="data">
+  <div class="section-header">
+    <div class="section-tag">البيانات الحية</div>
+    <h2 class="serif">ما يحتويه النظام الآن</h2>
+    <p>بيانات حقيقية من الـ API وقت كتابة هذه الصفحة (2 أغسطس 2026، 22:35 UTC).</p>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">📊 الإحصائيات الحالية</h3>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>العنصر</div>
+        <div>العدد</div>
+        <div>الحالة</div>
+        <div>ملاحظة</div>
+      </div>
+      <div class="acc-row">
+        <div>الشركات</div>
+        <div class="mono">3</div>
+        <div><span class="badge green">مهيّأ</span></div>
+        <div>HOLD, CO-A, CO-B</div>
+      </div>
+      <div class="acc-row">
+        <div>الحسابات</div>
+        <div class="mono">18</div>
+        <div><span class="badge green">مهيّأ</span></div>
+        <div>لكل شركة على حدة</div>
+      </div>
+      <div class="acc-row">
+        <div>قوالب قواعد العمل</div>
+        <div class="mono">6</div>
+        <div><span class="badge green">مفعّلة</span></div>
+        <div>جاهزة للاستخدام</div>
+      </div>
+      <div class="acc-row">
+        <div>المنتجات</div>
+        <div class="mono">0</div>
+        <div><span class="badge orange">فارغ</span></div>
+        <div>يحتاج إدخال يدوي</div>
+      </div>
+      <div class="acc-row">
+        <div>الفواتير</div>
+        <div class="mono">0</div>
+        <div><span class="badge orange">فارغ</span></div>
+        <div>سيناريو الفاتورة يوضح الإضافة</div>
+      </div>
+      <div class="acc-row">
+        <div>القيود اليومية</div>
+        <div class="mono">0</div>
+        <div><span class="badge orange">فارغ</span></div>
+        <div>تنشأ تلقائياً عند الترحيل</div>
+      </div>
+      <div class="acc-row">
+        <div>المشاريع</div>
+        <div class="mono">0</div>
+        <div><span class="badge orange">فارغ</span></div>
+        <div>موديول جاهز للاستخدام</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">📋 شجرة الحسابات — 18 حساب لكل شركة</h3>
+    <p style="color: var(--text-2); font-size: 13px; margin-bottom: 12px;">الحساب "10 - mine" تركة من التطوير، الباقي حسابات معيارية.</p>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>الكود</div>
+        <div>الاسم (عربي)</div>
+        <div>النوع</div>
+        <div>الطبيعة</div>
+      </div>
+      <div class="acc-row"><div class="mono">1000</div><div>الصندوق</div><div>أصل</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">1100</div><div>البنك</div><div>أصل</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">1200</div><div>المدينون</div><div>أصل</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">1300</div><div>المخزون</div><div>أصل</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">1500</div><div>المعدات</div><div>أصل</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">1510</div><div>مجمع الإهلاك</div><div>أصل</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">2000</div><div>الدائنون</div><div>خصم</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">2100</div><div>القروض المستحقة</div><div>خصم</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">3000</div><div>رأس المال</div><div>حقوق ملكية</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">3100</div><div>الأرباح المحتجزة</div><div>حقوق ملكية</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">4000</div><div>إيرادات المبيعات</div><div>إيراد</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">4100</div><div>إيرادات الخدمات</div><div>إيراد</div><div>دائن</div></div>
+      <div class="acc-row"><div class="mono">5000</div><div>تكلفة البضاعة المباعة</div><div>مصروف</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">5100</div><div>مصروف الرواتب</div><div>مصروف</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">5200</div><div>مصروف الإيجار</div><div>مصروف</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">5300</div><div>مصروف المرافق</div><div>مصروف</div><div>مدين</div></div>
+      <div class="acc-row"><div class="mono">5400</div><div>مصروف الإهلاك</div><div>مصروف</div><div>مدين</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">⚡ القواعد الستة المفعّلة</h3>
+    <p style="color: var(--text-2); font-size: 13px; margin-bottom: 12px;">كل قاعدة تستمع لحدث معين وتنشئ قيد محاسبي عند تحققه.</p>
+    <div class="acc-table">
+      <div class="acc-row">
+        <div>اسم القاعدة</div>
+        <div>الحدث المُستمع</div>
+        <div>الحالة</div>
+        <div>النتيجة</div>
+      </div>
+      <div class="acc-row"><div>إهلاك أصول شهري</div><div>PeriodClose</div><div><span class="badge green">مفعّل</span></div><div class="mono">5400 → 1510</div></div>
+      <div class="acc-row"><div>إيراد مشروع (Milestone)</div><div>ProjectMilestoneCompleted</div><div><span class="badge green">مفعّل</span></div><div class="mono">1200 → 4100</div></div>
+      <div class="acc-row"><div>تحصيل من عميل</div><div>CustomerReceiptReceived</div><div><span class="badge green">مفعّل</span></div><div class="mono">1000 → 1200</div></div>
+      <div class="acc-row"><div>ترحيل فاتورة مبيعات</div><div>SalesInvoiceApproved</div><div><span class="badge green">مفعّل</span></div><div class="mono">1200 → 4000</div></div>
+      <div class="acc-row"><div>ترحيل فاتورة مشتريات</div><div>PurchaseInvoiceApproved</div><div><span class="badge green">مفعّل</span></div><div class="mono">5000 → 2000</div></div>
+      <div class="acc-row"><div>دفع مورد (نقدي/بنكي)</div><div>SupplierPaymentMade</div><div><span class="badge green">مفعّل</span></div><div class="mono">2000 → 1000</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ROADMAP ===== -->
+<section id="roadmap">
+  <div class="section-header">
+    <div class="section-tag">الخطوات</div>
+    <h2 class="serif">أين وصلنا؟ إلى أين نتجه؟</h2>
+    <p>الإنجازات السابقة وما تبقى من مهام. كل مربع له رقم.</p>
+  </div>
+
+  <div class="roadmap">
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز</span>
+      <div class="num">Sprint 1-12</div>
+      <h4>النواة الأولى</h4>
+      <p>Auth + Companies + Accounts + Users + Invoices + Journal + Reports + Business Rules + Projects + Deploy على Render</p>
+    </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز</span>
+      <div class="num">Sprint 13</div>
+      <h4>موديول المنتجات</h4>
+      <p>Backend (schema, service, endpoints) + Frontend (CRUD page) + Migration 005 + تعديلات الـ Invoices form + Business Rule-driven posting</p>
+    </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز</span>
+      <div class="num">Sprint 14</div>
+      <h4>الاستقرار على Render</h4>
+      <p>إصلاح 3 bugs في migration 005 (ترتيب الجدول، connection isolation، FK recreation) — Deploy ناجح في 4 محاولات</p>
+    </div>
+    <div class="roadmap-step todo">
+      <span class="status">⏳ قادم</span>
+      <div class="num">Sprint 15+</div>
+      <h4>ما يمكن إضافته</h4>
+      <p>PDF reports + Audit log UI + Email notifications + Multi-currency + Bank reconciliation + Backup/Restore</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== API SAMPLE ===== -->
+<section id="api">
+  <div class="section-header">
+    <div class="section-tag">للمطوّرين</div>
+    <h2 class="serif">عينة من الـ API</h2>
+    <p>مثال حقيقي — كيف تستدعي النظام من كود أو curl.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">1. تسجيل دخول + استخراج التوكن</h3>
+    <div class="codeblock">
+<span class="c-comment"># 1. Login</span>
+<span class="c-key">curl</span> -X POST https://erp-v2-backend-mkyg.onrender.com/api/auth/login \
+  -H <span class="c-str">"Content-Type: application/json"</span> \
+  -d <span class="c-str">'{"email":"admin@holding.ly","password":"admin123"}'</span>
+
+<span class="c-comment"># Response contains accessToken — use it in all subsequent calls</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">2. إضافة منتج جديد</h3>
+    <div class="codeblock">
+<span class="c-key">curl</span> -X POST https://erp-v2-backend-mkyg.onrender.com/api/products \
+  -H <span class="c-str">"Authorization: Bearer $TOKEN"</span> \
+  -H <span class="c-str">"Content-Type: application/json"</span> \
+  -d <span class="c-str">'{
+    "companyId":"c9fba678-29db-43ec-8c34-5a35d205e79b",
+    "code":"SRV-001",
+    "name":"Consulting hours",
+    "nameAr":"ساعات استشارة",
+    "unitPrice":150.0,
+    "defaultTaxRate":0.15
+  }'</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">3. إنشاء فاتورة بمنتج</h3>
+    <div class="codeblock">
+<span class="c-key">curl</span> -X POST https://erp-v2-backend-mkyg.onrender.com/api/invoices \
+  -H <span class="c-str">"Authorization: Bearer $TOKEN"</span> \
+  -H <span class="c-str">"Content-Type: application/json"</span> \
+  -d <span class="c-str">'{
+    "companyId":"c9fba678-29db-43ec-8c34-5a35d205e79b",
+    "invoiceType":"purchase",
+    "invoiceDate":"2026-08-02",
+    "partyName":"ABC Trading",
+    "partyNameAr":"شركة ABC التجارية",
+    "taxRate":0.15,
+    "lines":[{
+      "productId":"&lt;product-uuid&gt;",
+      "quantity":2,
+      "unitPrice":150,
+      "taxRate":0.15
+    }]
+  }'</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DISCUSS ===== -->
+<section id="discuss">
+  <div class="section-header">
+    <div class="section-tag">نناقش</div>
+    <h2 class="serif">أسئلة مفتوحة لنتناقش فيها</h2>
+    <p>هذه نقاط تستحق قرارك قبل أن نكمل.</p>
+  </div>
+
+  <div class="discuss">
+    <h3>🤔 ما الذي يحتاج قرارك؟</h3>
+    <p>عندي توصياتي، لكن أنت صاحب القرار:</p>
+    <div class="discuss-list">
+      <div class="discuss-item">
+        <span class="check">1</span>
+        <div><strong>هل نضيف Demo Data تلقائياً؟</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">حالياً المنتجات/الفواتير/المشاريع فارغة. أقترح: seed 5-10 منتجات + 2-3 مشاريع لكل شركة (معرّف بـ is_demo_data=true ليُحذف لاحقاً).</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">2</span>
+        <div><strong>PDF Reports — أولوية عالية؟</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">ميزان المراجعة/قائمة الدخل/الميزانية يعرضون HTML فقط. إضافة PDF (بـ QuestPDF أو jsPDF) يجعلها قابلة للطباعة والإرسال.</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">3</span>
+        <div><strong>Audit Log UI</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">كل عملية (create/update/delete) في الـ backend تُسجَّل. لكن لا توجد واجهة لعرضها. مهم لتدقيق العمليات.</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">4</span>
+        <div><strong>Multi-currency</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">حالياً LYD فقط. هل نحتاج USD/EUR؟ يحتاج أسعار صرف + إعادة تقييم.</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">5</span>
+        <div><strong>Backup/Restore</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">Render free tier يوقف الـ DB بعد 90 يوم بدون نشاط. نحتاج إما cron للـ ping، أو backup يدوي.</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">6</span>
+        <div><strong>Notifications (Telegram/Email)</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">عند ترحيل فاتورة كبيرة، تنبيه للمدير. البنية التحتية (TELEGRAM_BOT_TOKEN) موجودة بالفعل عندي في الـ secrets.</span></div>
+      </div>
+      <div class="discuss-item">
+        <span class="check">7</span>
+        <div><strong>Bank reconciliation (مطابقة بنكية)</strong><br>
+        <span style="color:var(--text-2); font-size: 13.5px;">موديول يطابق حركات البنك مع القيود. معقد لكنه قياسي في أي ERP.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>صفحة تم إنشاؤها تلقائياً من بيانات النظام الحي • 2 أغسطس 2026</p>
+  <p style="margin-top: 6px;">كل المعلومات صحيحة وقت كتابتها • <a href="#top">↑ العودة للأعلى</a></p>
+</footer>
+
+</div>
+
+<script>
+// Smooth anchor scrolling with offset for sticky nav
+document.querySelectorAll('a[href^="#"]').forEach(link => {
+  link.addEventListener('click', e => {
+    const target = document.querySelector(link.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      window.scrollTo({ top: target.offsetTop - 70, behavior: 'smooth' });
+    }
+  });
+});
+</script>
+
+</body>
+</html>

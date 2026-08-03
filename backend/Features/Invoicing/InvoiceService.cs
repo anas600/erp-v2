@@ -226,12 +226,21 @@ public class InvoiceService
             throw new InvalidOperationException("الفاتورة بدون بنود");
 
         // Build the event payload that the Business Rule templates
-        // expect. The existing templates (seeded in 002) read these
-        // exact fields: invoice.number, invoice.total, invoice.tax,
-        // and party.name. We use `party` (not `supplier`/`customer`)
-        // so the same payload shape works for both purchase and sales
-        // — the rule template just uses the values, the type doesn't
-        // matter to it.
+        // expect. The legacy templates (seeded in 002) read these
+        // fields: invoice.number, invoice.total, invoice.tax, and
+        // customer.name / supplier.name. We also expose party.name
+        // as a third alias so newer rules don't have to know whether
+        // this is a sales or purchase invoice.
+        //
+        // Subtotal is exposed as both `invoice.subtotal` (the new
+        // convention after the products refactor) and `invoice.tax`
+        // for backward compat.
+        var partyDict = new Dictionary<string, object>
+        {
+            ["name"] = inv.PartyName,
+            ["nameAr"] = inv.PartyNameAr ?? inv.PartyName,
+            ["taxId"] = inv.PartyTaxId
+        };
         var payload = new Dictionary<string, object>
         {
             ["invoice"] = new Dictionary<string, object>
@@ -246,12 +255,14 @@ public class InvoiceService
                 ["lineCount"] = inv.Lines.Count,
                 ["lineTotalWithTaxSum"] = inv.Lines.Sum(l => l.LineTotalWithTax)
             },
-            ["party"] = new Dictionary<string, object>
-            {
-                ["name"] = inv.PartyName,
-                ["nameAr"] = inv.PartyNameAr ?? inv.PartyName,
-                ["taxId"] = inv.PartyTaxId
-            }
+            // 'party' is the new convention (used by Sprint 14+ rules).
+            ["party"] = partyDict,
+            // Legacy aliases for the seeded templates in 002. Some
+            // templates use customer.name (sales) and supplier.name
+            // (purchase) — we expose both regardless of invoice type
+            // so the templates always substitute cleanly.
+            ["customer"] = partyDict,
+            ["supplier"] = partyDict
         };
 
         // The rule template handles the actual journal entry creation

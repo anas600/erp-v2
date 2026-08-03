@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { BarChart3, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { BarChart3, Loader2, CheckCircle, XCircle, RefreshCw } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 
 interface TrialBalance {
@@ -27,22 +27,36 @@ export default function TrialBalancePage() {
   const { activeCompany } = useAuth();
   const [report, setReport] = useState<TrialBalance | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async (isManualRefresh = false) => {
     if (!activeCompany) return;
     try {
-      setLoading(true);
+      if (isManualRefresh) setRefreshing(true);
+      else setLoading(true);
       const res = await api.get(`/reports/trial-balance?companyId=${activeCompany.id}`);
       setReport(res.data);
+      setError(null);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [activeCompany]);
 
-  useEffect(() => { load(); }, [activeCompany]);
+  // Re-fetch when the page mounts OR when the user comes back to the
+  // tab/window. This solves the "stale data after creating a journal
+  // entry" UX issue — Next.js App Router caches visited routes, so
+  // useEffect-on-mount doesn't re-fire when you navigate away and back.
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onFocus = () => load(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [load]);
 
   if (loading) {
     return (
@@ -68,7 +82,16 @@ export default function TrialBalancePage() {
             {report.companyName} •截至 {new Date(report.asOfDate).toLocaleDateString("en-GB")}
           </p>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            className="btn-secondary flex items-center gap-1 text-sm"
+            title="إعادة تحميل البيانات"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "جاري التحديث..." : "تحديث"}
+          </button>
           {report.balanced ? (
             <span className="badge badge-success text-base px-3 py-1">
               <CheckCircle size={14} className="ml-1" /> متوازن
