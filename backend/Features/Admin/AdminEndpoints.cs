@@ -110,5 +110,61 @@ public static class AdminEndpoints
             };
             return Results.Ok(stats);
         });
+
+        // GET /api/admin/diagnose
+        // Runs each DELETE statement individually and reports which
+        // one fails (and with what error). Used to debug the
+        // cleanup-transactions endpoint when it 500s.
+        // Requires super_admin.
+        grp.MapGet("/diagnose", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var results = new List<object>();
+            string[] statements = {
+                "DELETE FROM journal_lines;",
+                "DELETE FROM journal_entries;",
+                "DELETE FROM invoice_lines;",
+                "DELETE FROM invoices;",
+                "UPDATE accounts SET balance = 0;"
+            };
+
+            using var conn = db.CreateConnection();
+            foreach (var stmt in statements)
+            {
+                try
+                {
+                    var n = await conn.ExecuteAsync(stmt);
+                    results.Add(new { statement = stmt, ok = true, rows = n });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "DIAGNOSE: '{Stmt}' failed: {Type}: {Msg}",
+                        stmt, ex.GetType().Name, ex.Message);
+                    results.Add(new
+                    {
+                        statement = stmt,
+                        ok = false,
+                        error = ex.Message,
+                        type = ex.GetType().Name,
+                        // PG error codes are diagnostic gold:
+                        //   23503 = foreign_key_violation
+                        //   23505 = unique_violation
+                        //   23502 = not_null_violation
+                        pgCode = (ex as Npgsql.PostgresException)?.SqlState
+                    });
+                    // Stop on first failure — we want to fix one
+                    // thing at a time, and continuing would
+                    // produce cascading failures.
+                    break;
+                }
+            }
+            return Results.Ok(new { results });
+        });
     }
 }
