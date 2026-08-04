@@ -176,4 +176,102 @@ public class ReportService
     private record TrialBalanceRow(string code, string name, string account_type, string nature, decimal balance);
     private record BalanceRow(string code, string name, string account_type, decimal balance);
     private record IncomeMovementRow(string code, string name, string account_type, decimal net);
+
+    /// <summary>
+    /// General Ledger (دفتر الأستاذ) for one account, in a date range.
+    ///
+    /// Returns every POSTED journal line that touched the account
+    /// between from..to (inclusive), plus a running balance. The
+    /// opening balance is the sum of all postings BEFORE the from
+    /// date so the running balance at the top of the period is
+    /// correct.
+    ///
+    /// Drafts and pending entries are excluded — they don't affect
+    /// the books yet. Reversed entries are also excluded (their
+    /// reversing counterpart already undoes them).
+    ///
+    /// Sign convention: the running balance is in the account's
+    /// natural sign — positive for debit-nature accounts means a
+    /// debit balance, negative means a credit balance. The
+    /// frontend is expected to display the natural balance
+    /// without an explicit "DR/CR" suffix.
+    /// </summary>
+    public async Task<GeneralLedgerReport?> GetGeneralLedgerAsync(
+        Guid companyId, Guid accountId, DateTime from, DateTime to)
+    {
+        using var conn = _db.CreateConnection();
+
+        // Look up the account (and its nature) and the company name.
+        var account = await conn.QuerySingleOrDefaultAsync<(string code, string name, string nature)>(@"
+            SELECT code, name, nature FROM accounts
+            WHERE id = @id AND company_id = @companyId;",
+            new { id = accountId, companyId });
+
+        if (account.code is null) return null;
+
+        var company = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT name FROM companies WHERE id = @id;",
+            new { id = companyId });
+
+        // Opening balance: sum of (debit - credit) for the account
+        // BEFORE the from date, for posted non-reversed entries.
+        // For credit-nature accounts, multiply by -1 to get the
+        // natural balance sign.
+        var openingRaw = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id = jl.journal_entry_id
+            WHERE je.company_id = @companyId
+              AND je.status = 'posted'
+              AND jl.account_id = @accountId
+              AND je.entry_date < @from;",
+            new { companyId, accountId, from });
+        var isDebitNature = account.nature?.Equals("Debit", StringComparison.OrdinalIgnoreCase) ?? true;
+        var openingBalance = isDebitNature ? (openingRaw ?? 0) : -(openingRaw ?? 0);
+
+        // Period transactions
+        var lines = (await conn.QueryAsync<GeneralLedgerLineRow>(@"
+            SELECT je.id AS entry_id, je.entry_number, je.entry_date,
+                   je.narration, je.source, je.entry_number AS reference,
+                   jl.debit, jl.credit
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id = jl.journal_entry_id
+            WHERE je.company_id = @companyId
+              AND je.status = 'posted'
+              AND jl.account_id = @accountId
+              AND je.entry_date BETWEEN @from AND @to
+            ORDER BY je.entry_date ASC, je.created_at ASC;",
+            new { companyId, accountId, from, to })).ToList();
+
+        // Compute running balance as we walk the lines
+        var entries = new List<GeneralLedgerEntry>();
+        decimal running = openingBalance;
+        decimal totalDebit = 0, totalCredit = 0;
+        foreach (var l in lines)
+        {
+            totalDebit += l.debit;
+            totalCredit += l.credit;
+            // Running balance in natural sign:
+            //   raw delta = debit - credit
+            //   For debit-nature accounts: +debit, -credit → running += raw
+            //   For credit-nature accounts: opposite
+            var raw = l.debit - l.credit;
+            running += isDebitNature ? raw : -raw;
+
+            entries.Add(new GeneralLedgerEntry(
+                l.entry_id, l.entry_number, l.entry_date,
+                l.narration, l.source, l.reference,
+                l.debit, l.credit, running));
+        }
+
+        return new GeneralLedgerReport(
+            companyId, company ?? "", accountId, account.code, account.name,
+            account.nature ?? "Debit",
+            from, to, openingBalance, totalDebit, totalCredit, running, entries);
+    }
+
+    private record GeneralLedgerLineRow(
+        Guid entry_id, string entry_number, DateTime entry_date,
+        string? narration, string? source, string? reference,
+        decimal debit, decimal credit);
 }

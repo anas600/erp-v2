@@ -55,3 +55,41 @@ public record BalanceSheetReport(
     decimal TotalEquity,
     bool Balanced
 );
+
+/// <summary>
+/// One transaction in the General Ledger for a specific account.
+/// We expose enough fields for the user to drill from the
+/// trial balance into "what makes up this balance".
+/// </summary>
+public record GeneralLedgerEntry(
+    Guid EntryId,
+    string EntryNumber,
+    DateTime EntryDate,
+    string? Narration,
+    string? Source,            // manual | rule:{id} | invoice | reverse:{id}
+    string? Reference,         // entry_number of the source entry (e.g. reversed)
+    decimal Debit,
+    decimal Credit,
+    decimal RunningBalance     // running balance after this transaction
+);
+
+/// <summary>
+/// The full General Ledger report for one account. Includes the
+/// opening balance (sum of all postings before the from-date) so
+/// the running balance in the lines makes sense.
+/// </summary>
+public record GeneralLedgerReport(
+    Guid CompanyId,
+    string CompanyName,
+    Guid AccountId,
+    string AccountCode,
+    string AccountName,
+    string AccountNature,        // Debit | Credit — determines normal balance
+    DateTime FromDate,
+    DateTime ToDate,
+    decimal OpeningBalance,      // balance at the start of the period
+    decimal TotalDebit,          // debits in the period
+    decimal TotalCredit,         // credits in the period
+    decimal ClosingBalance,      // balance at the end of the period
+    List<GeneralLedgerEntry> Entries
+);
