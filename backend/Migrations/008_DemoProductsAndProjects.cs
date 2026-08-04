@@ -12,6 +12,23 @@ namespace ErpV2.Migrations;
 ///   `projects` tables. Splitting them keeps each migration's
 ///   blast radius small (rollback one without affecting the other).
 ///
+/// HISTORY (this is the second version of this migration):
+///   v1: Used `completed_at` (timestamp) and `actual_cost` columns
+///       in the projects INSERT, plus passed `0` and `'2026-01-01'`
+///       for actual_cost/start_date. Failed at deploy with
+///       "42703: column completed_at of relation projects does not
+///       exist" because the projects table (004_ProjectsSchema)
+///       tracks completion via the `status` field (with values
+///       'active' | 'completed' | 'on_hold' | 'cancelled'), NOT a
+///       separate completed_at column. I made up the column name
+///       without checking the actual schema.
+///   v2 (this file): Match the real schema — use `status = 'completed'`
+///       and `end_date` (the existing nullable date columns). The
+///       projects table has: id, company_id, code, name, name_ar,
+///       description, status, start_date, end_date, budget,
+///       actual_cost, notes, created_at, updated_at. No
+///       completed_at column.
+///
 /// Demo data flag:
 ///   All rows are marked is_demo_data = true (when the column exists
 ///   on that table). To wipe the demo and start clean, the user can
@@ -64,27 +81,31 @@ public class DemoProductsAndProjects : Migration
         }
 
         // ============= PROJECTS (3 per company) =============
-        // The 3rd project is pre-completed in one company (HOLD) so the
-        // user can test the "ProjectMilestoneCompleted" rule and see a
+        // The 3rd project is pre-completed (status='completed' +
+        // end_date set) in one company (HOLD) so the user can test
+        // the "ProjectMilestoneCompleted" rule and see a
         // rule-generated journal entry.
-        var projects = new[]
+        //
+        // Note: we INSERT into columns that actually exist in the
+        // 004 schema: id, company_id, code, name, name_ar, status,
+        // start_date, end_date, budget. No completed_at column.
+        var projects = new (string Code, string Name, string NameAr, string Status, DateTime? EndDate)[]
         {
-            // (code, name_en, name_ar, status, completed_at)
-            ("PRJ-001", "HQ renovation",      "تجديد المقر الرئيسي",    "active",    (DateTime?)null),
-            ("PRJ-002", "ERP rollout phase 2", "مرحلة 2 من تطبيق النظام", "active",    (DateTime?)null),
-            ("PRJ-003", "Annual audit",        "التدقيق السنوي",         "completed", (DateTime?)new DateTime(2026, 7, 15))
+            ("PRJ-001", "HQ renovation",       "تجديد المقر الرئيسي",    "active",    null),
+            ("PRJ-002", "ERP rollout phase 2", "مرحلة 2 من تطبيق النظام", "active",    null),
+            ("PRJ-003", "Annual audit",        "التدقيق السنوي",         "completed", new DateTime(2026, 7, 15))
         };
 
-        // Use the schema as-defined in 004_ProjectsSchema. We don't add a
-        // company_id check here because the projects schema is the same
-        // for every company — we just need to read its columns.
-        // Look up the actual column names to be safe.
+        // Guard: bail out cleanly if the projects table doesn't have
+        // the columns we expect. (004 should have created them, but
+        // we don't want to crash if a future migration renames them.)
         var projCols = conn.QuerySingleOrDefault<string>(@"
             SELECT string_agg(column_name, ',') FROM information_schema.columns
             WHERE table_name = 'projects';") ?? "";
-        if (!projCols.Contains("company_id") || !projCols.Contains("code"))
+        if (!projCols.Contains("company_id") || !projCols.Contains("code") || !projCols.Contains("status"))
         {
-            // 004 didn't run? bail out cleanly.
+            // 004 didn't run, or schema changed. Exit cleanly so the
+            // migration is recorded as "applied" without doing damage.
             return;
         }
 
@@ -93,17 +114,18 @@ public class DemoProductsAndProjects : Migration
             foreach (var prj in projects)
             {
                 conn.Execute(@"
-                    INSERT INTO projects (company_id, code, name, name_ar, status, completed_at, actual_cost, budget, start_date)
-                    VALUES (@companyId, @code, @name, @nameAr, @status, @completedAt, 0, 100000, '2026-01-01')
+                    INSERT INTO projects (company_id, code, name, name_ar, status, start_date, end_date, budget, actual_cost)
+                    VALUES (@companyId, @code, @name, @nameAr, @status, @startDate, @endDate, 100000, 0)
                     ON CONFLICT (company_id, code) DO NOTHING;",
                     new
                     {
                         companyId,
-                        code = prj.Item1,
-                        name = prj.Item2,
-                        nameAr = prj.Item3,
-                        status = prj.Item4,
-                        completedAt = prj.Item5
+                        code = prj.Code,
+                        name = prj.Name,
+                        nameAr = prj.NameAr,
+                        status = prj.Status,
+                        startDate = new DateTime(2026, 1, 1),
+                        endDate = prj.EndDate
                     });
             }
         }
