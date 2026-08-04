@@ -272,7 +272,7 @@ public class JournalService
         // status check before opening a tx)
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
             SELECT id, company_id, entry_number, entry_date, narration,
-                   status, source, rule_id, created_by, created_at, posted_at
+                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
             FROM journal_entries WHERE id = @id;",
             new { id = entryId });
 
@@ -304,7 +304,7 @@ public class JournalService
 
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
             SELECT id, company_id, entry_number, entry_date, narration,
-                   status, source, rule_id, created_by, created_at, posted_at
+                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
             FROM journal_entries WHERE id = @id;",
             new { id = entryId });
 
