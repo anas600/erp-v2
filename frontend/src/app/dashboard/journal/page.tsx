@@ -188,6 +188,7 @@ export default function JournalPage() {
                       <td className="font-mono" dir="ltr">{formatNumber(total)}</td>
                       <td>
                         {e.status === "posted" && <span className="badge badge-success">مرحّل</span>}
+                        {e.status === "pending" && <span className="badge badge-info">معلّق</span>}
                         {e.status === "draft" && <span className="badge badge-warning">مسودة</span>}
                         {e.status === "reversed" && <span className="badge badge-danger">معكوس</span>}
                       </td>

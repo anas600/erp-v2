@@ -8,6 +8,7 @@ using ErpV2.Features.Rules;
 using ErpV2.Features.Reports;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Projects;
+using ErpV2.Features.Contacts;
 using ErpV2.Features.Users;
 using ErpV2.Features.Products;
 using ErpV2.Migrations;
@@ -222,6 +223,7 @@ builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<ProductService>();
+builder.Services.AddSingleton<ContactService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -263,6 +265,7 @@ InvoiceEndpoints.Map(app);
 ProjectEndpoints.Map(app);
 UserEndpoints.Map(app);
 ProductEndpoints.Map(app);
+ContactEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup

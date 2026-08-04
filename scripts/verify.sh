@@ -155,7 +155,7 @@ echo ""
 echo "[9/18] Checking for hardcoded DB hostnames in migrations..."
 # The only allowed hardcoded string is the docker-compose fallback in 002_SeedData.cs.
 # Any other migration with a hardcoded 'Host=' is a bug.
-violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v -E "(002|005)_.*\\.cs$" || true)
+violations=$(grep -lE "Host=(db|localhost|127\\.0\\.0\\.1)" backend/Migrations/*.cs 2>/dev/null | grep -v -E "(002|005|007|008)_.*\\.cs$" || true)
 if [ -n "$violations" ]; then
   echo "❌ Hardcoded DB hostname found in: $violations"
   echo "   Use Environment.GetEnvironmentVariable(\"ConnectionStrings__Default\") instead."

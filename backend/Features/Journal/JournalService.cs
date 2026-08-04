@@ -34,12 +34,62 @@ public class JournalService
         return result;
     }
 
+    /// <summary>
+    /// Lists all PENDING entries for a company — the ones that need the
+    /// accountant's review. Used by the "Pending Entries" page (Sprint 15).
+    /// Ordered oldest-first so the accountant drains the queue in arrival
+    /// order (FIFO).
+    /// </summary>
+    public async Task<List<JournalEntryDto>> GetPendingAsync(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        var entries = (await conn.QueryAsync<JournalEntryRow>(@"
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by, created_at, posted_at
+            FROM journal_entries
+            WHERE company_id = @companyId AND status = 'pending'
+            ORDER BY created_at ASC;",
+            new { companyId })).ToList();
+
+        var result = new List<JournalEntryDto>();
+        foreach (var e in entries)
+        {
+            var dto = await _posting.GetByIdAsync(e.id);
+            if (dto is not null) result.Add(dto);
+        }
+        return result;
+    }
+
     public async Task<JournalEntryDto?> GetByIdAsync(Guid id) => await _posting.GetByIdAsync(id);
 
     public async Task<JournalEntryDto> CreateDraftAsync(CreateJournalEntryRequest req, Guid? createdBy)
     {
+        // Manual draft — editable, requires a separate PostAsync to be
+        // promoted to "posted". Used by the human "New journal entry" UI.
+        return await CreateInternalAsync(req, createdBy, "draft");
+    }
+
+    /// <summary>
+    /// Creates an entry in "pending" status — used by the rules engine
+    /// (Sprint 15). The entry awaits accountant approval via
+    /// ApproveAsync before it affects financial reports.
+    ///
+    /// This is the new default for rule-generated entries (the old
+    /// behaviour was to auto-post, which left no room for review).
+    /// </summary>
+    public async Task<JournalEntryDto> CreatePendingAsync(CreateJournalEntryRequest req, Guid? createdBy)
+    {
+        if (string.IsNullOrWhiteSpace(req.Source) || !req.Source.StartsWith("rule:"))
+            throw new InvalidOperationException(
+                "CreatePendingAsync must be called by a rule — Source must start with 'rule:'");
+        return await CreateInternalAsync(req, createdBy, "pending");
+    }
+
+    private async Task<JournalEntryDto> CreateInternalAsync(CreateJournalEntryRequest req, Guid? createdBy, string initialStatus)
+    {
         if (req.Lines.Count == 0)
             throw new InvalidOperationException("Entry must have at least one line");
+        if (initialStatus != "draft" && initialStatus != "pending")
+            throw new InvalidOperationException($"Unknown initial status '{initialStatus}' — expected 'draft' or 'pending'");
 
         using var conn = _db.CreateConnection();
         using var tx = conn.BeginTransaction();
@@ -56,7 +106,7 @@ public class JournalService
 
             await conn.ExecuteAsync(@"
                 INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by)
-                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, 'draft', @source, @ruleId, @createdBy);",
+                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @createdBy);",
                 new
                 {
                     id = entryId,
@@ -64,6 +114,7 @@ public class JournalService
                     entryNumber,
                     entryDate = req.EntryDate,
                     narration = req.Narration,
+                    status = initialStatus,
                     source,
                     ruleId = req.RuleId,
                     createdBy
@@ -192,6 +243,101 @@ public class JournalService
             tx.Rollback();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Approves a pending journal entry and posts it (transitions to
+    /// "posted" status). The entry then affects financial reports.
+    ///
+    /// Used by the accountant's "Approve" button on the Pending Entries
+    /// page. Idempotent: approving an already-posted entry is a no-op.
+    ///
+    /// Refuses to approve:
+    ///   - Entries in any state other than "pending" (e.g. already posted,
+    ///     already reversed, manual drafts that should be published via
+    ///     PostAsync instead).
+    ///   - Empty entries (no lines).
+    ///   - Unbalanced entries (debits != credits).
+    /// </summary>
+    public async Task<JournalEntryDto?> ApproveAsync(Guid entryId, Guid? userId)
+    {
+        using var conn = _db.CreateConnection();
+
+        // Load the entry first (no transaction yet — we want a clean
+        // status check before opening a tx)
+        var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
+            SELECT id, company_id, entry_number, entry_date, narration,
+                   status, source, rule_id, created_by, created_at, posted_at
+            FROM journal_entries WHERE id = @id;",
+            new { id = entryId });
+
+        if (entry is null) return null;
+        if (entry.status == "posted") return await GetByIdAsync(entryId); // idempotent
+        if (entry.status != "pending")
+            throw new InvalidOperationException(
+                $"لا يمكن اعتماد قيد بحالة '{entry.status}'. المتوقع: 'pending'");
+
+        // Delegate the actual transition to PostingEngine — it handles
+        // balance validation, account-balance updates, and the
+        // UPDATE journal_entries SET status = 'posted'.
+        return await _posting.PostAsync(entryId);
+    }
+
+    /// <summary>
+    /// Rejects a pending journal entry: transitions it back to "draft"
+    /// (so the originator can edit it) and stamps the reason. The entry
+    /// is NOT deleted — accounting records are immutable; rejection is
+    /// just a state transition.
+    ///
+    /// If the entry was auto-generated by a rule, the rejected entry
+    /// stays in the journal as a draft with the rule's reference
+    /// preserved, so the rule author can investigate.
+    /// </summary>
+    public async Task<JournalEntryDto?> RejectAsync(Guid entryId, Guid? userId, string? reason)
+    {
+        using var conn = _db.CreateConnection();
+
+        var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
+            SELECT id, company_id, entry_number, entry_date, narration,
+                   status, source, rule_id, created_by, created_at, posted_at
+            FROM journal_entries WHERE id = @id;",
+            new { id = entryId });
+
+        if (entry is null) return null;
+        if (entry.status != "pending")
+            throw new InvalidOperationException(
+                $"لا يمكن رفض قيد بحالة '{entry.status}'. المتوقع: 'pending'");
+
+        var newNarration = string.IsNullOrWhiteSpace(reason)
+            ? entry.narration
+            : $"[مرفوض: {reason}] {entry.narration}";
+
+        await conn.ExecuteAsync(@"
+            UPDATE journal_entries
+            SET status = 'draft', narration = @narration
+            WHERE id = @id;",
+            new { id = entryId, narration = newNarration });
+
+        // Log the rejection for audit purposes.
+        try
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, payload_json, created_at)
+                VALUES (@id, @userId, 'reject', 'journal_entry', @entityId, @payload::jsonb, NOW());",
+                new
+                {
+                    id = Guid.NewGuid(),
+                    userId,
+                    entityId = entryId,
+                    payload = $"{{\"reason\":\"{(reason ?? "").Replace("\"", "\\\"")}\",\"originalStatus\":\"pending\"}}"
+                });
+        }
+        catch
+        {
+            // audit_logs insert failure should not block the rejection
+        }
+
+        return await GetByIdAsync(entryId);
     }
 
     private async Task<string> GenerateEntryNumberAsync(Guid companyId, System.Data.IDbConnection conn, System.Data.IDbTransaction tx)

@@ -244,13 +244,13 @@ public class RuleEvaluator
             RuleId: ruleId
         );
 
-        _log.LogInformation("Rule {RuleId}: creating journal entry with {Count} lines, source=rule:{RuleId}", ruleId, lines.Count, ruleId);
-        var entry = await new JournalService(_db, _posting).CreateDraftAsync(req, userId);
-        _log.LogInformation("Rule {RuleId}: draft entry {EntryId} created", ruleId, entry.Id);
-        // Auto-post
-        var posted = await _posting.PostAsync(entry.Id);
-        _log.LogInformation("Rule {RuleId}: entry {EntryId} posted", ruleId, posted.Id);
-        return posted;
+        _log.LogInformation("Rule {RuleId}: creating PENDING journal entry with {Count} lines, source=rule:{RuleId}", ruleId, lines.Count, ruleId);
+        // Sprint 15: rule-generated entries start as PENDING (not draft, not posted).
+        // The accountant reviews them on the Pending Entries page and approves.
+        // This gives the accountant final say over what affects financial reports.
+        var entry = await new JournalService(_db, _posting).CreatePendingAsync(req, userId);
+        _log.LogInformation("Rule {RuleId}: pending entry {EntryId} created — awaits accountant approval", ruleId, entry.Id);
+        return entry;
     }
 
     private static decimal EvaluateAmount(string formula, Dictionary<string, object> payload)

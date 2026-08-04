@@ -61,5 +61,49 @@ public static class JournalEndpoints
                 return Results.BadRequest(new { error = ex.Message });
             }
         });
+
+        // Sprint 15 — Approve a pending entry (rule-generated).
+        // Transitions: pending → posted. Affects financial reports on success.
+        grp.MapPost("/{id:guid}/approve", async (Guid id, JournalService svc, HttpContext ctx) =>
+        {
+            try
+            {
+                var userId = ctx.GetUserId();
+                var entry = await svc.ApproveAsync(id, userId);
+                return entry is null ? Results.NotFound() : Results.Ok(entry);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        // Sprint 15 — Reject a pending entry.
+        // Transitions: pending → draft. The entry keeps the rule's
+        // source/reference so the rule author can investigate.
+        grp.MapPost("/{id:guid}/reject", async (Guid id, [FromBody] RejectRequest? req, JournalService svc, HttpContext ctx) =>
+        {
+            try
+            {
+                var userId = ctx.GetUserId();
+                var entry = await svc.RejectAsync(id, userId, req?.Reason);
+                return entry is null ? Results.NotFound() : Results.Ok(entry);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        // Sprint 15 — List pending entries for a company (for the
+        // "Pending Entries" page on the accountant's dashboard).
+        grp.MapGet("/pending", async ([FromQuery] Guid companyId, JournalService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            var data = await svc.GetPendingAsync(companyId);
+            return Results.Ok(data);
+        });
     }
+
+    public record RejectRequest(string? Reason);
 }
