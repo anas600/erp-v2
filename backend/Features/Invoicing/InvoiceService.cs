@@ -1,5 +1,6 @@
 using Dapper;
 using ErpV2.Common;
+using ErpV2.Features.Journal;
 
 namespace ErpV2.Features.Invoicing;
 
@@ -20,13 +21,15 @@ public class InvoiceService
     private readonly Features.Journal.JournalService _journal;
     private readonly Features.Journal.PostingEngine _posting;
     private readonly Features.Rules.RuleEvaluator _rules;
+    private readonly ILogger<InvoiceService> _log;
 
-    public InvoiceService(IDbConnectionFactory db, Features.Journal.JournalService journal, Features.Journal.PostingEngine posting, Features.Rules.RuleEvaluator rules)
+    public InvoiceService(IDbConnectionFactory db, Features.Journal.JournalService journal, Features.Journal.PostingEngine posting, Features.Rules.RuleEvaluator rules, ILogger<InvoiceService> log)
     {
         _db = db;
         _journal = journal;
         _posting = posting;
         _rules = rules;
+        _log = log;
     }
 
     public async Task<List<InvoiceDto>> GetByCompanyAsync(Guid companyId, int limit = 100)
@@ -271,10 +274,38 @@ public class InvoiceService
         // is enabled, the journal is simply not created — the user can
         // inspect and re-enable rules from the Business Rules page.
         var eventName = inv.InvoiceType == "sales" ? "SalesInvoiceApproved" : "PurchaseInvoiceApproved";
-        var entries = await _rules.TriggerEventAsync(inv.CompanyId, null, eventName, payload);
+        _log.LogInformation(
+            "PostAsync: invoice {InvNum} type={Type} company={CoId} — triggering {Event}",
+            inv.InvoiceNumber, inv.InvoiceType, inv.CompanyId, eventName);
+        List<JournalEntryDto> entries;
+        try
+        {
+            entries = await _rules.TriggerEventAsync(inv.CompanyId, null, eventName, payload);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "PostAsync: rule trigger failed for invoice {InvId}: {Msg}", invoiceId, ex.Message);
+            // Re-throw so the user sees the error (and the invoice
+            // is NOT marked as posted — atomicity over silence).
+            throw new InvalidOperationException(
+                $"فشل توليد القيد المحاسبي: {ex.Message}", ex);
+        }
+        _log.LogInformation(
+            "PostAsync: invoice {InvNum} — {Count} journal entries created",
+            inv.InvoiceNumber, entries.Count);
 
-        // Mark the invoice as posted regardless of how many rules
-        // fired — the user has approved it, the rest is bookkeeping.
+        // Mark the invoice as posted only if a journal entry was
+        // created. If no rules fired (entries.Count == 0), the
+        // invoice stays in 'draft' so the user can investigate
+        // (or manually create a journal entry).
+        if (entries.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "لا توجد قواعد محاسبية مفعّلة لهذا النوع من الفواتير. " +
+                "الرجاء تفعيل قاعدة 'ترحيل فاتورة مبيعات' أو 'ترحيل فاتورة مشتريات' " +
+                "من صفحة 'قواعد العمل' قبل ترحيل الفاتورة.");
+        }
+
         using (var conn = _db.CreateConnection())
         {
             await conn.ExecuteAsync(
