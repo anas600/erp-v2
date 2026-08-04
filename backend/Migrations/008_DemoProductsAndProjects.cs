@@ -89,6 +89,19 @@ public class DemoProductsAndProjects : Migration
         // Note: we INSERT into columns that actually exist in the
         // 004 schema: id, company_id, code, name, name_ar, status,
         // start_date, end_date, budget. No completed_at column.
+        //
+        // Add the missing unique index FIRST — 004 didn't create it,
+        // so our `ON CONFLICT (company_id, code) DO NOTHING` has
+        // nothing to match against. The error we hit on the previous
+        // deploy was: "42P10: there is no unique or exclusion
+        // constraint matching the ON CONFLICT specification".
+        // The products table got its unique index from 005; the
+        // projects table didn't get one. CREATE UNIQUE INDEX IF NOT
+        // EXISTS is idempotent so re-runs are safe.
+        conn.Execute(@"
+            CREATE UNIQUE INDEX IF NOT EXISTS uk_projects_company_code
+            ON projects(company_id, code);");
+
         var projects = new (string Code, string Name, string NameAr, string Status, DateTime? EndDate)[]
         {
             ("PRJ-001", "HQ renovation",       "تجديد المقر الرئيسي",    "active",    null),
