@@ -28,6 +28,15 @@ interface Product {
   defaultTaxRate: number;
 }
 
+interface Contact {
+  id: string;
+  type: "customer" | "supplier";
+  code: string;
+  name: string;
+  nameAr?: string;
+  taxId?: string;
+}
+
 interface InvoiceLine {
   id: string;
   accountId?: string;
@@ -82,6 +91,7 @@ export default function InvoicesPage() {
   const { activeCompany, user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -92,6 +102,7 @@ export default function InvoicesPage() {
   const [form, setForm] = useState({
     invoiceType: "purchase" as "purchase" | "sales",
     invoiceDate: new Date().toISOString().slice(0, 10),
+    partyContactId: "" as string,  // when picked from catalogue
     partyName: "",
     partyNameAr: "",
     taxRate: 0,
@@ -102,12 +113,14 @@ export default function InvoicesPage() {
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const [invoicesRes, productsRes] = await Promise.all([
+      const [invoicesRes, productsRes, contactsRes] = await Promise.all([
         api.get(`/invoices?companyId=${activeCompany.id}&limit=100`),
-        api.get(`/products?companyId=${activeCompany.id}`)
+        api.get(`/products?companyId=${activeCompany.id}`),
+        api.get(`/contacts?companyId=${activeCompany.id}`)
       ]);
       setInvoices(invoicesRes.data);
       setProducts(productsRes.data);
+      setContacts(contactsRes.data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -186,6 +199,7 @@ export default function InvoicesPage() {
       setForm({
         invoiceType: "purchase",
         invoiceDate: new Date().toISOString().slice(0, 10),
+        partyContactId: "",
         partyName: "",
         partyNameAr: "",
         taxRate: 0,
@@ -308,6 +322,7 @@ export default function InvoicesPage() {
           form={form}
           setForm={setForm}
           products={products}
+          contacts={contacts}
           lineTotalsWithTax={lineTotalsWithTax}
           subtotal={subtotal}
           taxAmount={taxAmount}
@@ -429,7 +444,7 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
 }
 
 function InvoiceForm({
-  form, setForm, products, lineTotalsWithTax,
+  form, setForm, products, contacts, lineTotalsWithTax,
   subtotal, taxAmount, total,
   submitting, error,
   onSubmit, onAddLine, onRemoveLine, onUpdateLine, onCancel
@@ -484,24 +499,66 @@ function InvoiceForm({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">اسم المورد/العميل (English) *</label>
-              <input
+              <label className="block text-sm font-medium mb-1">
+                {form.invoiceType === "sales" ? "اختر العميل من القائمة" : "اختر المورد من القائمة"}
+              </label>
+              <select
                 className="input"
-                value={form.partyName}
-                onChange={(e) => setForm({ ...form, partyName: e.target.value })}
-                required
-                placeholder="e.g., ABC Trading Co."
-              />
+                value={form.partyContactId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const c = contacts.find((c: Contact) => c.id === id);
+                  if (c) {
+                    setForm({
+                      ...form,
+                      partyContactId: id,
+                      partyName: c.name,
+                      partyNameAr: c.nameAr || c.name
+                    });
+                  } else {
+                    setForm({ ...form, partyContactId: "" });
+                  }
+                }}
+              >
+                <option value="">— أو اكتب اسم جديد (يدوي) —</option>
+                {contacts
+                  .filter((c: Contact) => c.type === (form.invoiceType === "sales" ? "customer" : "supplier"))
+                  .map((c: Contact) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.nameAr || c.name}
+                    </option>
+                  ))}
+              </select>
+              {contacts.filter((c: Contact) => c.type === (form.invoiceType === "sales" ? "customer" : "supplier")).length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠ لا يوجد {form.invoiceType === "sales" ? "عملاء" : "موردين"} في الكتالوج. اكتب الاسم يدوياً أو أضف من صفحة "العملاء والموردين".
+                </p>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">اسم المورد/العميل (عربي)</label>
+              <label className="block text-sm font-medium mb-1">
+                اسم الطرف (عربي) — يُملأ تلقائياً
+              </label>
               <input
                 className="input"
                 value={form.partyNameAr}
                 onChange={(e) => setForm({ ...form, partyNameAr: e.target.value })}
                 placeholder="مثال: شركة ABC التجارية"
+                dir="rtl"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">اسم الطرف (English) *</label>
+            <input
+              className="input"
+              value={form.partyName}
+              onChange={(e) => setForm({ ...form, partyName: e.target.value })}
+              required
+              placeholder="e.g., ABC Trading Co."
+              dir="ltr"
+            />
           </div>
 
           <div>

@@ -199,10 +199,21 @@ export default function PendingJournalPage() {
             <textarea
               className="input min-h-[80px]"
               value={rejectReason.reason}
-              onChange={(e) => setRejectReason({ ...rejectReason, reason: e.target.value })}
+              onChange={(e) => setRejectReason({ ...rejectReason, reason: e.target.value.slice(0, 500) })}
               placeholder="مثال: الحساب غير صحيح، أعد التكوين"
               dir="rtl"
+              maxLength={500}
             />
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xs text-gray-400">
+                {rejectReason.reason.length} / 500 حرف
+              </span>
+              {rejectReason.reason.length > 450 && (
+                <span className="text-xs text-amber-600">
+                  ⚠ يقترب من الحد الأقصى
+                </span>
+              )}
+            </div>
             <div className="flex gap-2 mt-3">
               <button
                 onClick={submitReject}
