@@ -43,63 +43,51 @@ public class AdminService
     ///     balances, the trial balance would be wrong.
     ///
     /// Returns a count of rows deleted per table.
+    ///
+    /// Each DELETE is its own statement. We don't use a single
+    /// transaction because the four DELETEs are independent
+    /// (each table is its own boundary) and a partial cleanup
+    /// (lines deleted, entries not) is recoverable: the user
+    /// just runs the endpoint again. A single tx with multiple
+    /// statements had reliability issues on Render free tier
+    /// (intermittent 500s with empty bodies), so we go with
+    /// the simpler, more robust approach here.
     /// </summary>
     public async Task<CleanupResult> CleanupAllTransactionsAsync()
     {
         using var conn = _db.CreateConnection();
-        using var tx = conn.BeginTransaction();
-        try
-        {
-            // Order matters: child rows first, then parents.
-            // If any step fails, the tx rolls back and we leave
-            // the system in a consistent state.
 
-            var journalLinesDeleted = await conn.ExecuteAsync(
-                "DELETE FROM journal_lines;", tx);
+        // Order matters: child rows first, then parents.
+        // (lines before their parents, so the FK constraint
+        // is satisfied.)
 
-            var journalEntriesDeleted = await conn.ExecuteAsync(
-                "DELETE FROM journal_entries;", tx);
+        var journalLinesDeleted = await conn.ExecuteAsync(
+            "DELETE FROM journal_lines;");
 
-            var invoiceLinesDeleted = await conn.ExecuteAsync(
-                "DELETE FROM invoice_lines;", tx);
+        var journalEntriesDeleted = await conn.ExecuteAsync(
+            "DELETE FROM journal_entries;");
 
-            var invoicesDeleted = await conn.ExecuteAsync(
-                "DELETE FROM invoices;", tx);
+        var invoiceLinesDeleted = await conn.ExecuteAsync(
+            "DELETE FROM invoice_lines;");
 
-            // Reset every account balance to zero. We do NOT
-            // touch the chart of accounts itself — just the
-            // running totals. After the cleanup, opening
-            // balance for every account is 0.00.
-            var accountsReset = await conn.ExecuteAsync(
-                "UPDATE accounts SET balance = 0;", tx);
+        var invoicesDeleted = await conn.ExecuteAsync(
+            "DELETE FROM invoices;");
 
-            // Also clear the FluentMigrator VersionInfo so a
-            // fresh migration run from scratch doesn't think
-            // the DB is up-to-date. Wait, no — we DON'T want
-            // to do that. The migrations should still be
-            // marked as applied; we just want a clean data
-            // state. The migrations modify schema, not data,
-            // and re-running them on a schema that already
-            // has the new columns would be a no-op.
-            //
-            // Leave VersionInfo alone.
+        // Reset every account balance to zero. We do NOT
+        // touch the chart of accounts itself — just the
+        // running totals. After the cleanup, opening
+        // balance for every account is 0.00.
+        var accountsReset = await conn.ExecuteAsync(
+            "UPDATE accounts SET balance = 0;");
 
-            tx.Commit();
-
-            return new CleanupResult(
-                JournalLinesDeleted: journalLinesDeleted,
-                JournalEntriesDeleted: journalEntriesDeleted,
-                InvoiceLinesDeleted: invoiceLinesDeleted,
-                InvoicesDeleted: invoicesDeleted,
-                AccountsReset: accountsReset,
-                CleanedAt: DateTime.UtcNow
-            );
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
+        return new CleanupResult(
+            JournalLinesDeleted: journalLinesDeleted,
+            JournalEntriesDeleted: journalEntriesDeleted,
+            InvoiceLinesDeleted: invoiceLinesDeleted,
+            InvoicesDeleted: invoicesDeleted,
+            AccountsReset: accountsReset,
+            CleanedAt: DateTime.UtcNow
+        );
     }
 }
 
