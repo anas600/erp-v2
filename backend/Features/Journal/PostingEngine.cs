@@ -134,16 +134,42 @@ public class PostingEngine
     /// <returns>A tuple (debit, credit) where exactly one is non-zero.</returns>
     public (decimal debit, decimal credit) ComputePlacement(string accountNature, string requestedNature, decimal amount)
     {
-        // If requested nature matches account nature → straightforward
-        // If opposite → reverse placement
-        if (accountNature == requestedNature)
+        // CASE-INSENSITIVE comparison: the chart-of-accounts stores
+        // nature as "Debit" / "Credit" (capital first letter — see
+        // 002_SeedData) but the rule engine sends lowercase "debit"
+        // / "credit" (see 006_FixInvoicePostingRules). Without
+        // normalization, "Credit" != "credit" — the comparison
+        // falls through to the else branch, every line lands in
+        // the DEBIT column, and the entry is unbalanced. The error
+        // the user saw: "إجمالي المدين = 630.00, إجمالي الدائن = 0.00"
+        // (3× the actual amount because all 3 lines went to debit).
+        //
+        // We normalize to title-case here, once. Both sides of the
+        // comparison are normalized, so the original logic below
+        // works correctly regardless of what the caller passes.
+        var a = NormalizeNature(accountNature);
+        var r = NormalizeNature(requestedNature);
+
+        if (a == r)
         {
-            return requestedNature == "Debit" ? (amount, 0) : (0, amount);
+            // Straightforward: amount goes on the requested side.
+            return r == "Debit" ? (amount, 0) : (0, amount);
         }
         else
         {
-            return requestedNature == "Debit" ? (0, amount) : (amount, 0);
+            // Opposite: amount is mirrored to the OTHER side.
+            return r == "Debit" ? (0, amount) : (amount, 0);
         }
+    }
+
+    private static string NormalizeNature(string? n)
+    {
+        if (string.IsNullOrWhiteSpace(n)) return "";
+        var s = n.Trim();
+        // Accept "Debit"/"debit"/"DEBIT" — anything we accept, normalize.
+        if (s.Equals("debit", StringComparison.OrdinalIgnoreCase)) return "Debit";
+        if (s.Equals("credit", StringComparison.OrdinalIgnoreCase)) return "Credit";
+        return s; // unknown — leave as-is; the comparison will fail
     }
 
     public async Task<JournalEntryDto?> GetByIdAsync(Guid id)
