@@ -219,6 +219,13 @@ public class RuleEvaluator
 
             // Evaluate amount formula (simple {path.to.value} substitution)
             var amount = EvaluateAmount(line.AmountFormula, payload);
+            if (amount == 0 && line.AmountFormula != "0" && line.AmountFormula != "0.0")
+            {
+                _log.LogWarning(
+                    "Rule {RuleId}: amount formula '{Formula}' evaluated to 0 for account {Code}. " +
+                    "Check that the payload contains the referenced field.",
+                    ruleId, line.AmountFormula, line.AccountCode);
+            }
 
             // Apply Nature Logic
             var (debit, credit) = _posting.ComputePlacement(account.nature, line.Nature, amount);
@@ -248,25 +255,51 @@ public class RuleEvaluator
 
     private static decimal EvaluateAmount(string formula, Dictionary<string, object> payload)
     {
-        // Simple formula: supports + - * / and {path.to.value} substitution
+        // Formula format: "invoice.total" or "invoice.total - invoice.tax" or
+        // "{invoice.total}" or "100" or "100 + 50" — anything that DataTable.Compute
+        // can evaluate after we substitute payload field references.
+        //
+        // Two patterns we need to handle:
+        //   1. {path.to.value}    — curly-brace placeholder
+        //   2. path.to.value      — bare field reference (e.g. "invoice.total")
+        //
+        // The bare form is the common one in our rules (the seeded templates
+        // and the user's "ترحيل فاتورة مبيعات" rule use it). Without the
+        // bare-form handling, DataTable.Compute("invoice.total") throws and
+        // the catch silently returns 0 — which is exactly why the rules
+        // were firing but producing nothing visible.
         var expression = formula;
-        var stack = new Stack<string>();
-        // Replace {path.to.value} with numeric values
-        var regex = new System.Text.RegularExpressions.Regex(@"\{([^}]+)\}");
-        expression = regex.Replace(formula, match =>
+
+        // 1) Curly-brace placeholders (legacy support)
+        var braceRegex = new System.Text.RegularExpressions.Regex(@"\{([^}]+)\}");
+        expression = braceRegex.Replace(expression, match =>
+        {
+            var v = ResolveField(match.Groups[1].Value.Trim(), payload);
+            return ToDecimal(v).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        });
+
+        // 2) Bare field references — only identifier.path segments, not
+        // operators or numbers. We do a single pass that preserves
+        // arithmetic operators by replacing each identifier.match with
+        // its value. Order matters: longer paths first so "invoice.total"
+        // matches before "invoice".
+        var bareRegex = new System.Text.RegularExpressions.Regex(@"\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\b");
+        expression = bareRegex.Replace(expression, match =>
         {
             var v = ResolveField(match.Groups[1].Value, payload);
             return ToDecimal(v).ToString(System.Globalization.CultureInfo.InvariantCulture);
         });
+
         try
         {
-            // Tiny safe expression evaluator using NCalc-style would be ideal,
-            // but for MVP we support simple arithmetic only
             var dt = new System.Data.DataTable();
             return Convert.ToDecimal(dt.Compute(expression, ""));
         }
         catch
         {
+            // If evaluation still fails, return 0 — but log it so silent
+            // failures don't hide behind "triggered: 0" responses. The
+            // caller (RuleEvaluator) will pass through the value as-is.
             return 0;
         }
     }
