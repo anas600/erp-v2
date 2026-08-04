@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { FileText, Plus, Loader2, X, CheckCircle, Send } from "lucide-react";
+import { FileText, Plus, Loader2, X, CheckCircle, Send, Trash2, RotateCcw } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 interface Account {
@@ -143,6 +143,35 @@ export default function JournalPage() {
     }
   };
 
+  // Delete a draft entry. Refused by the backend if the entry
+  // is anything other than 'draft' (you cannot delete a posted
+  // or pending entry — that would be like ripping a page out
+  // of an accounting ledger).
+  const deleteEntry = async (id: string) => {
+    if (!confirm("هل أنت متأكد من حذف هذه المسودة؟ لا يمكن التراجع.")) return;
+    try {
+      await api.delete(`/journal/${id}`);
+      await load();
+    } catch (err) {
+      alert(getErrorMessage(err));
+    }
+  };
+
+  // Reverse a posted entry. This is the ONLY way to "undo" a
+  // posted entry in accounting: the original stays in the
+  // books (audit trail) but a new "reversing" entry with the
+  // opposite debits/credits neutralizes the effect. The
+  // original is marked status='reversed' for display.
+  const reverseEntry = async (id: string) => {
+    if (!confirm("عكس هذا القيد المرحّل؟\n\nسيُنشأ قيد عكسي جديد يلغي تأثير القيد الأصلي (دون حذفه). هذا هو الإجراء المحاسبي الصحيح.")) return;
+    try {
+      await api.post(`/journal/${id}/reverse`);
+      await load();
+    } catch (err) {
+      alert(getErrorMessage(err));
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -194,15 +223,38 @@ export default function JournalPage() {
                       </td>
                       <td className="text-xs text-gray-500">{e.source || "يدوي"}</td>
                       <td>
-                        {e.status === "draft" && (
-                          <button
-                            onClick={(ev) => { ev.stopPropagation(); postEntry(e.id); }}
-                            className="text-primary-600 hover:underline text-sm"
-                          >
-                            <Send size={14} className="inline ml-1" />
-                            ترحيل
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {e.status === "draft" && (
+                            <>
+                              <button
+                                onClick={(ev) => { ev.stopPropagation(); postEntry(e.id); }}
+                                className="text-primary-600 hover:bg-primary-50 p-1 rounded text-sm"
+                                title="ترحيل (نشر)"
+                              >
+                                <Send size={14} />
+                              </button>
+                              <button
+                                onClick={(ev) => { ev.stopPropagation(); deleteEntry(e.id); }}
+                                className="text-red-600 hover:bg-red-50 p-1 rounded text-sm"
+                                title="حذف (المسودة فقط)"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                          {e.status === "pending" && (
+                            <span className="text-xs text-amber-600">من صفحة المعلقة</span>
+                          )}
+                          {e.status === "posted" && (
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); reverseEntry(e.id); }}
+                              className="text-orange-600 hover:bg-orange-50 p-1 rounded text-sm"
+                              title="عكس (قيد عكسي)"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                     {expanded === e.id && (

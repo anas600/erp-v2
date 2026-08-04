@@ -45,6 +45,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: "/dashboard/users", label: "المستخدمون", icon: Users, perm: "users.read" },
     { href: "/dashboard/rules", label: "قواعد العمل", icon: Zap, perm: "rules.read" },
     { href: "/dashboard/reports/trial-balance", label: "ميزان المراجعة", icon: BarChart3, perm: "reports.read" },
+    { href: "/dashboard/reports/general-ledger", label: "دفتر الأستاذ", icon: BookOpen, perm: "reports.read" },
     { href: "/dashboard/reports/income-statement", label: "قائمة الدخل", icon: BarChart3, perm: "reports.read" },
     { href: "/dashboard/reports/balance-sheet", label: "الميزانية", icon: BarChart3, perm: "reports.read" }
   ];
