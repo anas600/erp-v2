@@ -22,9 +22,10 @@ public static class AdminEndpoints
         {
             // 1) Super-admin gate. The JWT carries `is_super_admin`
             //    as a string claim ("true"/"false"); see
-            //    AuthService for the token issuance logic.
-            var isSuperAdmin = ctx.User.FindFirst("is_super_admin")?.Value == "true";
-            if (!isSuperAdmin)
+            //    AuthService for the token issuance logic. The
+            //    JwtTokenService.IsSuperAdmin() extension method
+            //    handles the parse robustly.
+            if (!ctx.IsSuperAdmin())
             {
                 return Results.Json(
                     new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
@@ -36,12 +37,6 @@ public static class AdminEndpoints
             //    tried to wipe the data.
             try
             {
-                using var scope = logger.BeginScope(new Dictionary<string, object>
-                {
-                    ["action"] = "cleanup_transactions",
-                    ["user"] = ctx.User.FindFirst(ClaimTypes.Email)?.Value ?? "unknown",
-                    ["timestamp"] = DateTime.UtcNow
-                });
                 logger.LogWarning(
                     "ADMIN CLEANUP: user {Email} is wiping all transactions at {Time}",
                     ctx.User.FindFirst(ClaimTypes.Email)?.Value,
@@ -57,8 +52,30 @@ public static class AdminEndpoints
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Cleanup failed");
-                return Results.BadRequest(new { error = ex.Message });
+                // Render free tier does NOT show stack traces in the
+                // response — they get stripped by the runtime. We log
+                // a verbose message here so the error is visible in
+                // the Render dashboard's "Logs" tab, AND return a
+                // rich error object so the user can see what's wrong
+                // even without log access.
+                logger.LogError(ex, "Cleanup failed: {Type}: {Message}\n{Stack}",
+                    ex.GetType().Name, ex.Message, ex.StackTrace);
+
+                var inner = ex.InnerException;
+                var depth = 1;
+                while (inner != null && depth < 5)
+                {
+                    logger.LogError("  Inner[{Depth}]: {Type}: {Message}", depth, inner.GetType().Name, inner.Message);
+                    inner = inner.InnerException;
+                    depth++;
+                }
+
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name,
+                    inner = ex.InnerException?.Message
+                });
             }
         });
 
@@ -68,8 +85,7 @@ public static class AdminEndpoints
         // requires super_admin.
         grp.MapGet("/db-stats", async (HttpContext ctx, IDbConnectionFactory db) =>
         {
-            var isSuperAdmin = ctx.User.FindFirst("is_super_admin")?.Value == "true";
-            if (!isSuperAdmin)
+            if (!ctx.IsSuperAdmin())
             {
                 return Results.Json(
                     new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
