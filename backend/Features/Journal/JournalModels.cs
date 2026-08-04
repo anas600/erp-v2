@@ -9,6 +9,8 @@ public record JournalEntryDto(
     string Status,
     string? Source,
     Guid? RuleId,
+    Guid? ReversesEntryId,           // The original entry this one reverses (null for normal entries)
+    string? ReversesEntryNumber,     // Human-readable "JV-2026-0001" form of the above
     Guid? CreatedBy,
     DateTime CreatedAt,
     DateTime? PostedAt,
@@ -31,8 +33,9 @@ public record CreateJournalEntryRequest(
     DateTime EntryDate,
     string? Narration,
     List<CreateJournalLineRequest> Lines,
-    string? Source = null,   // "manual" | "invoice" | "rule:{ruleId}" — defaults to "manual" in the service
-    Guid? RuleId = null      // FK back to business_rules.id when Source starts with "rule:"
+    string? Source = null,            // "manual" | "invoice" | "rule:{ruleId}" | "reverse" — defaults to "manual" in the service
+    Guid? RuleId = null,               // FK back to business_rules.id when Source starts with "rule:"
+    Guid? ReversesEntryId = null       // FK back to journal_entries.id when Source = "reverse"
 );
 
 public record CreateJournalLineRequest(

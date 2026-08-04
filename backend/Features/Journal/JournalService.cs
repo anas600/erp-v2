@@ -18,7 +18,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
             FROM journal_entries
             WHERE company_id = @companyId
             ORDER BY entry_date DESC, created_at DESC
@@ -44,7 +44,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
             FROM journal_entries
             WHERE company_id = @companyId AND status = 'pending'
             ORDER BY created_at ASC;",
@@ -105,8 +105,8 @@ public class JournalService
             var source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source;
 
             await conn.ExecuteAsync(@"
-                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by)
-                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @createdBy);",
+                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by)
+                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @reversesEntryId, @createdBy);",
                 new
                 {
                     id = entryId,
@@ -117,6 +117,7 @@ public class JournalService
                     status = initialStatus,
                     source,
                     ruleId = req.RuleId,
+                    reversesEntryId = req.ReversesEntryId,
                     createdBy
                 }, tx);
 
@@ -164,7 +165,7 @@ public class JournalService
         try
         {
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, created_by, created_at, posted_at
+                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
             if (entry is null) return false;
@@ -179,9 +180,13 @@ public class JournalService
             var newEntryId = Guid.NewGuid();
             var newEntryNumber = await GenerateEntryNumberAsync(entry.company_id, conn, tx);
 
+            // Source is now just the prefix "reverse" — the actual link
+            // to the original entry is in the new reverses_entry_id FK.
+            // The FK is the authoritative source; the prefix is kept for
+            // fast filtering ("all reversals" = WHERE source = 'reverse').
             await conn.ExecuteAsync(@"
-                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, created_by, posted_at)
-                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, 'posted', @source, @createdBy, NOW());",
+                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, reverses_entry_id, created_by, posted_at)
+                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, 'posted', 'reverse', @reversesEntryId, @createdBy, NOW());",
                 new
                 {
                     id = newEntryId,
@@ -189,7 +194,7 @@ public class JournalService
                     entryNumber = newEntryNumber,
                     entryDate = DateTime.UtcNow.Date,
                     narration = $"عكس قيد رقم {entry.entry_number}",
-                    source = $"reverse:{entry.id}",
+                    reversesEntryId = entry.id,
                     createdBy = entry.created_by
                 }, tx);
 
@@ -340,6 +345,60 @@ public class JournalService
         return await GetByIdAsync(entryId);
     }
 
+    /// <summary>
+    /// Deletes a draft journal entry and its lines. Drafts are the only
+    /// entries that can be removed — once an entry is posted (or pending,
+    /// or reversed) it becomes part of the permanent accounting record.
+    ///
+    /// Why only drafts?
+    ///   - Posted entries must never be deleted (GAAP/IFRS — reversible,
+    ///     never erasable).
+    ///   - Pending entries are awaiting review; the accountant should
+    ///     Approve or Reject, not delete.
+    ///   - Reversed entries are already cancelled by a reversing entry;
+    ///     deleting them would break the audit trail.
+    ///
+    /// Returns true if the entry was deleted, false if it didn't exist.
+    /// Throws InvalidOperationException if the entry exists but is not
+    /// in draft state.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid entryId)
+    {
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1) Status check first — fail fast before doing any DELETE.
+            var status = await conn.QuerySingleOrDefaultAsync<string?>(@"
+                SELECT status FROM journal_entries WHERE id = @id;",
+                new { id = entryId }, tx);
+            if (status is null) return false;
+            if (status != "draft")
+                throw new InvalidOperationException(
+                    $"لا يمكن حذف قيد بحالة '{status}'. الحذف مسموح فقط للمسودات.");
+
+            // 2) Delete the lines first (defensive — there's no ON DELETE
+            //    CASCADE on the FK, so this would orphan the lines if we
+            //    only deleted the header).
+            await conn.ExecuteAsync(
+                "DELETE FROM journal_lines WHERE journal_entry_id = @id;",
+                new { id = entryId }, tx);
+
+            // 3) Delete the header.
+            await conn.ExecuteAsync(
+                "DELETE FROM journal_entries WHERE id = @id;",
+                new { id = entryId }, tx);
+
+            tx.Commit();
+            return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
     private async Task<string> GenerateEntryNumberAsync(Guid companyId, System.Data.IDbConnection conn, System.Data.IDbTransaction tx)
     {
         var year = DateTime.UtcNow.Year;
@@ -362,8 +421,8 @@ public class JournalService
 
     private record JournalEntryRow(
         Guid id, Guid company_id, string entry_number, DateTime entry_date, string? narration,
-        string status, string? source, Guid? rule_id, Guid? created_by,
-        DateTime created_at, DateTime? posted_at);
+        string status, string? source, Guid? rule_id, Guid? reverses_entry_id,
+        Guid? created_by, DateTime created_at, DateTime? posted_at);
 
     private record JournalLineRow(
         Guid id, Guid journal_entry_id, Guid account_id, decimal debit, decimal credit,

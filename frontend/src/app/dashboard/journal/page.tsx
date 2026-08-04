@@ -34,6 +34,19 @@ interface JournalEntry {
   narration?: string;
   status: string;
   source?: string;
+  ruleId?: string;
+  /**
+   * FK back to the original entry this one reverses (set on
+   * reverse-entries, null on every other entry). Populated by
+   * PostingEngine.GetByIdAsync via the journal_entries.reverses_entry_id
+   * FK (Sprint 18 — see Migrations/010_JournalEntryReversal).
+   */
+  reversesEntryId?: string;
+  /**
+   * Human-readable form of `reversesEntryId` (e.g. "JV-2026-0001").
+   * The UI uses this to show the "يعكس JV-2026-0001" badge.
+   */
+  reversesEntryNumber?: string;
   lines: JournalLine[];
   createdAt: string;
   postedAt?: string;
@@ -202,6 +215,7 @@ export default function JournalPage() {
                 <th>المبلغ</th>
                 <th>الحالة</th>
                 <th>المصدر</th>
+                <th>يعكس</th>
                 <th></th>
               </tr>
             </thead>
@@ -222,6 +236,21 @@ export default function JournalPage() {
                         {e.status === "reversed" && <span className="badge badge-danger">معكوس</span>}
                       </td>
                       <td className="text-xs text-gray-500">{e.source || "يدوي"}</td>
+                      <td className="text-xs">
+                        {e.reversesEntryNumber ? (
+                          // "يعكس JV-2026-0001" — links the reversing
+                          // entry to the original in the user's mind.
+                          <span className="badge badge-warning" title="يعكس القيد الأصلي">
+                            ↩ يعكس {e.reversesEntryNumber}
+                          </span>
+                        ) : e.status === "reversed" ? (
+                          <span className="text-xs text-gray-400 italic" title="تم عكس هذا القيد بقيد لاحق">
+                            تم عكسه
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td>
                         <div className="flex items-center gap-1">
                           {e.status === "draft" && (
@@ -259,7 +288,7 @@ export default function JournalPage() {
                     </tr>
                     {expanded === e.id && (
                       <tr key={e.id + "-detail"}>
-                        <td colSpan={7} className="bg-gray-50 p-4">
+                        <td colSpan={8} className="bg-gray-50 p-4">
                           <table className="w-full text-sm">
                             <thead>
                               <tr className="text-xs text-gray-600">

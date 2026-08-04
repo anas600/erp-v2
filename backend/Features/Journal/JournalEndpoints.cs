@@ -62,6 +62,28 @@ public static class JournalEndpoints
             }
         });
 
+        // Sprint 18 — Delete a DRAFT journal entry (and its lines).
+        // Posted/Pending/Reversed entries are protected — they are part
+        // of the permanent accounting record. Use the /reverse endpoint
+        // for posted entries, /reject for pending ones.
+        //
+        // Returns:
+        //   200 OK   — entry deleted
+        //   404 NF   — entry didn't exist
+        //   400 Bad  — entry exists but is in a non-draft state
+        grp.MapDelete("/{id:guid}", async (Guid id, JournalService svc) =>
+        {
+            try
+            {
+                var ok = await svc.DeleteAsync(id);
+                return ok ? Results.Ok(new { deleted = true }) : Results.NotFound();
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         // Sprint 15 — Approve a pending entry (rule-generated).
         // Transitions: pending → posted. Affects financial reports on success.
         grp.MapPost("/{id:guid}/approve", async (Guid id, JournalService svc, HttpContext ctx) =>
