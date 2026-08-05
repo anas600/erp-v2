@@ -296,8 +296,16 @@ public class ReportService
         // For now: each posted sales invoice is "outstanding"
         // at its full total. We bucket by invoice age.
         // Future enhancement: subtract receipts linked to invoices.
-        // FIX 2026-08-05: cast i.invoice_date to date too — Postgres rejects
-        // `date - timestamp` (type mismatch). date - date returns integer days.
+        //
+        // FIX 2026-08-05 (2 bugs):
+        //   1. Postgres rejects `date - timestamp` (type mismatch).
+        //      Cast both sides to date — `date - date = integer days`.
+        //   2. `invoices` has no `contact_id` FK; party is stored as
+        //      text (`party_name`). When the user picks a contact from
+        //      the catalog, the frontend sets `partyName = c.name`.
+        //      Match on (company_id, name, type). Invoices with a
+        //      manually-typed party name (no matching contact) are
+        //      silently excluded from aging — acceptable for now.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -307,9 +315,12 @@ public class ReportService
                 i.total AS outstanding,
                 (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
-            JOIN contacts c ON c.id = i.contact_id
+            JOIN contacts c
+              ON c.company_id = i.company_id
+             AND c.name = i.party_name
+             AND c.type = 'customer'
             WHERE i.company_id = @companyId
-              AND c.type = 'customer'
+              AND i.invoice_type = 'sales'
               AND i.status = 'posted'
               AND i.invoice_date <= @asOfDate
             ORDER BY c.name, i.invoice_date;",
@@ -362,8 +373,10 @@ public class ReportService
     public async Task<SupplierAgingReport> GetSupplierAgingAsync(Guid companyId, DateTime asOfDate)
     {
         using var conn = _db.CreateConnection();
-        // FIX 2026-08-05: cast i.invoice_date to date too — same date-timestamp
-        // mismatch fix as GetCustomerAgingAsync.
+        // FIX 2026-08-05: same as GetCustomerAgingAsync —
+        //   1. date - timestamp → date - date
+        //   2. JOIN on party_name (text) instead of non-existent contact_id FK
+        //   3. Filter by invoice_type='purchase' (not 'sales')
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -373,9 +386,12 @@ public class ReportService
                 i.total AS outstanding,
                 (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
-            JOIN contacts c ON c.id = i.contact_id
+            JOIN contacts c
+              ON c.company_id = i.company_id
+             AND c.name = i.party_name
+             AND c.type = 'supplier'
             WHERE i.company_id = @companyId
-              AND c.type = 'supplier'
+              AND i.invoice_type = 'purchase'
               AND i.status = 'posted'
               AND i.invoice_date <= @asOfDate
             ORDER BY c.name, i.invoice_date;",
