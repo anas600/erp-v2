@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, ScrollText as ScrollTextIcon
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, ScrollText as ScrollTextIcon
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -121,7 +121,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       collapsible: false,
       items: [
         { href: "/dashboard/users", label: "المستخدمون", icon: Users },
-        { href: "/dashboard/rules", label: "قواعد العمل", icon: Zap }
+        { href: "/dashboard/rules", label: "قواعد العمل", icon: Zap },
+        // Sprint 26: super-admin tool surface (cleanup, seed, reset).
+        // Stays in the "الإدارة" group so it doesn't pollute the
+        // main nav for regular users.
+        { href: "/dashboard/admin", label: "أدوات المدير", icon: Wrench }
       ]
     }
   ];

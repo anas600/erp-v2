@@ -5,6 +5,10 @@
  * pages, account statements, and fiscal-year management. This file
  * collects the data shapes those features share.
  *
+ * Sprint 26 added the `Account` interface for the new tree-view COA
+ * surface, plus the `isPostable` / `level` / `accountClass` fields
+ * that drive the auto-compute behavior in the create-account form.
+ *
  * Conventions:
  *   - Amounts are `number` (LYD with 2 decimal places). Server sends
  *     decimal strings/numbers; we trust them to be JSON-safe.
@@ -16,6 +20,119 @@
  *     backend explicitly returns JSON null; `?` is used when the field
  *     may be omitted entirely.
  */
+
+// ─── Chart of accounts (Sprint 26) ────────────────────────────────────────
+
+/**
+ * The 4-level chart of accounts. Returned by:
+ *   - `GET /api/accounts?companyId=...` (flat list) — used by the tree
+ *     view (frontend groups by parentId).
+ *   - `GET /api/accounts/{id}` (single) — used by the contact detail
+ *     "sub-ledger" badge.
+ *
+ * The COA hierarchy (Sprint 26 spec):
+ *   Level 1: logical type (Asset/Liability/Equity/Revenue/Expense).
+ *            NOT stored as accounts; surfaced as the `accountType`
+ *            on every account. Used only for grouping + the top row
+ *            of the tree view.
+ *   Level 2: category header — e.g. "Current Assets", "Fixed Assets".
+ *            accountClass = "header", isPostable = false. No postings.
+ *   Level 3: sub-category / operational — e.g. "Cash", "Bank",
+ *            "Accounts Receivable" (1200). The 18 seeded accounts are
+ *            at this level. isPostable defaults to true but the user
+ *            may disable it (for grouping without sub-ledger).
+ *   Level 4: detail / sub-ledger — e.g. "AR - Customer CUST-001".
+ *            Linked 1:1 to a contact via account_contact_links.
+ *            isPostable is forced true. The posting engine routes
+ *            receipts/payments here.
+ */
+export interface Account {
+  id: string;
+  companyId: string;
+  code: string;
+  /** English name (required). */
+  name: string;
+  /** Arabic name (optional). */
+  nameAr?: string;
+  /** Parent account id (null = top-level category). */
+  parentId?: string | null;
+  /** Asset | Liability | Equity | Revenue | Expense. */
+  accountType: string;
+  /** Debit | Credit — the natural balance side. */
+  nature: string;
+  /** 1 = logical type, 2 = category header, 3 = sub-category, 4 = detail. */
+  level: number;
+  /** "header" (L2 — no postings) or "detail" (L3/L4 — accepts postings). */
+  accountClass: string;
+  /** AR/AP control account flag (1200 = AR control, 2000 = AP control). */
+  isControlAccount: boolean;
+  /** Whether postings require a cost center dimension. */
+  costCenterRequired: boolean;
+  /**
+   * Sprint 26: whether the account accepts direct journal postings.
+   *   L1/L2: forced false (grouping only).
+   *   L3: user choice (default true).
+   *   L4: forced true (sub-ledgers always postable).
+   * UI surfaces this as a green/grey badge in the tree view.
+   */
+  isPostable: boolean;
+  isActive: boolean;
+  /** Current balance in LYD. */
+  balance: number;
+}
+
+/**
+ * Tree node returned by `GET /api/accounts?companyId=...` when
+ * the backend pre-builds the tree. The frontend may also build the
+ * tree from the flat list — both shapes are supported.
+ */
+export interface AccountTreeNode {
+  id: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+  accountType: string;
+  nature: string;
+  level: number;
+  isControlAccount: boolean;
+  isPostable: boolean;
+  isActive: boolean;
+  balance: number;
+  hasChildren: boolean;
+  children: AccountTreeNode[];
+}
+
+/**
+ * Request body for `POST /api/accounts`. The `level` is computed
+ * server-side from the parent; the UI sends it for clarity but the
+ * backend may override.
+ */
+export interface CreateAccountRequest {
+  companyId: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+  parentId?: string | null;
+  accountType: string;
+  nature: string;
+  level: number;
+  isPostable: boolean;
+  accountClass: string;
+  isControlAccount?: boolean;
+  costCenterRequired?: boolean;
+}
+
+/**
+ * Request body for `POST /api/accounts/sub-ledger`. The backend
+ * auto-resolves the parent (1200 for customer, 2000 for supplier)
+ * from the contact type, so we only send the contact + company.
+ */
+export interface CreateSubLedgerRequest {
+  companyId: string;
+  contactId: string;
+  parentAccountCode: string;
+  detailCode: string;
+}
 
 // ─── Contacts (customers & suppliers) ─────────────────────────────────────
 

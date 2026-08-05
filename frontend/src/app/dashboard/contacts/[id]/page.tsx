@@ -6,11 +6,13 @@ import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
 import {
   Loader2, ArrowRight, Users, Phone, Mail, FileText, Hash, Building2,
-  CreditCard, Wallet, Inbox, ScrollText, Calendar, Printer, Search, AlertCircle
+  CreditCard, Wallet, Inbox, ScrollText, Calendar, Printer, Search, AlertCircle,
+  Link2, Plus, CheckCircle2
 } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 import type {
-  ContactBalance, InvoiceWithOutstanding, StatementResponse, VoucherWithInvoice
+  Account, ContactBalance, InvoiceWithOutstanding,
+  StatementResponse, VoucherWithInvoice
 } from "@/lib/types";
 
 type TabKey = "invoices" | "vouchers" | "statement";
@@ -77,9 +79,15 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [balance, setBalance] = useState<ContactBalance | null>(null);
+  const [subLedger, setSubLedger] = useState<Account | null>(null);
   const [tab, setTab] = useState<TabKey>("invoices");
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
+  // Sprint 26: sub-ledger creation state. The badge or button in
+  // the header reflects this; the user can create the sub-ledger
+  // here if it doesn't exist yet.
+  const [creatingSubLedger, setCreatingSubLedger] = useState(false);
+  const [subLedgerMsg, setSubLedgerMsg] = useState<string | null>(null);
 
   // Load the contact + balance once for the header card.
   useEffect(() => {
@@ -88,13 +96,25 @@ export default function ContactDetailPage() {
     (async () => {
       setPageLoading(true);
       try {
-        const [c, b] = await Promise.allSettled([
+        const [c, b, sl] = await Promise.allSettled([
           api.get(`/contacts/${contactId}`),
-          api.get(`/contacts/${contactId}/balance`)
+          api.get(`/contacts/${contactId}/balance`),
+          api.get(`/accounts/sub-ledger/${contactId}`)
         ]);
         if (cancelled) return;
         if (c.status === "fulfilled") setContact(c.value.data);
         if (b.status === "fulfilled") setBalance(b.value.data);
+        // 404 on the sub-ledger endpoint is expected (the contact
+        // has no sub-ledger yet). Anything else is a real error.
+        if (sl.status === "fulfilled") {
+          setSubLedger(sl.value.data);
+        } else if (sl.status === "rejected") {
+          const status = (sl.reason as any)?.response?.status;
+          if (status !== 404) {
+            // Real error — surface to console but don't block the page.
+            console.warn("Sub-ledger lookup failed:", sl.reason);
+          }
+        }
         if (c.status === "rejected" && b.status === "rejected") {
           setError(getErrorMessage(c.reason));
         }
@@ -104,6 +124,41 @@ export default function ContactDetailPage() {
     })();
     return () => { cancelled = true; };
   }, [contactId]);
+
+  // Create the sub-ledger for this contact. The backend derives the
+  // parent (1200 for customer, 2000 for supplier) from the contact
+  // type, so we only send the contact id + detail code (which is
+  // the contact's own code, per the seeded convention).
+  const createSubLedger = async () => {
+    if (!activeCompany || !contact) return;
+    if (!confirm(
+      contact.type === "customer"
+        ? "إنشاء حساب تفصيلي (L4) لهذا العميل تحت حساب 1200 — العملاء؟"
+        : "إنشاء حساب تفصيلي (L4) لهذا المورّد تحت حساب 2000 — الموردون؟"
+    )) return;
+    setCreatingSubLedger(true);
+    setSubLedgerMsg(null);
+    try {
+      // The parent account code is chosen by the contact type.
+      // The detail code is the contact's own code, so the final
+      // sub-ledger code follows the pattern 1200-CUST-001 etc.
+      const parentCode = contact.type === "customer" ? "1200" : "2000";
+      const res = await api.post("/accounts/sub-ledger", {
+        companyId: activeCompany.id,
+        contactId: contact.id,
+        parentAccountCode: parentCode,
+        detailCode: contact.code
+      });
+      setSubLedger(res.data);
+      setSubLedgerMsg("تم إنشاء الحساب التفصيلي بنجاح");
+      // Auto-hide the success after a few seconds.
+      setTimeout(() => setSubLedgerMsg(null), 3000);
+    } catch (err) {
+      setSubLedgerMsg(getErrorMessage(err));
+    } finally {
+      setCreatingSubLedger(false);
+    }
+  };
 
   if (pageLoading) {
     return (
@@ -198,6 +253,58 @@ export default function ContactDetailPage() {
               <span className="text-gray-400 mr-2">د.ل</span>
             </p>
           </div>
+        </div>
+
+        {/* Sub-ledger row — Sprint 26.
+            The contact may or may not have a sub-ledger account
+            linked. If yes, show a clickable badge that jumps to
+            the accounts tree filtered by that account. If no,
+            show a "Create sub-ledger" button. */}
+        <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3">
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <Link2 size={12} />
+            الحساب التفصيلي:
+          </span>
+          {subLedger ? (
+            <button
+              onClick={() => router.push(`/dashboard/accounts`)}
+              className="badge bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 cursor-pointer flex items-center gap-1"
+              title="اذهب إلى شجرة الحسابات"
+              dir="ltr"
+            >
+              <Wallet size={12} />
+              <span className="font-mono font-semibold">{subLedger.code}</span>
+            </button>
+          ) : (
+            <button
+              onClick={createSubLedger}
+              disabled={creatingSubLedger}
+              className="text-xs flex items-center gap-1 px-2 py-1 rounded bg-primary-50 text-primary-700 hover:bg-primary-100 disabled:opacity-50"
+            >
+              {creatingSubLedger ? (
+                <Loader2 className="animate-spin" size={12} />
+              ) : (
+                <Plus size={12} />
+              )}
+              إنشاء حساب تفصيلي
+            </button>
+          )}
+          {subLedgerMsg && (
+            <span
+              className={`text-xs flex items-center gap-1 ${
+                subLedger
+                  ? "text-green-700"
+                  : "text-red-700"
+              }`}
+            >
+              {!subLedger && <AlertCircle size={12} />}
+              {subLedger && <CheckCircle2 size={12} />}
+              {subLedgerMsg}
+            </span>
+          )}
+          <span className="text-xs text-gray-400">
+            (مرتبط بحساب 1200 للعملاء أو 2000 للموردين)
+          </span>
         </div>
       </div>
 
