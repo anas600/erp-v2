@@ -60,6 +60,7 @@ export default function JournalPage() {
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -89,6 +90,20 @@ export default function JournalPage() {
   };
 
   useEffect(() => { load(); }, [activeCompany]);
+
+  // Auto-refresh every 30s. The user reported a manual draft
+  // they saved that "didn't appear" — in their case the row
+  // was in the DB, but the list state was stale because they
+  // hadn't tabbed back to the journal page. Polling eliminates
+  // that ambiguity: any change made elsewhere (e.g. another
+  // tab, or the rule engine auto-creating entries) shows up
+  // within 30s without a manual refresh.
+  useEffect(() => {
+    if (!activeCompany) return;
+    const interval = setInterval(() => load(), 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompany]);
 
   const addLine = () => {
     setForm({
@@ -121,7 +136,7 @@ export default function JournalPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/journal", {
+      const res = await api.post("/journal", {
         companyId: activeCompany.id,
         entryDate: form.entryDate,
         narration: form.narration,
@@ -134,12 +149,22 @@ export default function JournalPage() {
             description: l.description
           }))
       });
+      // Brief inline confirmation so the user knows the save worked
+      // (especially helpful when the entry isn't immediately visible
+      // in the table due to large lists or sort order).
+      setSuccessMessage(`تم حفظ القيد ${res.data.entryNumber} كمسودة`);
       setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", lines: [
         { accountId: "", debit: 0, credit: 0, description: "" },
         { accountId: "", debit: 0, credit: 0, description: "" }
       ]});
-      setShowForm(false);
+      // Force reload BEFORE closing the modal so the new entry
+      // is in `entries` state by the time the user looks at the
+      // table. Without this, the modal closes immediately and
+      // the user might miss the row if `load()` is slow or throws.
       await load();
+      setShowForm(false);
+      // Auto-dismiss the success message after 3s
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -199,6 +224,13 @@ export default function JournalPage() {
       </div>
 
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
+
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-md text-sm flex items-center gap-2">
+          <CheckCircle size={16} />
+          {successMessage}
+        </div>
+      )}
 
       <div className="card">
         {loading ? (
