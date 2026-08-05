@@ -575,6 +575,12 @@ public class InvoiceService
             _             => new[] { "posted", "partiallypaid", "paid" }
         };
 
+        // FIX 2026-08-05: contacts.type is 'customer'/'supplier' but
+        // invoices.invoice_type is 'sales'/'purchase'. They are NOT
+        // the same enum — was comparing 'customer' = 'sales' which
+        // never matched. Map correctly here.
+        var invoiceType = contact.type == "customer" ? "sales" : "purchase";
+
         var rows = await conn.QueryAsync<ContactInvoiceRow>(@"
             SELECT
                 id AS invoice_id,
@@ -593,7 +599,7 @@ public class InvoiceService
               AND status = ANY(@statuses)
               AND status != 'cancelled'
             ORDER BY invoice_date DESC, created_at DESC;",
-            new { companyId, partyName = contact.name, invoiceType = contact.type, statuses, asOf });
+            new { companyId, partyName = contact.name, invoiceType, statuses, asOf });
 
         return rows.Select(r => new ContactInvoiceDto(
             r.invoice_id, r.number, r.date, r.type, r.total, r.amount_paid,

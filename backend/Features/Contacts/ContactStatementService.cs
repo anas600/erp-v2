@@ -84,9 +84,11 @@ public class ContactStatementService
             SELECT company_id, name, type FROM contacts WHERE id = @id;",
             new { id = contactId });
         if (contact.company_id == Guid.Empty)
-            return new ContactBalanceDto(contactId, "", "", 0m, 0m, 0m, 0m, 0m, 0m);
+            return new ContactBalanceDto(contactId, "", "", 0m, 0m, 0m, 0m);
 
-        var invoiceType = contact.type; // 'customer' ↔ sales, 'supplier' ↔ purchase
+        // FIX 2026-08-05: contacts.type is 'customer'/'supplier' but
+        // invoices.invoice_type is 'sales'/'purchase'. Map correctly.
+        var invoiceType = contact.type == "customer" ? "sales" : "purchase";
         var invoiceTotals = await conn.QuerySingleAsync<(decimal total, decimal paid)>(@"
             SELECT
                 COALESCE(SUM(i.total), 0)        AS total,
@@ -127,7 +129,7 @@ public class ContactStatementService
         return new ContactBalanceDto(
             contactId, contact.name, contact.type,
             invoiceTotals.total, invoiceTotals.paid, voucherTotal,
-            outstanding, 0m, 0m); // debit/credit breakdown reserved for future use
+            outstanding);
     }
 
     /// <summary>
@@ -315,9 +317,7 @@ public record ContactBalanceDto(
     decimal TotalInvoiced,          // sum of invoice totals (posted + partiallypaid + paid)
     decimal TotalPaid,              // sum of amount_paid across those invoices
     decimal TotalVouchers,          // sum of posted receipts (customer) or payments (supplier)
-    decimal Outstanding,            // invoice_total - invoice_paid - voucher_total; positive = they/we owe
-    decimal Unused1,                // reserved for future debit/credit breakdown
-    decimal Unused2
+    decimal Outstanding             // invoice_total - invoice_paid - voucher_total; positive = they/we owe
 );
 
 public record ContactStatementDto(
