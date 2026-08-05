@@ -66,7 +66,7 @@ public class InvoiceService
             SELECT id, company_id, invoice_number, invoice_type, invoice_date,
                    party_name, party_name_ar, party_tax_id, notes,
                    subtotal, tax_amount, total, status, created_at, posted_at,
-                   intercompany_company_id
+                   intercompany_company_id, amount_paid, fully_paid_at
             FROM invoices WHERE id = @id;",
             new { id });
         if (inv is null) return null;
@@ -89,6 +89,7 @@ public class InvoiceService
             inv.party_name, inv.party_name_ar, inv.party_tax_id, inv.notes,
             inv.subtotal, inv.tax_amount, inv.total, inv.status, inv.created_at, inv.posted_at,
             inv.intercompany_company_id,
+            inv.amount_paid, inv.fully_paid_at,
             lines.Select(l => new InvoiceLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
                 l.product_id, l.product_code, l.product_name, l.product_name_ar,
@@ -421,6 +422,188 @@ public class InvoiceService
             new { id = invoiceId });
         return rows > 0;
     }
+
+    /// <summary>
+    /// Sprint 25 — Apply a payment to an invoice. Increments
+    /// <c>invoices.amount_paid</c> by <paramref name="amount"/> and recomputes
+    /// the status:
+    ///   - amount_paid == 0  → status = 'posted'
+    ///   - 0 < amount_paid < total → status = 'partiallypaid'
+    ///   - amount_paid == total  → status = 'paid' (and stamp fully_paid_at)
+    ///
+    /// The method is **atomic**: it opens its own connection + transaction,
+    /// re-reads the invoice under a row lock via <c>SELECT ... FOR UPDATE</c>,
+    /// and updates in a single statement so concurrent receipts against the
+    /// same invoice can't double-spend the outstanding.
+    ///
+    /// Used by the public API (e.g. an admin tool) and by Receipt/Payment
+    /// services. The two voucher services prefer the in-transaction
+    /// overload <see cref="ApplyPaymentInTxAsync"/> so they can roll the
+    /// invoice update back together with the journal entry creation.
+    /// </summary>
+    public async Task<InvoiceDto> ApplyPaymentAsync(
+        Guid invoiceId, decimal amount, DateTime paymentDate, Guid voucherId)
+    {
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            var updated = await ApplyPaymentInTxAsync(conn, tx, invoiceId, amount, paymentDate, voucherId);
+            tx.Commit();
+            return updated;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// In-transaction overload of <see cref="ApplyPaymentAsync"/>. The
+    /// caller owns the connection and the transaction; the invoice update
+    /// is rolled back if the caller rolls back.
+    ///
+    /// Locks the invoice row with <c>SELECT ... FOR UPDATE</c> so a
+    /// concurrent receipt against the same invoice blocks until this
+    /// transaction completes.
+    ///
+    /// <paramref name="voucherId"/> is currently unused but kept in the
+    /// signature for future audit logging (e.g. <c>audit_logs</c> row
+    /// "invoice {invoiceId} received {amount} via voucher {voucherId}").
+    /// </summary>
+    public async Task<InvoiceDto> ApplyPaymentInTxAsync(
+        System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
+        Guid invoiceId, decimal amount, DateTime paymentDate, Guid voucherId)
+    {
+        if (amount <= 0)
+            throw new InvalidOperationException("مبلغ التسديد يجب أن يكون أكبر من صفر");
+
+        // Lock the invoice row for the duration of the transaction. This
+        // prevents a second receipt from racing in and over-paying the
+        // same invoice.
+        var invoice = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid company_id, decimal total, decimal amount_paid, string status)>(@"
+            SELECT id, company_id, total, amount_paid, status
+            FROM invoices WHERE id = @id FOR UPDATE;",
+            new { id = invoiceId }, tx);
+        if (invoice.id == Guid.Empty)
+            throw new InvalidOperationException("الفاتورة غير موجودة");
+
+        if (invoice.status != "posted" && invoice.status != "partiallypaid")
+            throw new InvalidOperationException(
+                $"لا يمكن تسديد فاتورة بحالة '{invoice.status}'. المتوقع: posted أو partiallypaid");
+
+        var outstanding = invoice.total - invoice.amount_paid;
+        if (amount > outstanding + 0.0001m)
+            throw new InvalidOperationException(
+                $"مبلغ التسديد ({amount:0.00}) يتجاوز المبلغ المستحق ({outstanding:0.00})");
+
+        var newAmountPaid = invoice.amount_paid + amount;
+        // Clamp to total to avoid tiny floating-point overshoots
+        if (newAmountPaid > invoice.total) newAmountPaid = invoice.total;
+
+        string newStatus;
+        DateTime? newFullyPaidAt = null;
+        if (newAmountPaid >= invoice.total - 0.0001m)
+        {
+            newStatus = "paid";
+            newFullyPaidAt = paymentDate;
+        }
+        else if (newAmountPaid > 0)
+        {
+            newStatus = "partiallypaid";
+        }
+        else
+        {
+            newStatus = "posted";
+        }
+
+        // Use a single UPDATE so the status and amount_paid are consistent
+        // (avoids the risk of two separate UPDATEs being interrupted
+        // between them).
+        await conn.ExecuteAsync(@"
+            UPDATE invoices
+            SET amount_paid = @amountPaid,
+                status = @status,
+                fully_paid_at = COALESCE(@fullyPaidAt, fully_paid_at)
+            WHERE id = @id;",
+            new
+            {
+                id = invoiceId,
+                amountPaid = newAmountPaid,
+                status = newStatus,
+                fullyPaidAt = newFullyPaidAt
+            }, tx);
+
+        _log.LogInformation(
+            "ApplyPayment: invoice {InvId} +{Amount} (voucher {VId}) → status={Status}, paid={Paid}/{Total}",
+            invoiceId, amount, voucherId, newStatus, newAmountPaid, invoice.total);
+
+        return (await GetByIdAsync(invoiceId))!;
+    }
+
+    /// <summary>
+    /// Sprint 25 — List invoices for a single contact, filtered by status
+    /// bucket. Used by ContactStatementEndpoints.GetInvoicesAsync.
+    ///
+    /// Matches on (company_id, name, type) — same as the aging reports —
+    /// because <c>invoices</c> has no <c>contact_id</c> FK. Invoices with a
+    /// manually-typed party name (no matching contact) are silently
+    /// excluded; this is the same trade-off documented on the aging queries.
+    /// </summary>
+    public async Task<List<ContactInvoiceDto>> GetByContactAsync(
+        Guid companyId, Guid contactId, string statusFilter, DateTime asOf)
+    {
+        using var conn = _db.CreateConnection();
+
+        // Look up the contact (for its name + type). We do this in C#
+        // because the JOIN logic in the WHERE clause is the same as the
+        // aging queries; using C# here keeps the query plain and readable.
+        var contact = await conn.QuerySingleOrDefaultAsync<(string name, string type)>(@"
+            SELECT name, type FROM contacts WHERE id = @id AND company_id = @companyId;",
+            new { id = contactId, companyId });
+        if (contact.name is null) return new List<ContactInvoiceDto>();
+
+        // statusFilter: 'outstanding' = posted + partiallypaid,
+        //               'paid'       = paid,
+        //               'all'        = posted + partiallypaid + paid.
+        // We compute the bucket as a string list and use ANY(@statuses).
+        string[] statuses = statusFilter?.ToLowerInvariant() switch
+        {
+            "outstanding" => new[] { "posted", "partiallypaid" },
+            "paid"        => new[] { "paid" },
+            _             => new[] { "posted", "partiallypaid", "paid" }
+        };
+
+        var rows = await conn.QueryAsync<ContactInvoiceRow>(@"
+            SELECT
+                id AS invoice_id,
+                invoice_number AS number,
+                invoice_date AS date,
+                invoice_type AS type,
+                total,
+                amount_paid,
+                (total - amount_paid) AS outstanding,
+                status,
+                (@asOf::date - invoice_date::date)::int AS age_days
+            FROM invoices
+            WHERE company_id = @companyId
+              AND party_name = @partyName
+              AND invoice_type = @invoiceType
+              AND status = ANY(@statuses)
+              AND status != 'cancelled'
+            ORDER BY invoice_date DESC, created_at DESC;",
+            new { companyId, partyName = contact.name, invoiceType = contact.type, statuses, asOf });
+
+        return rows.Select(r => new ContactInvoiceDto(
+            r.invoice_id, r.number, r.date, r.type, r.total, r.amount_paid,
+            r.outstanding, r.status, r.age_days)).ToList();
+    }
+
+    private record ContactInvoiceRow(
+        Guid invoice_id, string number, DateTime date, string type,
+        decimal total, decimal amount_paid, decimal outstanding,
+        string status, int age_days);
 
     /// <summary>
     /// Sprint 24 — Creates the mirror invoice in the sister company,
@@ -842,7 +1025,7 @@ public class InvoiceService
         Guid id, Guid company_id, string invoice_number, string invoice_type, DateTime invoice_date,
         string party_name, string? party_name_ar, string? party_tax_id, string? notes,
         decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at,
-        Guid? intercompany_company_id);
+        Guid? intercompany_company_id, decimal amount_paid, DateTime? fully_paid_at);
 
     private record InvoiceLineRow(
         Guid id, Guid invoice_id, Guid? account_id, Guid? product_id,

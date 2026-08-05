@@ -8,6 +8,7 @@ using ErpV2.Features.Rules;
 using ErpV2.Features.Reports;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Intercompany;
+using ErpV2.Features.FiscalYears;
 using ErpV2.Features.Projects;
 using ErpV2.Features.Contacts;
 using ErpV2.Features.Users;
@@ -230,6 +231,8 @@ builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<ContactService>();
 builder.Services.AddSingleton<CostCenterService>();
+builder.Services.AddSingleton<ContactStatementService>();   // Sprint 25: per-contact view (كشف حساب)
+builder.Services.AddSingleton<FiscalYearService>();          // Sprint 25: fiscal years + periods
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -306,6 +309,11 @@ PaymentEndpoints.Map(app);
 CostCenterEndpoints.Map(app);
 IntercompanyEndpoints.Map(app);
 IntercompanyEliminationEndpoints.Map(app);
+
+// Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
+ContactStatementEndpoints.Map(app);
+FiscalYearEndpoints.Map(app);
+FiscalYearEndpoints.MapPeriods(app);
 
 // ============================================================
 // Run migrations on startup

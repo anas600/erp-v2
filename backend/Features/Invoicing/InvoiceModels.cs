@@ -2,7 +2,20 @@ namespace ErpV2.Features.Invoicing;
 
 public enum InvoiceType { Purchase, Sales }
 
-public enum InvoiceStatus { Draft, Posted, Paid, Cancelled }
+/// <summary>
+/// Invoice lifecycle states.
+///
+/// Sprint 25 settlement: the `Posted → PartiallyPaid → Paid` transitions are
+/// driven by `ApplyPaymentAsync` (in InvoiceService), which increments
+/// `invoices.amount_paid` and recomputes the status. `Paid` also stamps
+/// `fully_paid_at` so the report can show "settled on" without joining
+/// payment vouchers.
+///
+/// `Draft → Posted` is the posting transition (unchanged from Sprint 14+).
+/// `Cancelled` is a terminal state for voided invoices; the rules engine
+/// never creates a settlement voucher for a cancelled invoice.
+/// </summary>
+public enum InvoiceStatus { Draft, Posted, PartiallyPaid, Paid, Cancelled }
 
 public record InvoiceDto(
     Guid Id,
@@ -21,6 +34,8 @@ public record InvoiceDto(
     DateTime CreatedAt,
     DateTime? PostedAt,
     Guid? IntercompanyCompanyId,     // Sprint 24: sister-company target for the mirror invoice. NULL for intra-company invoices.
+    decimal AmountPaid,              // Sprint 25: cumulative paid amount; drives the status transitions.
+    DateTime? FullyPaidAt,           // Sprint 25: stamped when status flips to 'paid'. NULL otherwise.
     List<InvoiceLineDto> Lines
 );
 
@@ -65,6 +80,23 @@ public record CreateInvoiceLineRequest(
 );
 
 public record PostInvoiceRequest(Guid InvoiceId);
+
+/// <summary>
+/// DTO for the contact's outstanding invoice list. Returned by
+/// ContactStatementEndpoints.GetInvoicesAsync. Mirrors the
+/// InvoiceDto shape but trimmed to the columns the UI needs.
+/// </summary>
+public record ContactInvoiceDto(
+    Guid InvoiceId,
+    string Number,
+    DateTime Date,
+    string Type,                 // 'sales' or 'purchase'
+    decimal Total,
+    decimal AmountPaid,
+    decimal Outstanding,         // total - amount_paid
+    string Status,               // 'posted' | 'partiallypaid' | 'paid'
+    int AgeDays                  // days since invoice_date, as of request time
+);
 
 /// <summary>
 /// Intercompany Pair DTO — Sprint 24.

@@ -91,62 +91,19 @@ public class JournalService
         if (initialStatus != "draft" && initialStatus != "pending")
             throw new InvalidOperationException($"Unknown initial status '{initialStatus}' — expected 'draft' or 'pending'");
 
+        // Sprint 25 — fiscal period lock check. Look up the period that
+        // covers req.EntryDate for this company. If the period exists and
+        // is locked, reject the entry. If no period exists (e.g. seed
+        // never ran, or the date is outside the year), we ALLOW the
+        // entry — the period table is an integrity control, not a
+        // mandatory gate. The accountant can lock the period later.
+        await EnsurePeriodOpenAsync(req.CompanyId, req.EntryDate);
+
         using var conn = _db.CreateConnection();
         using var tx = conn.BeginTransaction();
         try
         {
-            var entryId = Guid.NewGuid();
-            var entryNumber = await GenerateEntryNumberAsync(req.CompanyId, conn, tx);
-
-            // Source resolution order:
-            //   1. Caller-provided source (e.g. "rule:{ruleId}" from the
-            //      rules engine, or "invoice" from InvoiceService)
-            //   2. Default to "manual" so existing callers keep working
-            var source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source;
-
-            await conn.ExecuteAsync(@"
-                INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by)
-                VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @reversesEntryId, @createdBy);",
-                new
-                {
-                    id = entryId,
-                    companyId = req.CompanyId,
-                    entryNumber,
-                    entryDate = req.EntryDate,
-                    narration = req.Narration,
-                    status = initialStatus,
-                    source,
-                    ruleId = req.RuleId,
-                    reversesEntryId = req.ReversesEntryId,
-                    createdBy
-                }, tx);
-
-            int lineNum = 1;
-            foreach (var line in req.Lines)
-            {
-                if (line.Debit < 0 || line.Credit < 0)
-                    throw new InvalidOperationException("Debit and Credit must be non-negative");
-                if (line.Debit > 0 && line.Credit > 0)
-                    throw new InvalidOperationException("A line cannot have both debit and credit");
-                if (line.Debit == 0 && line.Credit == 0)
-                    throw new InvalidOperationException("Line must have either debit or credit");
-
-                await conn.ExecuteAsync(@"
-                    INSERT INTO journal_lines (id, journal_entry_id, account_id, debit, credit, description, line_number, cost_center_id)
-                    VALUES (@id, @entryId, @accountId, @debit, @credit, @description, @lineNumber, @costCenterId);",
-                    new
-                    {
-                        id = Guid.NewGuid(),
-                        entryId,
-                        accountId = line.AccountId,
-                        debit = line.Debit,
-                        credit = line.Credit,
-                        description = line.Description,
-                        lineNumber = lineNum++,
-                        costCenterId = line.CostCenterId
-                    }, tx);
-            }
-
+            var entryId = await CreateDraftEntryCoreAsync(conn, tx, req, createdBy, initialStatus);
             tx.Commit();
             return (await _posting.GetByIdAsync(entryId))!;
         }
@@ -156,6 +113,147 @@ public class JournalService
             throw;
         }
     }
+
+    /// <summary>
+    /// Sprint 25 — In-transaction overload of <see cref="CreateDraftAsync"/>.
+    /// Used by ReceiptService and PaymentService so the JE creation can be
+    /// rolled back together with the voucher status update and the
+    /// invoice amount_paid update. The caller owns the connection and
+    /// the transaction.
+    /// </summary>
+    public async Task<JournalEntryDto> CreateDraftInTxAsync(
+        System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
+        CreateJournalEntryRequest req, Guid? createdBy)
+    {
+        if (req.Lines.Count == 0)
+            throw new InvalidOperationException("Entry must have at least one line");
+
+        // Re-use the same period check. It only reads; running it inside
+        // an existing transaction is safe.
+        await EnsurePeriodOpenAsync(req.CompanyId, req.EntryDate, conn, tx);
+
+        var entryId = await CreateDraftEntryCoreAsync(conn, tx, req, createdBy, "draft");
+        return (await _posting.GetByIdAsync(entryId))!;
+    }
+
+    /// <summary>
+    /// Internal: does the actual INSERT for a journal entry + its lines
+    /// on the supplied connection/transaction. Both CreateInternalAsync
+    /// (top-level) and CreateDraftInTxAsync (caller-owned) use this
+    /// helper so the INSERT logic is single-sourced.
+    /// </summary>
+    private async Task<Guid> CreateDraftEntryCoreAsync(
+        System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
+        CreateJournalEntryRequest req, Guid? createdBy, string initialStatus)
+    {
+        var entryId = Guid.NewGuid();
+        var entryNumber = await GenerateEntryNumberAsync(req.CompanyId, conn, tx);
+
+        // Source resolution order:
+        //   1. Caller-provided source (e.g. "rule:{ruleId}" from the
+        //      rules engine, or "invoice" from InvoiceService)
+        //   2. Default to "manual" so existing callers keep working
+        var source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source;
+
+        await conn.ExecuteAsync(@"
+            INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by)
+            VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @reversesEntryId, @createdBy);",
+            new
+            {
+                id = entryId,
+                companyId = req.CompanyId,
+                entryNumber,
+                entryDate = req.EntryDate,
+                narration = req.Narration,
+                status = initialStatus,
+                source,
+                ruleId = req.RuleId,
+                reversesEntryId = req.ReversesEntryId,
+                createdBy
+            }, tx);
+
+        int lineNum = 1;
+        foreach (var line in req.Lines)
+        {
+            if (line.Debit < 0 || line.Credit < 0)
+                throw new InvalidOperationException("Debit and Credit must be non-negative");
+            if (line.Debit > 0 && line.Credit > 0)
+                throw new InvalidOperationException("A line cannot have both debit and credit");
+            if (line.Debit == 0 && line.Credit == 0)
+                throw new InvalidOperationException("Line must have either debit or credit");
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO journal_lines (id, journal_entry_id, account_id, debit, credit, description, line_number, cost_center_id)
+                VALUES (@id, @entryId, @accountId, @debit, @credit, @description, @lineNumber, @costCenterId);",
+                new
+                {
+                    id = Guid.NewGuid(),
+                    entryId,
+                    accountId = line.AccountId,
+                    debit = line.Debit,
+                    credit = line.Credit,
+                    description = line.Description,
+                    lineNumber = lineNum++,
+                    costCenterId = line.CostCenterId
+                }, tx);
+        }
+
+        return entryId;
+    }
+
+    /// <summary>
+    /// Sprint 25 — looks up the fiscal period for <paramref name="entryDate"/>
+    /// in <paramref name="companyId"/> and rejects the entry if the period
+    /// is locked.
+    ///
+    /// Implementation notes:
+    ///   - If no period covers the date (e.g. the date is in a year that
+    ///     has no fiscal_year row, or the seed never ran), we ALLOW the
+    ///     entry. The fiscal_period table is an additional integrity
+    ///     control; it must not block legitimate entries when the table
+    ///     is incomplete.
+    ///   - The optional <paramref name="conn"/>/<paramref name="tx"/>
+    ///     overloads let callers re-use an open connection (e.g. inside
+    ///     Receipt/Payment's PostAsync transaction).
+    /// </summary>
+    private async Task EnsurePeriodOpenAsync(
+        Guid companyId, DateTime entryDate,
+        System.Data.IDbConnection? conn = null, System.Data.IDbTransaction? tx = null)
+    {
+        var ownsConnection = conn is null;
+        if (conn is null) conn = _db.CreateConnection();
+
+        try
+        {
+            // Find the period covering this date. The date comparison
+            // is between the entry_date (timestamp) cast to date and
+            // the period boundaries (date). We use a concrete record
+            // instead of a value tuple because Dapper's positional
+            // tuple mapping is fragile across versions; the record
+            // is explicit and stable.
+            var periodRow = await conn.QuerySingleOrDefaultAsync<PeriodCheckRow?>(@"
+                SELECT p.id, p.is_closed
+                FROM fiscal_periods p
+                JOIN fiscal_years y ON y.id = p.fiscal_year_id
+                WHERE y.company_id = @companyId
+                  AND @entryDate::date BETWEEN p.start_date AND p.end_date
+                LIMIT 1;",
+                new { companyId, entryDate }, tx);
+
+            if (periodRow is null) return; // no period configured → allow
+            if (periodRow.is_closed)
+            {
+                throw new InvalidOperationException(
+                    "الفترة المحاسبية مقفلة — لا يمكن إنشاء قيود في هذه الفترة");
+            }
+        }
+        finally
+        {
+            if (ownsConnection) conn.Dispose();
+        }
+    }
+
+    private record PeriodCheckRow(Guid id, bool is_closed);
 
     public async Task<JournalEntryDto> PostAsync(Guid entryId) => await _posting.PostAsync(entryId);
 

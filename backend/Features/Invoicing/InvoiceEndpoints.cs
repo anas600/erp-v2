@@ -9,9 +9,28 @@ public static class InvoiceEndpoints
     {
         var grp = app.MapGroup("/api/invoices").WithTags("Invoices").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, [FromServices] InvoiceService svc) =>
+        grp.MapGet("/", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] int? limit,
+            [FromQuery] Guid? contactId,
+            [FromQuery] string? status,
+            [FromServices] InvoiceService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+
+            // Sprint 25 — contact-scoped view (used by the contact detail
+            // page's "Invoices" tab when the frontend doesn't already have
+            // the invoice list cached).
+            if (contactId.HasValue && contactId.Value != Guid.Empty)
+            {
+                var asOf = DateTime.UtcNow;
+                var filter = string.IsNullOrWhiteSpace(status) ? "all" : status;
+                return Results.Ok(await svc.GetByContactAsync(companyId, contactId.Value, filter, asOf));
+            }
+
+            // Backwards-compatible: company-wide list. The status filter
+            // is ignored for this path (the company-wide view shows
+            // everything; the contact-scoped view is the filtered one).
             var data = await svc.GetByCompanyAsync(companyId, limit ?? 100);
             return Results.Ok(data);
         });

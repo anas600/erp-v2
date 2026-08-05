@@ -293,10 +293,6 @@ public class ReportService
     {
         using var conn = _db.CreateConnection();
 
-        // For now: each posted sales invoice is "outstanding"
-        // at its full total. We bucket by invoice age.
-        // Future enhancement: subtract receipts linked to invoices.
-        //
         // FIX 2026-08-05 (2 bugs):
         //   1. Postgres rejects `date - timestamp` (type mismatch).
         //      Cast both sides to date — `date - date = integer days`.
@@ -306,13 +302,21 @@ public class ReportService
         //      Match on (company_id, name, type). Invoices with a
         //      manually-typed party name (no matching contact) are
         //      silently excluded from aging — acceptable for now.
+        //
+        // FIX 2026-08-05 (Sprint 25 — aging correctness):
+        //   `outstanding` is now `total - amount_paid`, not `total`. Before
+        //   Sprint 25, every posted invoice was treated as 100% outstanding
+        //   even after partial payments. This was the bug the accountant
+        //   flagged: "aging overstates the receivable". The bucket key
+        //   is still the invoice age (so the buckets are stable across
+        //   partial payments), but the amount is the true outstanding.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
                 c.code AS contact_code,
                 c.name AS contact_name,
                 i.invoice_date,
-                i.total AS outstanding,
+                (i.total - i.amount_paid) AS outstanding,
                 (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
             JOIN contacts c
@@ -321,7 +325,8 @@ public class ReportService
              AND c.type = 'customer'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
-              AND i.status = 'posted'
+              AND i.status IN ('posted', 'partiallypaid')
+              AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
             ORDER BY c.name, i.invoice_date;",
             new { companyId, asOfDate });
@@ -377,13 +382,17 @@ public class ReportService
         //   1. date - timestamp → date - date
         //   2. JOIN on party_name (text) instead of non-existent contact_id FK
         //   3. Filter by invoice_type='purchase' (not 'sales')
+        //
+        // FIX 2026-08-05 (Sprint 25 — aging correctness):
+        //   outstanding = total - amount_paid. The bucket key stays the
+        //   invoice age; only the amount is the true outstanding.
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
                 c.code AS contact_code,
                 c.name AS contact_name,
                 i.invoice_date,
-                i.total AS outstanding,
+                (i.total - i.amount_paid) AS outstanding,
                 (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
             JOIN contacts c
@@ -392,7 +401,8 @@ public class ReportService
              AND c.type = 'supplier'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'
-              AND i.status = 'posted'
+              AND i.status IN ('posted', 'partiallypaid')
+              AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
             ORDER BY c.name, i.invoice_date;",
             new { companyId, asOfDate });
