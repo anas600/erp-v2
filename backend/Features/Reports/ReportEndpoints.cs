@@ -79,5 +79,27 @@ public static class ReportEndpoints
                 ? Results.NotFound(new { error = "Account not found" })
                 : Results.Ok(report);
         });
+
+        // Customer Aging (أعمار المدينين)
+        grp.MapGet("/customer-aging", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] DateTime? asOfDate,
+            ReportService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            var asOf = asOfDate ?? DateTime.UtcNow;
+            return Results.Ok(await svc.GetCustomerAgingAsync(companyId, asOf));
+        });
+
+        // Supplier Aging (أعمار الدائنين)
+        grp.MapGet("/supplier-aging", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] DateTime? asOfDate,
+            ReportService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            var asOf = asOfDate ?? DateTime.UtcNow;
+            return Results.Ok(await svc.GetSupplierAgingAsync(companyId, asOf));
+        });
     }
 }

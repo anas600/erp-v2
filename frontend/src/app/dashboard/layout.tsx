@@ -72,6 +72,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       collapsible: false,
       items: [
         { href: "/dashboard/invoices", label: "الفواتير", icon: FileText },
+        { href: "/dashboard/receipts", label: "سندات القبض", icon: Inbox },
+        { href: "/dashboard/payments", label: "سندات الصرف", icon: FileText },
         { href: "/dashboard/journal", label: "القيود اليومية", icon: ScrollText },
         { href: "/dashboard/journal/pending", label: "القيود المعلقة", icon: Inbox }
       ]
@@ -83,6 +85,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       items: [
         { href: "/dashboard/reports/trial-balance", label: "ميزان المراجعة", icon: Scale },
         { href: "/dashboard/reports/general-ledger", label: "دفتر الأستاذ", icon: BookOpen },
+        { href: "/dashboard/reports/customer-aging", label: "أعمار المدينين", icon: Users },
+        { href: "/dashboard/reports/supplier-aging", label: "أعمار الدائنين", icon: Users },
         { href: "/dashboard/reports/income-statement", label: "قائمة الدخل", icon: TrendingUp },
         { href: "/dashboard/reports/balance-sheet", label: "الميزانية العمومية", icon: FileSpreadsheet }
       ]

@@ -93,3 +93,39 @@ public record GeneralLedgerReport(
     decimal ClosingBalance,      // balance at the end of the period
     List<GeneralLedgerEntry> Entries
 );
+
+/// <summary>
+/// Customer Aging line: per-customer outstanding balance bucketed
+/// by age. Buckets are 0-30, 31-60, 61-90, 91+ days.
+/// </summary>
+public record CustomerAgingLine(
+    Guid ContactId,
+    string ContactCode,
+    string ContactName,
+    decimal[] Buckets,   // [0-30, 31-60, 61-90, 91+]
+    decimal Total
+);
+
+public record CustomerAgingReport(
+    Guid CompanyId,
+    DateTime AsOfDate,
+    List<CustomerAgingLine> Lines,
+    decimal[] Totals,
+    decimal GrandTotal
+);
+
+public record SupplierAgingLine(
+    Guid ContactId,
+    string ContactCode,
+    string ContactName,
+    decimal[] Buckets,
+    decimal Total
+);
+
+public record SupplierAgingReport(
+    Guid CompanyId,
+    DateTime AsOfDate,
+    List<SupplierAgingLine> Lines,
+    decimal[] Totals,
+    decimal GrandTotal
+);

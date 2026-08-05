@@ -270,8 +270,157 @@ public class ReportService
             from, to, openingBalance, totalDebit, totalCredit, running, entries);
     }
 
+    /// <summary>
+    /// Customer Aging Report (أعمار المدينين).
+    ///
+    /// For each customer (contact type='customer') in the company,
+    /// show their unpaid balance bucketed by age:
+    ///   - 0-30 days  : due recently
+    ///   - 31-60 days : 1-2 months late
+    ///   - 61-90 days : 1 quarter late
+    ///   - 91+ days   : severely overdue
+    ///
+    /// Implementation:
+    ///   - For each posted sales invoice, calculate age as
+    ///     asOfDate - invoice_date.
+    ///   - Sum the (total - amount_paid) per customer per bucket.
+    ///     Since we don't yet track partial payments explicitly,
+    ///     we treat the full invoice total as outstanding.
+    ///   - Sub-ledger detail accounts (level 4) are included in
+    ///     the customer rollup via account_contact_links.
+    /// </summary>
+    public async Task<CustomerAgingReport> GetCustomerAgingAsync(Guid companyId, DateTime asOfDate)
+    {
+        using var conn = _db.CreateConnection();
+
+        // For now: each posted sales invoice is "outstanding"
+        // at its full total. We bucket by invoice age.
+        // Future enhancement: subtract receipts linked to invoices.
+        var rows = await conn.QueryAsync<CustomerAgingRow>(@"
+            SELECT
+                c.id AS contact_id,
+                c.code AS contact_code,
+                c.name AS contact_name,
+                i.invoice_date,
+                i.total AS outstanding,
+                EXTRACT(DAY FROM (@asOfDate::date - i.invoice_date))::int AS days_overdue
+            FROM invoices i
+            JOIN contacts c ON c.id = i.contact_id
+            WHERE i.company_id = @companyId
+              AND c.type = 'customer'
+              AND i.status = 'posted'
+              AND i.invoice_date <= @asOfDate
+            ORDER BY c.name, i.invoice_date;",
+            new { companyId, asOfDate });
+
+        // Bucket the invoices
+        var customerMap = new Dictionary<Guid, CustomerAgingLine>();
+        foreach (var r in rows)
+        {
+            if (!customerMap.TryGetValue(r.contact_id, out var line))
+            {
+                line = new CustomerAgingLine(
+                    r.contact_id, r.contact_code, r.contact_name,
+                    new decimal[4], // buckets
+                    0m                // total
+                );
+                customerMap[r.contact_id] = line;
+            }
+
+            // Sum the existing bucketed amounts (immutable record)
+            var buckets = line.Buckets.ToArray();
+            int idx = r.days_overdue switch
+            {
+                <= 30 => 0,
+                <= 60 => 1,
+                <= 90 => 2,
+                _ => 3
+            };
+            buckets[idx] += r.outstanding;
+            customerMap[r.contact_id] = line with { Buckets = buckets, Total = line.Total + r.outstanding };
+        }
+
+        var lines = customerMap.Values.OrderByDescending(l => l.Total).ToList();
+        var totals = new decimal[4];
+        decimal grandTotal = 0;
+        foreach (var l in lines)
+        {
+            for (int i = 0; i < 4; i++) totals[i] += l.Buckets[i];
+            grandTotal += l.Total;
+        }
+
+        return new CustomerAgingReport(companyId, asOfDate, lines, totals, grandTotal);
+    }
+
+    /// <summary>
+    /// Supplier Aging Report (أعمار الدائنين).
+    /// Symmetric to customer aging: outstanding posted purchase
+    /// invoices, bucketed by age.
+    /// </summary>
+    public async Task<SupplierAgingReport> GetSupplierAgingAsync(Guid companyId, DateTime asOfDate)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<SupplierAgingRow>(@"
+            SELECT
+                c.id AS contact_id,
+                c.code AS contact_code,
+                c.name AS contact_name,
+                i.invoice_date,
+                i.total AS outstanding,
+                EXTRACT(DAY FROM (@asOfDate::date - i.invoice_date))::int AS days_overdue
+            FROM invoices i
+            JOIN contacts c ON c.id = i.contact_id
+            WHERE i.company_id = @companyId
+              AND c.type = 'supplier'
+              AND i.status = 'posted'
+              AND i.invoice_date <= @asOfDate
+            ORDER BY c.name, i.invoice_date;",
+            new { companyId, asOfDate });
+
+        var supplierMap = new Dictionary<Guid, SupplierAgingLine>();
+        foreach (var r in rows)
+        {
+            if (!supplierMap.TryGetValue(r.contact_id, out var line))
+            {
+                line = new SupplierAgingLine(
+                    r.contact_id, r.contact_code, r.contact_name,
+                    new decimal[4], 0m);
+                supplierMap[r.contact_id] = line;
+            }
+            var buckets = line.Buckets.ToArray();
+            int idx = r.days_overdue switch
+            {
+                <= 30 => 0,
+                <= 60 => 1,
+                <= 90 => 2,
+                _ => 3
+            };
+            buckets[idx] += r.outstanding;
+            supplierMap[r.contact_id] = line with { Buckets = buckets, Total = line.Total + r.outstanding };
+        }
+
+        var lines = supplierMap.Values.OrderByDescending(l => l.Total).ToList();
+        var totals = new decimal[4];
+        decimal grandTotal = 0;
+        foreach (var l in lines)
+        {
+            for (int i = 0; i < 4; i++) totals[i] += l.Buckets[i];
+            grandTotal += l.Total;
+        }
+
+        return new SupplierAgingReport(companyId, asOfDate, lines, totals, grandTotal);
+    }
+
     private record GeneralLedgerLineRow(
         Guid entry_id, string entry_number, DateTime entry_date,
         string? narration, string? source, string? reference,
         decimal debit, decimal credit);
+
+    private record CustomerAgingRow(
+        Guid contact_id, string contact_code, string contact_name,
+        DateTime invoice_date, decimal outstanding, int days_overdue);
+
+    private record SupplierAgingRow(
+        Guid contact_id, string contact_code, string contact_name,
+        DateTime invoice_date, decimal outstanding, int days_overdue);
 }

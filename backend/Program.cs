@@ -12,6 +12,8 @@ using ErpV2.Features.Contacts;
 using ErpV2.Features.Users;
 using ErpV2.Features.Products;
 using ErpV2.Features.Admin;
+using ErpV2.Features.Receipts;
+using ErpV2.Features.Payments;
 using ErpV2.Migrations;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -268,6 +270,8 @@ UserEndpoints.Map(app);
 ProductEndpoints.Map(app);
 ContactEndpoints.Map(app);
 AdminEndpoints.Map(app);
+ReceiptEndpoints.Map(app);
+PaymentEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup
