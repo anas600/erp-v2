@@ -42,7 +42,8 @@ public record CreateJournalLineRequest(
     Guid AccountId,
     decimal Debit,
     decimal Credit,
-    string? Description
+    string? Description,
+    Guid? CostCenterId = null
 );
 
 public record PostEntryRequest(Guid EntryId);

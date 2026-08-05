@@ -14,6 +14,7 @@ using ErpV2.Features.Products;
 using ErpV2.Features.Admin;
 using ErpV2.Features.Receipts;
 using ErpV2.Features.Payments;
+using ErpV2.Features.CostCenters;
 using ErpV2.Migrations;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -227,6 +228,7 @@ builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<ContactService>();
+builder.Services.AddSingleton<CostCenterService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -272,6 +274,7 @@ ContactEndpoints.Map(app);
 AdminEndpoints.Map(app);
 ReceiptEndpoints.Map(app);
 PaymentEndpoints.Map(app);
+CostCenterEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup

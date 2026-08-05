@@ -24,6 +24,7 @@ interface JournalLine {
   credit: number;
   description?: string;
   lineNumber: number;
+  costCenterId?: string;
 }
 
 interface JournalEntry {
@@ -67,21 +68,27 @@ export default function JournalPage() {
     entryDate: new Date().toISOString().slice(0, 10),
     narration: "",
     lines: [
-      { accountId: "", debit: 0, credit: 0, description: "" },
-      { accountId: "", debit: 0, credit: 0, description: "" }
+      { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
+      { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
     ]
   });
+
+  const [costCenters, setCostCenters] = useState<
+    { id: string; code: string; nameAr?: string; name: string }[]
+  >([]);
 
   const load = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const [entriesRes, accountsRes] = await Promise.all([
+      const [entriesRes, accountsRes, ccRes] = await Promise.all([
         api.get(`/journal?companyId=${activeCompany.id}`),
-        api.get(`/accounts?companyId=${activeCompany.id}`)
+        api.get(`/accounts?companyId=${activeCompany.id}`),
+        api.get(`/cost-centers?companyId=${activeCompany.id}`).catch(() => ({ data: [] }))
       ]);
       setEntries(entriesRes.data);
       setAccounts(accountsRes.data);
+      setCostCenters(ccRes.data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -108,7 +115,10 @@ export default function JournalPage() {
   const addLine = () => {
     setForm({
       ...form,
-      lines: [...form.lines, { accountId: "", debit: 0, credit: 0, description: "" }]
+      lines: [
+        ...form.lines,
+        { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
+      ]
     });
   };
 
@@ -146,7 +156,8 @@ export default function JournalPage() {
             accountId: l.accountId,
             debit: Number(l.debit) || 0,
             credit: Number(l.credit) || 0,
-            description: l.description
+            description: l.description,
+            costCenterId: l.costCenterId || null
           }))
       });
       // Brief inline confirmation so the user knows the save worked
@@ -154,8 +165,8 @@ export default function JournalPage() {
       // in the table due to large lists or sort order).
       setSuccessMessage(`تم حفظ القيد ${res.data.entryNumber} كمسودة`);
       setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", lines: [
-        { accountId: "", debit: 0, credit: 0, description: "" },
-        { accountId: "", debit: 0, credit: 0, description: "" }
+        { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
+        { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
       ]});
       // Force reload BEFORE closing the modal so the new entry
       // is in `entries` state by the time the user looks at the
@@ -432,6 +443,21 @@ export default function JournalPage() {
                         value={line.description}
                         onChange={(e) => updateLine(idx, "description", e.target.value)}
                       />
+                      <select
+                        className="input col-span-2"
+                        value={line.costCenterId || ""}
+                        onChange={(e) => updateLine(idx, "costCenterId", e.target.value)}
+                        title="مركز التكلفة"
+                      >
+                        <option value="">- مركز التكلفة -</option>
+                        {costCenters
+                          .filter((c) => c.id && c.code)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.code} - {c.nameAr || c.name}
+                            </option>
+                          ))}
+                      </select>
                       <button type="button" onClick={() => removeLine(idx)} className="text-red-500 hover:text-red-700 col-span-1">
                         <X size={16} />
                       </button>

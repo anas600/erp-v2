@@ -63,7 +63,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: "/dashboard/companies", label: "الشركات", icon: Building2 },
         { href: "/dashboard/accounts", label: "شجرة الحسابات", icon: Wallet },
         { href: "/dashboard/products", label: "المنتجات", icon: Package },
-        { href: "/dashboard/projects", label: "المشاريع", icon: FolderKanban }
+        { href: "/dashboard/projects", label: "المشاريع", icon: FolderKanban },
+        { href: "/dashboard/cost-centers", label: "مراكز التكلفة", icon: Scale }
       ]
     },
     {

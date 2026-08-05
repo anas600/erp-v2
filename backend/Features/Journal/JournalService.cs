@@ -132,8 +132,8 @@ public class JournalService
                     throw new InvalidOperationException("Line must have either debit or credit");
 
                 await conn.ExecuteAsync(@"
-                    INSERT INTO journal_lines (id, journal_entry_id, account_id, debit, credit, description, line_number)
-                    VALUES (@id, @entryId, @accountId, @debit, @credit, @description, @lineNumber);",
+                    INSERT INTO journal_lines (id, journal_entry_id, account_id, debit, credit, description, line_number, cost_center_id)
+                    VALUES (@id, @entryId, @accountId, @debit, @credit, @description, @lineNumber, @costCenterId);",
                     new
                     {
                         id = Guid.NewGuid(),
@@ -142,7 +142,8 @@ public class JournalService
                         debit = line.Debit,
                         credit = line.Credit,
                         description = line.Description,
-                        lineNumber = lineNum++
+                        lineNumber = lineNum++,
+                        costCenterId = line.CostCenterId
                     }, tx);
             }
 
