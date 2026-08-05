@@ -233,6 +233,13 @@ builder.Services.AddSingleton<ContactService>();
 builder.Services.AddSingleton<CostCenterService>();
 builder.Services.AddSingleton<ContactStatementService>();   // Sprint 25: per-contact view (كشف حساب)
 builder.Services.AddSingleton<FiscalYearService>();          // Sprint 25: fiscal years + periods
+// FIX 2026-08-05: ReceiptService and PaymentService were created in
+// Sprint 21 but never registered in DI. Same pattern as Intercompany
+// in Sprint 24. Sprint 25 ContactStatementService depends on them, so
+// the new endpoints (balance, statement, invoices) all 500'd.
+// This is a re-apply — the original fix was lost in a force-push.
+builder.Services.AddSingleton<ReceiptService>();
+builder.Services.AddSingleton<PaymentService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
