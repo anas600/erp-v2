@@ -88,7 +88,7 @@ const emptyFormLine: FormLine = {
 };
 
 export default function InvoicesPage() {
-  const { activeCompany, user } = useAuth();
+  const { activeCompany, user, companies } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -106,6 +106,7 @@ export default function InvoicesPage() {
     partyName: "",
     partyNameAr: "",
     taxRate: 0,
+    intercompanyCompanyId: "" as string,
     lines: [emptyFormLine] as FormLine[]
   });
 
@@ -186,6 +187,7 @@ export default function InvoicesPage() {
         partyName: form.partyName,
         partyNameAr: form.partyNameAr || null,
         taxRate: form.taxRate,
+        intercompanyCompanyId: form.intercompanyCompanyId || null,
         lines: form.lines
           .filter((l) => l.productId)
           .map((l) => ({
@@ -203,7 +205,8 @@ export default function InvoicesPage() {
         partyName: "",
         partyNameAr: "",
         taxRate: 0,
-        lines: [{ ...emptyFormLine }]
+        intercompanyCompanyId: "",
+        lines: [emptyFormLine] as FormLine[]
       });
       setShowForm(false);
       await load();
@@ -329,6 +332,8 @@ export default function InvoicesPage() {
           total={total}
           submitting={submitting}
           error={error}
+          companies={companies}
+          activeCompany={activeCompany}
           onSubmit={submit}
           onAddLine={addLine}
           onRemoveLine={removeLine}
@@ -447,6 +452,7 @@ function InvoiceForm({
   form, setForm, products, contacts, lineTotalsWithTax,
   subtotal, taxAmount, total,
   submitting, error,
+  companies, activeCompany,
   onSubmit, onAddLine, onRemoveLine, onUpdateLine, onCancel
 }: any) {
   return (
@@ -494,6 +500,29 @@ function InvoiceForm({
                 placeholder="e.g., 15"
                 title="يُطبَّق على البنود التي لا تحدد نسبة الضريبة الخاصة بها"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                شركة شقيقة
+                <span className="text-xs text-gray-500 mr-2">(اختياري - للمعاملات بين الشركات)</span>
+              </label>
+              <select
+                className="input"
+                value={form.intercompanyCompanyId}
+                onChange={(e) => setForm({ ...form, intercompanyCompanyId: e.target.value })}
+              >
+                <option value="">— لا توجد (فاتورة عادية) —</option>
+                {companies
+                  .filter((c: any) => c.id !== activeCompany?.id)
+                  .map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.nameAr || c.name}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                عند الترحيل، ينشئ النظام قيداً في الشركة الحالية وفي الشركة الشقيقة
+              </p>
             </div>
           </div>
 

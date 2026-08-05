@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -76,7 +76,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: "/dashboard/receipts", label: "سندات القبض", icon: Inbox },
         { href: "/dashboard/payments", label: "سندات الصرف", icon: FileText },
         { href: "/dashboard/journal", label: "القيود اليومية", icon: ScrollText },
-        { href: "/dashboard/journal/pending", label: "القيود المعلقة", icon: Inbox }
+        { href: "/dashboard/journal/pending", label: "القيود المعلقة", icon: Inbox },
+        { href: "/dashboard/intercompany", label: "المعاملات بين الشركات", icon: ArrowRightLeft }
       ]
     },
     {
@@ -89,7 +90,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: "/dashboard/reports/customer-aging", label: "أعمار المدينين", icon: Users },
         { href: "/dashboard/reports/supplier-aging", label: "أعمار الدائنين", icon: Users },
         { href: "/dashboard/reports/income-statement", label: "قائمة الدخل", icon: TrendingUp },
-        { href: "/dashboard/reports/balance-sheet", label: "الميزانية العمومية", icon: FileSpreadsheet }
+        { href: "/dashboard/reports/balance-sheet", label: "الميزانية العمومية", icon: FileSpreadsheet },
+        { href: "/dashboard/reports/intercompany-elimination", label: "استبعاد المعاملات البينية", icon: FileSpreadsheet }
       ]
     },
     {

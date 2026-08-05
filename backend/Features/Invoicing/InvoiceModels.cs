@@ -20,6 +20,7 @@ public record InvoiceDto(
     string Status,
     DateTime CreatedAt,
     DateTime? PostedAt,
+    Guid? IntercompanyCompanyId,     // Sprint 24: sister-company target for the mirror invoice. NULL for intra-company invoices.
     List<InvoiceLineDto> Lines
 );
 
@@ -50,7 +51,8 @@ public record CreateInvoiceRequest(
     string? PartyTaxId,
     string? Notes,
     decimal TaxRate,            // global tax rate, e.g. 0 or 0.15
-    List<CreateInvoiceLineRequest> Lines
+    Guid? IntercompanyCompanyId = null,  // Sprint 24: optional sister-company id. When set, posting the invoice also creates a mirror in that company.
+    List<CreateInvoiceLineRequest> Lines = null!
 );
 
 public record CreateInvoiceLineRequest(
@@ -63,3 +65,29 @@ public record CreateInvoiceLineRequest(
 );
 
 public record PostInvoiceRequest(Guid InvoiceId);
+
+/// <summary>
+/// Intercompany Pair DTO — Sprint 24.
+///
+/// A pair represents a single logical transaction that lives in the
+/// books of two companies simultaneously. Example: HOLD issues a
+/// sales invoice to CO-A. The pair has:
+///   - primaryInvoiceId : the invoice HOLD created (sales, 1000 LYD)
+///   - mirrorInvoiceId  : the invoice CO-A auto-created (purchase, 1000 LYD)
+///   - primaryCompanyId : HOLD
+///   - mirrorCompanyId  : CO-A
+///   - amount, currency : the agreed amount (1000 LYD)
+///   - status           : pending → posted → reversed lifecycle
+///   - createdAt        : when the pair was created
+/// </summary>
+public record IntercompanyPairDto(
+    Guid Id,
+    Guid PrimaryInvoiceId,
+    Guid? MirrorInvoiceId,
+    Guid PrimaryCompanyId,
+    Guid MirrorCompanyId,
+    decimal Amount,
+    string Currency,
+    string Status,
+    DateTime CreatedAt
+);

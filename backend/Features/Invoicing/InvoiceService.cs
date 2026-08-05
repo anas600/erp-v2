@@ -14,6 +14,14 @@ namespace ErpV2.Features.Invoicing;
 ///      - Sales: Debit Accounts Receivable, Credit each line's account (revenue).
 ///   3. Tax (if any) is posted separately (Debit/Credit a tax account).
 ///   4. Marks the invoice as `posted` and stamps `posted_at`.
+///
+/// Sprint 24 — Intercompany (الشركات الشقيقة) extension:
+///   When an invoice is created with `intercompany_company_id` set,
+///   `PostAsync` also creates a mirror invoice in the sister company
+///   (opposite type, same amounts, same date), triggers the same
+///   business-rule event in the sister company, links both invoices
+///   in `intercompany_pairs`, and stamps the pair id on both journal
+///   entries so the consolidation report can pull them in one query.
 /// </summary>
 public class InvoiceService
 {
@@ -57,7 +65,8 @@ public class InvoiceService
         var inv = await conn.QuerySingleOrDefaultAsync<InvoiceRow>(@"
             SELECT id, company_id, invoice_number, invoice_type, invoice_date,
                    party_name, party_name_ar, party_tax_id, notes,
-                   subtotal, tax_amount, total, status, created_at, posted_at
+                   subtotal, tax_amount, total, status, created_at, posted_at,
+                   intercompany_company_id
             FROM invoices WHERE id = @id;",
             new { id });
         if (inv is null) return null;
@@ -79,6 +88,7 @@ public class InvoiceService
             inv.id, inv.company_id, inv.invoice_number, inv.invoice_type, inv.invoice_date,
             inv.party_name, inv.party_name_ar, inv.party_tax_id, inv.notes,
             inv.subtotal, inv.tax_amount, inv.total, inv.status, inv.created_at, inv.posted_at,
+            inv.intercompany_company_id,
             lines.Select(l => new InvoiceLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
                 l.product_id, l.product_code, l.product_name, l.product_name_ar,
@@ -95,6 +105,16 @@ public class InvoiceService
 
         if (req.InvoiceType != "purchase" && req.InvoiceType != "sales")
             throw new InvalidOperationException("نوع الفاتورة يجب أن يكون purchase أو sales");
+
+        // Intercompany self-company guard: a sister company cannot
+        // be the company you're posting into. Catch this BEFORE
+        // hitting the DB so the user gets a clear Arabic error.
+        if (req.IntercompanyCompanyId.HasValue &&
+            req.IntercompanyCompanyId.Value == req.CompanyId)
+        {
+            throw new InvalidOperationException(
+                "لا يمكن أن تكون الشركة الشقيقة نفس الشركة الحالية");
+        }
 
         using var conn = _db.CreateConnection();
         using var tx = conn.BeginTransaction();
@@ -159,10 +179,10 @@ public class InvoiceService
             await conn.ExecuteAsync(@"
                 INSERT INTO invoices (id, company_id, invoice_number, invoice_type, invoice_date,
                     party_name, party_name_ar, party_tax_id, notes,
-                    subtotal, tax_amount, total, status, created_by)
+                    subtotal, tax_amount, total, status, created_by, intercompany_company_id)
                 VALUES (@id, @companyId, @invoiceNumber, @invoiceType, @invoiceDate,
                     @partyName, @partyNameAr, @partyTaxId, @notes,
-                    @subtotal, @taxAmount, @total, 'draft', @createdBy);",
+                    @subtotal, @taxAmount, @total, 'draft', @createdBy, @intercompanyCompanyId);",
                 new
                 {
                     id,
@@ -177,7 +197,8 @@ public class InvoiceService
                     subtotal,
                     taxAmount = totalTax,
                     total,
-                    createdBy
+                    createdBy,
+                    intercompanyCompanyId = req.IntercompanyCompanyId
                 }, tx);
 
             int lineNum = 1;
@@ -216,6 +237,14 @@ public class InvoiceService
 
     /// <summary>
     /// Posts an invoice: builds a journal entry, saves it as a draft, then posts via the Posting Engine.
+    ///
+    /// Sprint 24 — Intercompany side-effect: when the invoice has
+    /// `intercompany_company_id` set, posting also creates a mirror
+    /// invoice in the sister company (opposite type, same lines,
+    /// same amounts, same date) and links both sides via an
+    /// `intercompany_pairs` row. Both journal entries are stamped
+    /// with the pair id so the elimination report can pull them
+    /// in one query.
     /// </summary>
     public async Task<InvoiceDto> PostAsync(Guid invoiceId)
     {
@@ -227,6 +256,17 @@ public class InvoiceService
             throw new InvalidOperationException("الفاتورة ملغاة");
         if (inv.Lines.Count == 0)
             throw new InvalidOperationException("الفاتورة بدون بنود");
+
+        // Self-company guard. Defensive — the same check runs in
+        // CreateDraftAsync, but a malicious caller could PATCH the
+        // column directly in the DB and bypass it. Better to fail
+        // loudly than to post an invoice to itself.
+        if (inv.IntercompanyCompanyId.HasValue &&
+            inv.IntercompanyCompanyId.Value == inv.CompanyId)
+        {
+            throw new InvalidOperationException(
+                "لا يمكن أن تكون الشركة الشقيقة نفس الشركة الحالية");
+        }
 
         // Build the event payload that the Business Rule templates
         // expect. The legacy templates (seeded in 002) read these
@@ -306,6 +346,48 @@ public class InvoiceService
                 "من صفحة 'قواعد العمل' قبل ترحيل الفاتورة.");
         }
 
+        // ============================================================
+        // Sprint 24 — Intercompany side-effect.
+        // ============================================================
+        // When this invoice has a sister company, we:
+        //   1. Create a mirror invoice (opposite type) in the sister
+        //      company with the same lines/amounts/date. The mirror's
+        //      party is the primary company (HOLD records CO-A as
+        //      customer; CO-A records HOLD as supplier).
+        //   2. Post the mirror invoice so it generates its own journal
+        //      entry via the same rule pipeline.
+        //   3. Create an `intercompany_pairs` row linking both.
+        //   4. Stamp `intercompany_pair_id` on both journal entries
+        //      (the primary's and the mirror's) so the elimination
+        //      report can pull both halves in a single query.
+        //
+        // Failure mode: if any step after the primary's journal entry
+        // is created fails, we surface the error AND leave the primary
+        // invoice in its current state (we have NOT yet updated
+        // invoices.status to 'posted' — that happens after this
+        // block). The user can retry; the rule is idempotent.
+        IntercompanyPairDto? intercompanyPair = null;
+        if (inv.IntercompanyCompanyId.HasValue)
+        {
+            try
+            {
+                intercompanyPair = await CreateIntercompanyMirrorAsync(inv, entries, payload);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex,
+                    "PostAsync: intercompany mirror creation FAILED for invoice {InvId} (sister={SisterId}): {Msg}",
+                    invoiceId, inv.IntercompanyCompanyId, ex.Message);
+                // Bubble up with a clear Arabic message. We DO NOT mark
+                // the primary invoice as posted — atomicity is more
+                // important than partial progress. The user fixes the
+                // underlying issue (missing sister account, no rule
+                // enabled, etc.) and retries the post.
+                throw new InvalidOperationException(
+                    $"فشل إنشاء فاتورة الشركة الشقيقة: {ex.Message}", ex);
+            }
+        }
+
         using (var conn = _db.CreateConnection())
         {
             await conn.ExecuteAsync(
@@ -313,7 +395,22 @@ public class InvoiceService
                 new { id = invoiceId });
         }
 
-        return (await GetByIdAsync(invoiceId))!;
+        var result = (await GetByIdAsync(invoiceId))!;
+
+        // If we created a pair, also flip its status from 'pending' to
+        // 'posted' now that both sides are confirmed posted. The
+        // 'pending' default is set at pair creation time so a partial
+        // failure (e.g. mirror posted but pair row never updated) is
+        // visible to the report.
+        if (intercompanyPair is not null)
+        {
+            using var conn = _db.CreateConnection();
+            await conn.ExecuteAsync(@"
+                UPDATE intercompany_pairs SET status = 'posted' WHERE id = @id;",
+                new { id = intercompanyPair.Id });
+        }
+
+        return result;
     }
 
     public async Task<bool> CancelAsync(Guid invoiceId)
@@ -323,6 +420,402 @@ public class InvoiceService
             "UPDATE invoices SET status = 'cancelled' WHERE id = @id AND status != 'posted';",
             new { id = invoiceId });
         return rows > 0;
+    }
+
+    /// <summary>
+    /// Sprint 24 — Creates the mirror invoice in the sister company,
+    /// posts it, creates the intercompany_pairs link, and stamps
+    /// `intercompany_pair_id` on both halves' journal entries.
+    ///
+    /// This is the workhorse of the intercompany flow. It is called
+    /// only from `PostAsync` (after the primary's journal entry has
+    /// been created) so failure here can be surfaced cleanly without
+    /// leaving a half-posted primary invoice.
+    /// </summary>
+    private async Task<IntercompanyPairDto> CreateIntercompanyMirrorAsync(
+        InvoiceDto primary, List<JournalEntryDto> primaryEntries, Dictionary<string, object> primaryPayload)
+    {
+        var sisterCompanyId = primary.IntercompanyCompanyId!.Value;
+
+        // 1) Look up the primary company (we need its display name for
+        //    the mirror's party_name — the sister's books record the
+        //    primary as their supplier/customer).
+        CompanyLite? primaryCompany;
+        using (var conn = _db.CreateConnection())
+        {
+            primaryCompany = await conn.QuerySingleOrDefaultAsync<CompanyLite>(@"
+                SELECT id, code, name, name_ar FROM companies WHERE id = @id;",
+                new { id = primary.CompanyId });
+        }
+        if (primaryCompany is null)
+            throw new InvalidOperationException("الشركة الأصلية غير موجودة");
+
+        // 2) Map each primary line's account to the sister company's
+        //    same-code account. If a code is missing in the sister
+        //    company, we surface a clear Arabic error — the user must
+        //    align the chart of accounts across sister companies.
+        //    Same for products: we keep the product code in the
+        //    description; if the sister has the same product code we
+        //    use the sister product_id, otherwise we leave it null
+        //    and let the description carry the human-readable name.
+        using (var conn = _db.CreateConnection())
+        {
+            // First, validate that every primary line's account has a
+            // counterpart in the sister. Throw early with a list of
+            // missing codes so the user can fix the chart of accounts
+            // in one go instead of one-error-at-a-time.
+            var missingAccounts = new List<string>();
+            foreach (var line in primary.Lines)
+            {
+                if (line.AccountCode is null) continue;
+                var found = await conn.ExecuteScalarAsync<int>(@"
+                    SELECT COUNT(*) FROM accounts
+                    WHERE company_id = @companyId AND code = @code AND is_active = true;",
+                    new { companyId = sisterCompanyId, code = line.AccountCode });
+                if (found == 0) missingAccounts.Add(line.AccountCode);
+            }
+            if (missingAccounts.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "الحسابات التالية غير موجودة في الشركة الشقيقة: " +
+                    string.Join(", ", missingAccounts.Distinct()) +
+                    ". الرجاء إعداد دليل الحسابات في الشركة الشقيقة بنفس الأكواد.");
+            }
+        }
+
+        // 3) Build the mirror CreateInvoiceRequest. The mirror is the
+        //    OPPOSITE invoice type (sales ↔ purchase) — that's the
+        //    whole point of intercompany: one company records the
+        //    customer side, the other records the supplier side of
+        //    the same transaction.
+        var mirrorType = primary.InvoiceType == "sales" ? "purchase" : "sales";
+        var mirrorLines = new List<CreateInvoiceLineRequest>();
+        using (var conn = _db.CreateConnection())
+        {
+            foreach (var line in primary.Lines)
+            {
+                // Re-resolve account by code in the sister company.
+                var sisterAccountId = await conn.ExecuteScalarAsync<Guid?>(@"
+                    SELECT id FROM accounts
+                    WHERE company_id = @companyId AND code = @code AND is_active = true
+                    LIMIT 1;",
+                    new { companyId = sisterCompanyId, code = line.AccountCode });
+
+                // Re-resolve product by code in the sister company.
+                // Best-effort: leave null if not found. Description
+                // still carries the human-readable name so the mirror
+                // is not data-poor.
+                Guid? sisterProductId = null;
+                if (line.ProductCode is not null)
+                {
+                    sisterProductId = await conn.ExecuteScalarAsync<Guid?>(@"
+                        SELECT id FROM products
+                        WHERE company_id = @companyId AND code = @code
+                        LIMIT 1;",
+                        new { companyId = sisterCompanyId, code = line.ProductCode });
+                }
+
+                mirrorLines.Add(new CreateInvoiceLineRequest(
+                    AccountId: sisterAccountId,
+                    ProductId: sisterProductId,
+                    Description: line.Description ?? "",
+                    Quantity: line.Quantity,
+                    UnitPrice: line.UnitPrice,
+                    TaxRate: line.TaxRate
+                ));
+            }
+        }
+
+        var mirrorReq = new CreateInvoiceRequest(
+            CompanyId: sisterCompanyId,
+            InvoiceType: mirrorType,
+            InvoiceDate: primary.InvoiceDate,
+            PartyName: primaryCompany.name,                  // sister records primary as its counterparty
+            PartyNameAr: primaryCompany.name_ar ?? primaryCompany.name,
+            PartyTaxId: null,                                // sister company is not a tax-registered counterparty in the usual sense
+            Notes: $"Intercompany mirror of {primary.InvoiceNumber} — {primary.InvoiceType}",
+            TaxRate: 0m,                                     // tax was already on the primary; the mirror carries the same lines without re-taxing
+            IntercompanyCompanyId: null,                     // the mirror itself is NOT mirrored back — that would loop
+            Lines: mirrorLines
+        );
+
+        // 4) Create the mirror as a draft. Use the existing
+        //    CreateDraftAsync so the same product auto-fill / line
+        //    validation logic runs.
+        var mirror = await CreateDraftAsync(mirrorReq, null);
+
+        // 5) Post the mirror. The same rule event runs in the sister
+        //    company and creates a journal entry. The mirror's party
+        //    is the primary company, so:
+        //      - HOLD's sales invoice → CO-A's purchase invoice
+        //        (rule fires PurchaseInvoiceApproved; DR expense /
+        //        CR AP — CO-A now owes HOLD).
+        //      - CO-A's purchase invoice → HOLD's sales invoice
+        //        (rule fires SalesInvoiceApproved; DR AR / CR revenue
+        //        — HOLD now has a receivable from CO-A).
+        //    Net effect: HOLD records CO-A as customer; CO-A records
+        //    HOLD as supplier. Both with the same amount. This is
+        //    the textbook intercompany pair setup.
+        var mirrorEventName = mirror.InvoiceType == "sales"
+            ? "SalesInvoiceApproved" : "PurchaseInvoiceApproved";
+        // Build the mirror payload by copying the primary's payload
+        // and overriding the three party blocks (party, customer,
+        // supplier) with the primary company's identity. The rules'
+        // `{supplier.name}` / `{customer.name}` tokens then resolve
+        // to the correct legal entity.
+        //
+        // We start from the primary payload (Dictionary<string,
+        // object>), then add a few overrides. The inner dicts are
+        // constructed with the same Dictionary<string, object> type
+        // so the warning pattern matches the existing code (CS8601
+        // on line 285 — pre-existing). Empty string is used for
+        // taxId rather than null to avoid CS8625 in this dictionary
+        // type; the rules' SubstituteTokens returns "" for missing
+        // values anyway.
+        var mirrorPayload = new Dictionary<string, object>(primaryPayload)
+        {
+            ["party"] = new Dictionary<string, object>
+            {
+                ["name"] = primaryCompany.name,
+                ["nameAr"] = primaryCompany.name_ar ?? primaryCompany.name,
+                ["taxId"] = ""
+            },
+            ["customer"] = new Dictionary<string, object>
+            {
+                ["name"] = primaryCompany.name,
+                ["nameAr"] = primaryCompany.name_ar ?? primaryCompany.name,
+                ["taxId"] = ""
+            },
+            ["supplier"] = new Dictionary<string, object>
+            {
+                ["name"] = primaryCompany.name,
+                ["nameAr"] = primaryCompany.name_ar ?? primaryCompany.name,
+                ["taxId"] = ""
+            }
+        };
+
+        _log.LogInformation(
+            "Intercompany mirror: posting {MirrorNum} in sister company {SisterId} (type={Type})",
+            mirror.InvoiceNumber, sisterCompanyId, mirrorType);
+
+        var mirrorEntries = await _rules.TriggerEventAsync(
+            sisterCompanyId, null, mirrorEventName, mirrorPayload);
+
+        if (mirrorEntries.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "لم تنشأ أي قيود محاسبية في الشركة الشقيقة. " +
+                "الرجاء التأكد من تفعيل قواعد الترحيل في الشركة الشقيقة.");
+        }
+
+        // Mark the mirror invoice as posted. We bypass PostAsync
+        // because PostAsync would re-trigger the intercompany dance
+        // (it sees the mirror's intercompany_company_id, which is
+        // null, so it would simply no-op — but we still want the
+        // explicit status update + journal stamping below).
+        using (var conn = _db.CreateConnection())
+        {
+            await conn.ExecuteAsync(
+                "UPDATE invoices SET status = 'posted', posted_at = NOW() WHERE id = @id;",
+                new { id = mirror.Id });
+        }
+
+        // 6) Create the intercompany_pairs row. We use the
+        //    'pending' status here and flip to 'posted' after both
+        //    sides are confirmed (the caller in PostAsync does the
+        //    flip). This makes a half-mirrored state visible to the
+        //    report: pairs stuck on 'pending' are an alert signal.
+        var pairId = Guid.NewGuid();
+        using (var conn = _db.CreateConnection())
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO intercompany_pairs (
+                    id, primary_invoice_id, mirror_invoice_id,
+                    primary_company_id, mirror_company_id,
+                    amount, currency, status, created_at
+                )
+                VALUES (
+                    @id, @primaryInvoiceId, @mirrorInvoiceId,
+                    @primaryCompanyId, @mirrorCompanyId,
+                    @amount, 'LYD', 'pending', NOW()
+                );",
+                new
+                {
+                    id = pairId,
+                    primaryInvoiceId = primary.Id,
+                    mirrorInvoiceId = mirror.Id,
+                    primaryCompanyId = primary.CompanyId,
+                    mirrorCompanyId = sisterCompanyId,
+                    amount = primary.Total
+                });
+        }
+
+        // 7) Stamp `intercompany_pair_id` on BOTH sides' journal
+        //    entries. This is the back-pointer the elimination
+        //    report uses to find both halves in one query.
+        var primaryEntryIds = primaryEntries.Select(e => e.Id).ToList();
+        var mirrorEntryIds = mirrorEntries.Select(e => e.Id).ToList();
+        using (var conn = _db.CreateConnection())
+        {
+            if (primaryEntryIds.Count > 0)
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE journal_entries
+                    SET intercompany_pair_id = @pairId
+                    WHERE id = ANY(@ids);",
+                    new { pairId, ids = primaryEntryIds });
+            }
+            if (mirrorEntryIds.Count > 0)
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE journal_entries
+                    SET intercompany_pair_id = @pairId
+                    WHERE id = ANY(@ids);",
+                    new { pairId, ids = mirrorEntryIds });
+            }
+        }
+
+        _log.LogInformation(
+            "Intercompany pair {PairId} created: primary={Primary} mirror={Mirror}, amount={Amount} LYD",
+            pairId, primary.Id, mirror.Id, primary.Total);
+
+        return new IntercompanyPairDto(
+            pairId, primary.Id, mirror.Id,
+            primary.CompanyId, sisterCompanyId,
+            primary.Total, "LYD", "pending", DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Returns intercompany pairs where either the primary or the
+    /// mirror invoice belongs to the given company. Used by the
+    /// "Intercompany Pairs" list page.
+    /// </summary>
+    public async Task<List<IntercompanyPairDto>> GetIntercompanyPairsAsync(
+        Guid companyId, DateTime? fromDate = null, DateTime? toDate = null)
+    {
+        using var conn = _db.CreateConnection();
+        var sql = @"
+            SELECT id, primary_invoice_id, mirror_invoice_id,
+                   primary_company_id, mirror_company_id,
+                   amount, currency, status, created_at
+            FROM intercompany_pairs
+            WHERE (primary_company_id = @companyId OR mirror_company_id = @companyId)";
+        if (fromDate.HasValue) sql += " AND created_at >= @fromDate";
+        if (toDate.HasValue)   sql += " AND created_at <= @toDate";
+        sql += " ORDER BY created_at DESC;";
+
+        var rows = await conn.QueryAsync<IntercompanyPairRow>(sql, new { companyId, fromDate, toDate });
+        return rows.Select(r => new IntercompanyPairDto(
+            r.id, r.primary_invoice_id, r.mirror_invoice_id,
+            r.primary_company_id, r.mirror_company_id,
+            r.amount, r.currency, r.status, r.created_at
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Returns a single intercompany pair by id, plus the two full
+    /// invoices on each side. Used by the "Pair Detail" page.
+    /// </summary>
+    public async Task<IntercompanyPairDetailDto?> GetIntercompanyPairAsync(Guid pairId)
+    {
+        using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync<IntercompanyPairRow>(@"
+            SELECT id, primary_invoice_id, mirror_invoice_id,
+                   primary_company_id, mirror_company_id,
+                   amount, currency, status, created_at
+            FROM intercompany_pairs WHERE id = @id;",
+            new { id = pairId });
+        if (row is null) return null;
+
+        var primary = await GetByIdAsync(row.primary_invoice_id);
+        InvoiceDto? mirror = null;
+        if (row.mirror_invoice_id.HasValue)
+            mirror = await GetByIdAsync(row.mirror_invoice_id.Value);
+
+        return new IntercompanyPairDetailDto(
+            new IntercompanyPairDto(
+                row.id, row.primary_invoice_id, row.mirror_invoice_id,
+                row.primary_company_id, row.mirror_company_id,
+                row.amount, row.currency, row.status, row.created_at),
+            primary, mirror);
+    }
+
+    /// <summary>
+    /// Reverses an intercompany pair: creates a reversing journal
+    /// entry in BOTH companies (the same direction the original
+    /// pair's entries went) and marks the pair as 'reversed'. Both
+    /// invoices are also flipped to 'reversed' status.
+    ///
+    /// Idempotency: reversing a pair that is already 'reversed' is
+    /// a no-op (returns the current state, no double-reversals).
+    /// </summary>
+    public async Task<IntercompanyPairDto?> ReverseIntercompanyPairAsync(Guid pairId)
+    {
+        var detail = await GetIntercompanyPairAsync(pairId);
+        if (detail is null) return null;
+        if (detail.Pair.Status == "reversed") return detail.Pair;
+
+        // Reverse the primary side's journal entry
+        if (detail.Primary is not null && !string.IsNullOrEmpty(detail.Primary.Status))
+        {
+            // Find the latest posted journal entry for this invoice
+            // (could be more than one in a rule fan-out). For
+            // intercompany we stamp the pair id on every entry
+            // generated by the rule, so we can find them directly.
+            using var conn = _db.CreateConnection();
+            var entryIds = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM journal_entries
+                WHERE intercompany_pair_id = @pairId
+                  AND company_id = @companyId
+                  AND status = 'posted'
+                ORDER BY created_at;",
+                new { pairId, companyId = detail.Pair.PrimaryCompanyId })).ToList();
+
+            foreach (var entryId in entryIds)
+            {
+                await _journal.ReverseAsync(entryId);
+            }
+        }
+
+        // Reverse the mirror side's journal entry
+        if (detail.Mirror is not null)
+        {
+            using var conn = _db.CreateConnection();
+            var entryIds = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM journal_entries
+                WHERE intercompany_pair_id = @pairId
+                  AND company_id = @companyId
+                  AND status = 'posted'
+                ORDER BY created_at;",
+                new { pairId, companyId = detail.Pair.MirrorCompanyId })).ToList();
+
+            foreach (var entryId in entryIds)
+            {
+                await _journal.ReverseAsync(entryId);
+            }
+        }
+
+        // Flip both invoices + the pair to 'reversed' / 'posted' was
+        // already set; the entries themselves are now 'reversed'.
+        using (var conn = _db.CreateConnection())
+        {
+            await conn.ExecuteAsync(@"
+                UPDATE intercompany_pairs SET status = 'reversed' WHERE id = @id;",
+                new { id = pairId });
+            await conn.ExecuteAsync(@"
+                UPDATE invoices SET status = 'reversed' WHERE id = ANY(@ids);",
+                new
+                {
+                    ids = new[] { detail.Pair.PrimaryInvoiceId }
+                        .Concat(detail.Pair.MirrorInvoiceId.HasValue ? new[] { detail.Pair.MirrorInvoiceId.Value } : Array.Empty<Guid>())
+                        .ToArray()
+                });
+        }
+
+        _log.LogInformation("Intercompany pair {PairId} reversed", pairId);
+
+        return (await GetIntercompanyPairsAsync(detail.Pair.PrimaryCompanyId))
+            .FirstOrDefault(p => p.Id == pairId);
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(Guid companyId, string type, System.Data.IDbConnection conn, System.Data.IDbTransaction tx)
@@ -348,7 +841,8 @@ public class InvoiceService
     private record InvoiceRow(
         Guid id, Guid company_id, string invoice_number, string invoice_type, DateTime invoice_date,
         string party_name, string? party_name_ar, string? party_tax_id, string? notes,
-        decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at);
+        decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at,
+        Guid? intercompany_company_id);
 
     private record InvoiceLineRow(
         Guid id, Guid invoice_id, Guid? account_id, Guid? product_id,
@@ -356,4 +850,22 @@ public class InvoiceService
         string? product_code, string? product_name, string? product_name_ar,
         string? description, decimal quantity, decimal unit_price, decimal tax_rate,
         decimal amount, decimal line_total_with_tax, int line_number);
+
+    private record IntercompanyPairRow(
+        Guid id, Guid primary_invoice_id, Guid? mirror_invoice_id,
+        Guid primary_company_id, Guid mirror_company_id,
+        decimal amount, string currency, string status, DateTime created_at);
+
+    private record CompanyLite(Guid id, string code, string name, string? name_ar);
 }
+
+/// <summary>
+/// Full intercompany pair view: the pair record + the two invoice
+/// DTOs on each side. Returned by GetIntercompanyPairAsync for the
+/// "Pair Detail" page.
+/// </summary>
+public record IntercompanyPairDetailDto(
+    IntercompanyPairDto Pair,
+    InvoiceDto? Primary,
+    InvoiceDto? Mirror
+);
