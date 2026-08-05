@@ -169,7 +169,13 @@ export default function PendingJournalPage() {
             </thead>
             <tbody>
               {entries.map((e) => {
-                const total = e.lines.reduce((s, l) => s + Math.max(l.debit, l.credit), 0);
+                // Total = Σ debit (which by construction equals Σ credit
+                // for any balanced entry). Don't use Math.max(debit, credit)
+                // per line — that would sum the debit AND credit sides
+                // independently, doubling the displayed amount for any
+                // multi-line entry (e.g. a 3-line sales entry showed
+                // 8,160 instead of 4,080 because 4080 + 4000 + 80 = 8160).
+                const total = e.lines.reduce((s, l) => s + l.debit, 0);
                 const isExpanded = expanded === e.id;
                 return (
                   <PendingRow
