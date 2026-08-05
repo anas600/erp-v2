@@ -38,6 +38,15 @@ public static class ReportEndpoints
         // General Ledger (دفتر الأستاذ) for a single account.
         // Click an account code in the trial balance to drill into
         // its full transaction history in a date range.
+        //
+        // Date handling: the frontend sends dates in `YYYY-MM-DD`
+        // form (from <input type="date">). ASP.NET binds these as
+        // midnight UTC, which causes entries created later in the
+        // day to fall OUTSIDE the range. To fix: when the caller
+        // sends a date-only value (TimeOfDay == 00:00:00 exactly),
+        // we treat `from` as the start of that day and `to` as the
+        // end of that day. This is the user's natural intent:
+        // "show me everything that happened on 2026-08-05".
         grp.MapGet("/general-ledger", async (
             [FromQuery] Guid companyId,
             [FromQuery] Guid accountId,
@@ -47,8 +56,24 @@ public static class ReportEndpoints
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             if (accountId == Guid.Empty) return Results.BadRequest(new { error = "accountId required" });
-            var fromDate = from ?? new DateTime(DateTime.UtcNow.Year, 1, 1);
-            var toDate = to ?? DateTime.UtcNow;
+
+            // Detect date-only values: a date sent as `2026-08-05`
+            // arrives as exactly 00:00:00.000 with Kind=Unspecified.
+            // If the user picked a day, they want the whole day.
+            var now = DateTime.UtcNow;
+            var fromDate = from ?? new DateTime(now.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var toDate = to ?? now;
+
+            if (fromDate.TimeOfDay == TimeSpan.Zero && fromDate.Kind != DateTimeKind.Utc)
+            {
+                fromDate = DateTime.SpecifyKind(fromDate.Date, DateTimeKind.Utc);
+            }
+            if (toDate.TimeOfDay == TimeSpan.Zero && toDate.Kind != DateTimeKind.Utc)
+            {
+                // End of the picked day, not start. This is the fix.
+                toDate = DateTime.SpecifyKind(toDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+            }
+
             var report = await svc.GetGeneralLedgerAsync(companyId, accountId, fromDate, toDate);
             return report is null
                 ? Results.NotFound(new { error = "Account not found" })
