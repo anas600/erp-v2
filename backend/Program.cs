@@ -247,6 +247,34 @@ var app = builder.Build();
 // ============================================================
 // Pipeline
 // ============================================================
+// FIX 2026-08-05: Global exception handler — surfaces real error
+// to the client instead of an empty HTTP 500 body. Without this,
+// any DI failure, SQL error, or runtime exception in a minimal
+// API endpoint returns 200 OK with no body, making debugging
+// impossible. See DEC-090 / cross-project lesson.
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var ex = feature?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("GlobalExceptionHandler");
+        logger.LogError(ex, "Unhandled exception on {Method} {Path}",
+            context.Request.Method, context.Request.Path);
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = ex?.Message ?? "Unknown error",
+            type = ex?.GetType().FullName ?? "Unknown",
+            path = context.Request.Path.Value,
+            method = context.Request.Method
+        });
+    });
+});
+
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

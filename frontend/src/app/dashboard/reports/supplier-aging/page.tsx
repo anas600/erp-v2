@@ -25,7 +25,7 @@ interface AgingReport {
 const BUCKET_LABELS = ["0-30 يوم", "31-60 يوم", "61-90 يوم", "+90 يوم"];
 const BUCKET_CLASSES = ["text-green-700", "text-yellow-700", "text-orange-700", "text-red-700"];
 
-export default function CustomerAgingPage() {
+export default function SupplierAgingPage() {
   const { activeCompany } = useAuth();
   const [report, setReport] = useState<AgingReport | null>(null);
   const [loading, setLoading] = useState(true);
