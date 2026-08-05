@@ -216,7 +216,7 @@ public class ReceiptService
         try
         {
             // 1) Create the journal entry on the open connection/tx.
-            var journalEntry = await _journal.CreateDraftInTxAsync(conn2, tx, jeReq, userId);
+            var journalEntryId = await _journal.CreateDraftInTxAsync(conn2, tx, jeReq, userId);
 
             // 2) Stamp the receipt as posted.
             await conn2.ExecuteAsync(@"
@@ -225,7 +225,7 @@ public class ReceiptService
                     posted_at = NOW(),
                     journal_entry_id = @journalEntryId
                 WHERE id = @id;",
-                new { id, journalEntryId = journalEntry.Id }, tx);
+                new { id, journalEntryId }, tx);
 
             // 3) If the receipt is tied to a specific invoice, apply
             //    the payment on the SAME transaction. Any failure here

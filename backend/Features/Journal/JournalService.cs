@@ -121,7 +121,7 @@ public class JournalService
     /// invoice amount_paid update. The caller owns the connection and
     /// the transaction.
     /// </summary>
-    public async Task<JournalEntryDto> CreateDraftInTxAsync(
+    public async Task<Guid> CreateDraftInTxAsync(
         System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
         CreateJournalEntryRequest req, Guid? createdBy)
     {
@@ -132,8 +132,12 @@ public class JournalService
         // an existing transaction is safe.
         await EnsurePeriodOpenAsync(req.CompanyId, req.EntryDate, conn, tx);
 
-        var entryId = await CreateDraftEntryCoreAsync(conn, tx, req, createdBy, "draft");
-        return (await _posting.GetByIdAsync(entryId))!;
+        // FIX 2026-08-05: Return just the entryId. Reading it back via
+        // _posting.GetByIdAsync opens a NEW connection that can't see
+        // uncommitted data from this transaction, so it returns null,
+        // and the caller's `.Id` access NRE's. Callers can read the full
+        // entry AFTER tx.Commit() when the data is visible.
+        return await CreateDraftEntryCoreAsync(conn, tx, req, createdBy, "draft");
     }
 
     /// <summary>
