@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
-import { Plus, FileText, Loader2, Trash2, Send, Inbox, CheckCircle, X } from "lucide-react";
+import {
+  Plus, FileText, Loader2, Trash2, Send, Inbox, CheckCircle, X,
+  Wallet, FileCheck
+} from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 interface PaymentVoucher {
@@ -19,13 +23,38 @@ interface PaymentVoucher {
   reference?: string;
   narration?: string;
   postedAt?: string;
+  /** Sprint 25 — link to a specific supplier invoice. */
+  invoiceId?: string;
+  invoiceNumber?: string;
+  /** Bank account used (e.g. Cash 1000). */
+  bankAccountId?: string;
+  bankAccountCode?: string;
 }
 
 interface Contact {
   id: string;
   code: string;
   name: string;
+  nameAr?: string;
   type: string;
+}
+
+interface OutstandingInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  total: number;
+  amountPaid: number;
+  outstanding: number;
+  status: string;
+}
+
+interface BankAccount {
+  id: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+  accountType: string;
 }
 
 const PAYMENT_METHODS: Record<string, string> = {
@@ -34,10 +63,36 @@ const PAYMENT_METHODS: Record<string, string> = {
   check: "شيك",
 };
 
+const CASH_ACCOUNT_CODE = "1000";
+
+/**
+ * Payment vouchers (سندات الصرف) — the supplier-side mirror of
+ * receipts. Sprint 25 brought the same settlement features:
+ *   1. Optional "Invoice" dropdown (link the payment to a specific
+ *      outstanding supplier bill).
+ *   2. Required "Bank Account" dropdown (defaults to Cash 1000).
+ *   3. URL deep-link support from the contact-detail page.
+ *   4. Bank account + invoice number surfaced in the list.
+ */
 export default function PaymentsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center py-12">
+        <Loader2 className="animate-spin text-primary-500" size={32} />
+      </div>
+    }>
+      <PaymentsPageInner />
+    </Suspense>
+  );
+}
+
+function PaymentsPageInner() {
   const { activeCompany } = useAuth();
+  const searchParams = useSearchParams();
   const [vouchers, setVouchers] = useState<PaymentVoucher[]>([]);
   const [suppliers, setSuppliers] = useState<Contact[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [outstandingInvoices, setOutstandingInvoices] = useState<OutstandingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +102,10 @@ export default function PaymentsPage() {
   const [form, setForm] = useState({
     voucherDate: new Date().toISOString().slice(0, 10),
     contactId: "",
+    invoiceId: "",
     amount: 0,
     paymentMethod: "cash",
+    bankAccountId: "",
     reference: "",
     narration: "",
   });
@@ -57,12 +114,23 @@ export default function PaymentsPage() {
     if (!activeCompany) return;
     setLoading(true);
     try {
-      const [vRes, cRes] = await Promise.all([
+      const [vRes, cRes, aRes] = await Promise.all([
         api.get(`/payments?companyId=${activeCompany.id}`),
         api.get(`/contacts?companyId=${activeCompany.id}&type=supplier`),
+        api.get(`/accounts?companyId=${activeCompany.id}`),
       ]);
       setVouchers(vRes.data);
       setSuppliers(cRes.data);
+      const assets: BankAccount[] = (aRes.data || [])
+        .filter((a: any) => a.accountType === "Asset" && (a.accountClass === "detail" || a.accountClass === undefined))
+        .map((a: any) => ({
+          id: a.id,
+          code: a.code,
+          name: a.name,
+          nameAr: a.nameAr,
+          accountType: a.accountType
+        }));
+      setBankAccounts(assets);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -76,10 +144,59 @@ export default function PaymentsPage() {
     return () => clearInterval(i);
   }, [load]);
 
+  const loadOutstanding = useCallback(async (contactId: string) => {
+    if (!contactId) {
+      setOutstandingInvoices([]);
+      return;
+    }
+    try {
+      const r = await api.get(`/invoices?companyId=${activeCompany?.id}&contactId=${contactId}&status=outstanding`);
+      const list: OutstandingInvoice[] = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+      setOutstandingInvoices(list);
+    } catch {
+      setOutstandingInvoices([]);
+    }
+  }, [activeCompany]);
+
+  useEffect(() => {
+    loadOutstanding(form.contactId);
+  }, [form.contactId, loadOutstanding]);
+
+  useEffect(() => {
+    const contactId = searchParams.get("contactId");
+    const invoiceId = searchParams.get("invoiceId");
+    const amount = searchParams.get("amount");
+    if (contactId || invoiceId || amount) {
+      setForm((f) => ({
+        ...f,
+        contactId: contactId || f.contactId,
+        invoiceId: invoiceId || f.invoiceId,
+        amount: amount ? Number(amount) : f.amount
+      }));
+      setShowForm(true);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (bankAccounts.length === 0) return;
+    if (form.bankAccountId) return;
+    const cash = bankAccounts.find((a) => a.code === CASH_ACCOUNT_CODE);
+    setForm((f) => ({ ...f, bankAccountId: cash?.id || bankAccounts[0].id }));
+  }, [bankAccounts, form.bankAccountId]);
+
+  useEffect(() => {
+    if (!form.invoiceId) return;
+    const inv = outstandingInvoices.find((i) => i.invoiceId === form.invoiceId);
+    if (inv) {
+      setForm((f) => ({ ...f, amount: inv.outstanding }));
+    }
+  }, [form.invoiceId, outstandingInvoices]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCompany) return;
     if (!form.contactId) { setError("اختر المورّد"); return; }
+    if (!form.bankAccountId) { setError("اختر الحساب (الصندوق/البنك)"); return; }
     if (form.amount <= 0) { setError("المبلغ يجب أن يكون أكبر من صفر"); return; }
     setSubmitting(true);
     setError(null);
@@ -90,13 +207,16 @@ export default function PaymentsPage() {
         contactId: form.contactId,
         amount: form.amount,
         paymentMethod: form.paymentMethod,
+        bankAccountId: form.bankAccountId,
         reference: form.reference || null,
         narration: form.narration || null,
+        invoiceId: form.invoiceId || null,
       });
       setSuccess(`تم حفظ السند ${res.data.voucherNumber} كمسودة`);
       setForm({
         voucherDate: new Date().toISOString().slice(0, 10),
-        contactId: "", amount: 0, paymentMethod: "cash",
+        contactId: "", invoiceId: "", amount: 0, paymentMethod: "cash",
+        bankAccountId: form.bankAccountId,
         reference: "", narration: "",
       });
       await load();
@@ -173,7 +293,9 @@ export default function PaymentsPage() {
                 <th>رقم السند</th>
                 <th>التاريخ</th>
                 <th>المورّد</th>
+                <th>الفاتورة</th>
                 <th>طريقة الدفع</th>
+                <th>الحساب</th>
                 <th>المرجع</th>
                 <th>المبلغ</th>
                 <th>الحالة</th>
@@ -186,7 +308,11 @@ export default function PaymentsPage() {
                   <td className="font-mono font-semibold">{v.voucherNumber}</td>
                   <td>{formatDate(v.voucherDate)}</td>
                   <td>{v.contactName} <span className="text-xs text-gray-500">({v.contactCode})</span></td>
+                  <td className="font-mono text-sm text-primary-700">
+                    {v.invoiceNumber || <span className="text-gray-400">— على الحساب —</span>}
+                  </td>
                   <td className="text-sm">{PAYMENT_METHODS[v.paymentMethod] || v.paymentMethod}</td>
+                  <td className="font-mono text-sm" dir="ltr">{v.bankAccountCode || "—"}</td>
                   <td className="text-sm text-gray-600">{v.reference || "—"}</td>
                   <td className="font-mono" dir="ltr">{formatNumber(v.amount)}</td>
                   <td>
@@ -219,7 +345,7 @@ export default function PaymentsPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <FileText size={20} className="text-red-600" /> سند صرف جديد
@@ -239,14 +365,38 @@ export default function PaymentsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">المورّد *</label>
                   <select className="input" value={form.contactId}
-                    onChange={(e) => setForm({ ...form, contactId: e.target.value })} required>
+                    onChange={(e) => setForm({ ...form, contactId: e.target.value, invoiceId: "" })} required>
                     <option value="">— اختر مورّد —</option>
                     {suppliers.map((c) => (
-                      <option key={c.id} value={c.id}>{c.code} - {c.name}</option>
+                      <option key={c.id} value={c.id}>{c.code} - {c.nameAr || c.name}</option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <FileCheck size={12} /> الفاتورة
+                  <span className="text-xs text-gray-500 mr-1">(اختياري — للدفعات على الحساب اتركها فارغة)</span>
+                </label>
+                <select
+                  className="input"
+                  value={form.invoiceId}
+                  onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                  disabled={!form.contactId}
+                >
+                  <option value="">— على الحساب (بدون فاتورة) —</option>
+                  {outstandingInvoices.map((inv) => (
+                    <option key={inv.invoiceId} value={inv.invoiceId}>
+                      {inv.invoiceNumber} — {formatDate(inv.invoiceDate)} — متبقي: {formatNumber(inv.outstanding)} د.ل
+                    </option>
+                  ))}
+                </select>
+                {form.contactId && outstandingInvoices.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-1">لا توجد فواتير مستحقة لهذا المورّد</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">المبلغ (د.ل) *</label>
@@ -265,6 +415,27 @@ export default function PaymentsPage() {
                   </select>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <Wallet size={12} /> الحساب (الصندوق/البنك) *
+                </label>
+                <select className="input" value={form.bankAccountId}
+                  onChange={(e) => setForm({ ...form, bankAccountId: e.target.value })} required>
+                  <option value="">— اختر حساب —</option>
+                  {bankAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} — {a.nameAr || a.name}
+                    </option>
+                  ))}
+                </select>
+                {bankAccounts.length === 0 && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    ⚠ لا توجد حسابات أصول مفصّلة. أضف حساب صندوق (كود 1000) من شجرة الحسابات.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-1">المرجع / البيان</label>
                 <input className="input" value={form.reference}

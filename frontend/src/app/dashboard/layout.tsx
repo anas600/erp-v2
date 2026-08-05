@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, ScrollText as ScrollTextIcon
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -22,16 +22,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // (trial balance, general ledger, income statement, balance
   // sheet) all show in a row — easy to confuse.
   //
-  // Groups (Sprint 19):
+  // Groups (Sprint 19 + Sprint 25):
   //   1. الرئيسية    — لوحة التحكم
   //   2. الأساسيات    — الشركات / الحسابات / المنتجات / المشاريع
-  //   3. العمليات     — الفواتير / القيود / المعلقة
-  //   4. التقارير     — 4 تقارير في collapsible group
-  //   5. الإدارة      — المستخدمون / القواعد
+  //   3. العمليات     — الفواتير / سندات القبض والصرف / القيود
+  //   4. الحسابات     — العملاء والموردون / كشف حساب / السنوات المالية
+  //   5. التقارير     — 4 تقارير في collapsible group
+  //   6. الإدارة      — المستخدمون / القواعد
   //
   // The "التقارير" group is collapsed by default but auto-opens
   // when the user is on a report page, so they always see the
   // group context for where they are.
+  //
+  // Sprint 25 added the "الحسابات" group as a home for the
+  // new contact-detail / statement / fiscal-year pages. The
+  // previous sidebar only had reports and admin — the customer
+  // /supplier pages were nowhere to be found.
   type NavItem = {
     href: string;
     label: string;
@@ -78,6 +84,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: "/dashboard/journal", label: "القيود اليومية", icon: ScrollText },
         { href: "/dashboard/journal/pending", label: "القيود المعلقة", icon: Inbox },
         { href: "/dashboard/intercompany", label: "المعاملات بين الشركات", icon: ArrowRightLeft }
+      ]
+    },
+    {
+      // Sprint 25 — new "الحسابات" group. Holds the people-side pages
+      // (contacts + their statements) and the period-locking surface.
+      // Until now contacts were only inside the invoice dropdown, so
+      // they had no first-class home. كشف حساب deep-links into the
+      // contacts list pre-filtered to "with balance > 0".
+      label: "الحسابات",
+      icon: Users,
+      collapsible: false,
+      items: [
+        { href: "/dashboard/contacts", label: "العملاء والموردون", icon: Users },
+        { href: "/dashboard/contacts?filter=with-balance", label: "كشف حساب (لديهم رصيد)", icon: FileText },
+        { href: "/dashboard/fiscal-years", label: "السنوات والفترات المالية", icon: CalendarRange }
       ]
     },
     {

@@ -8,6 +8,7 @@
 - `auth-context.tsx` — `AuthProvider`, `useAuth`, and the `User` / `Company` types. Stores the token, user, and companies in cookies so a hard reload keeps the user signed in.
 - `company-context.tsx` — thin wrapper around the auth context that exposes only the `activeCompanyId`. Useful for components that only need the current company.
 - `utils.ts` — `cn` (Tailwind class merge), `formatNumber` (English digits, two decimals), `formatDate` / `formatDateTime` (UK-style `dd/mm/yyyy`).
+- `types.ts` — shared TypeScript interfaces used across multiple pages. Created in Sprint 25 to host the new settlement / statement / fiscal-year shapes (ContactBalance, InvoiceWithOutstanding, StatementLine, StatementResponse, FiscalYear, FiscalPeriod, VoucherWithInvoice). Pages that need only a single type can still declare it inline; `types.ts` is for shapes shared by 2+ pages.
 
 ## Local Contracts
 - All cookies are non-`httpOnly` and expire after 1 day; the backend issues an `accessToken` that lasts the same duration. The trade-off is "no XSS-safe token storage" in exchange for "easy reload on shared machines." The project is a private deployment, so this is acceptable.

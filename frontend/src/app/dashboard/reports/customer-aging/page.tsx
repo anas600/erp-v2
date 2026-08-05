@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
-import { Loader2, Users, AlertCircle } from "lucide-react";
+import { Loader2, Users, AlertCircle, ArrowRight } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 interface AgingLine {
@@ -11,7 +12,14 @@ interface AgingLine {
   contactCode: string;
   contactName: string;
   buckets: number[];  // [0-30, 31-60, 61-90, 91+]
-  total: number;
+  total: number;      // outstanding total
+  /**
+   * Sprint 25 — total amount the customer has already paid toward
+   * these outstanding invoices. Optional in the wire format because
+   * the backend may return it from the new settlement table or not.
+   * Frontend falls back to 0 if absent.
+   */
+  paid?: number;
 }
 
 interface AgingReport {
@@ -20,12 +28,15 @@ interface AgingReport {
   lines: AgingLine[];
   totals: number[];
   grandTotal: number;
+  /** Sprint 25 — sum of all `paid` across lines (parallel to `grandTotal`). */
+  totalPaid?: number;
 }
 
 const BUCKET_LABELS = ["0-30 يوم", "31-60 يوم", "61-90 يوم", "+90 يوم"];
 const BUCKET_CLASSES = ["text-green-700", "text-yellow-700", "text-orange-700", "text-red-700"];
 
 export default function CustomerAgingPage() {
+  const router = useRouter();
   const { activeCompany } = useAuth();
   const [report, setReport] = useState<AgingReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +47,9 @@ export default function CustomerAgingPage() {
     setLoading(true);
     try {
       const r = await api.get(`/reports/customer-aging?companyId=${activeCompany.id}`);
-      setReport(r.data);
+      // Backend may return a flat object or wrap under .data — accept both.
+      const payload: AgingReport = r.data?.data || r.data;
+      setReport(payload);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -45,6 +58,11 @@ export default function CustomerAgingPage() {
   }, [activeCompany]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Sum the `paid` column server-side would be tidier, but the wire
+  // shape is already locked-in. Compute client-side so this page is
+  // resilient regardless of whether the backend chose to emit totalPaid.
+  const totalPaid = report?.totalPaid ?? report?.lines.reduce((s, l) => s + (l.paid || 0), 0) ?? 0;
 
   return (
     <div>
@@ -87,21 +105,37 @@ export default function CustomerAgingPage() {
                   {BUCKET_LABELS.map((label, i) => (
                     <th key={i} className="text-left">{label}</th>
                   ))}
-                  <th className="text-left">الإجمالي</th>
+                  {/* Sprint 25: a "مدفوع" (paid) column so the reader
+                      can see how much of the original invoice value
+                      has already been settled. The outstanding
+                      columns (the buckets) are now `total - paid`. */}
+                  <th className="text-left text-green-700">مدفوع</th>
+                  <th className="text-left">الإجمالي المستحق</th>
                 </tr>
               </thead>
               <tbody>
                 {report.lines.map((line) => (
-                  <tr key={line.contactId}>
+                  <tr key={line.contactId} className="hover:bg-gray-50">
                     <td>
-                      <div className="font-semibold">{line.contactName}</div>
-                      <div className="text-xs text-gray-500">{line.contactCode}</div>
+                      <button
+                        onClick={() => router.push(`/dashboard/contacts/${line.contactId}`)}
+                        className="text-right hover:text-primary-700"
+                      >
+                        <div className="font-semibold flex items-center gap-1">
+                          {line.contactName}
+                          <ArrowRight size={12} className="text-gray-400" />
+                        </div>
+                        <div className="text-xs text-gray-500">{line.contactCode}</div>
+                      </button>
                     </td>
                     {line.buckets.map((amt, i) => (
                       <td key={i} className={`font-mono text-left ${amt > 0 ? BUCKET_CLASSES[i] : 'text-gray-300'}`} dir="ltr">
                         {amt > 0 ? formatNumber(amt) : '—'}
                       </td>
                     ))}
+                    <td className="font-mono text-left text-green-700" dir="ltr">
+                      {line.paid != null ? formatNumber(line.paid) : <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="font-mono text-left font-bold" dir="ltr">
                       {formatNumber(line.total)}
                     </td>
@@ -116,6 +150,9 @@ export default function CustomerAgingPage() {
                       {formatNumber(t)}
                     </td>
                   ))}
+                  <td className="font-mono text-left py-2 text-green-700" dir="ltr">
+                    {formatNumber(totalPaid)}
+                  </td>
                   <td className="font-mono text-left py-2 text-amber-700" dir="ltr">
                     {formatNumber(report.grandTotal)}
                   </td>
@@ -125,13 +162,16 @@ export default function CustomerAgingPage() {
             <div className="mt-4 p-3 bg-amber-50 text-amber-800 rounded-md text-sm flex items-start gap-2">
               <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <strong>كيفية القراءة:</strong> الأرقام = المبالغ المستحقة من كل عميل موزعة على عمر الدين بالأيام.
+                <strong>كيفية القراءة:</strong> المبالغ في الأعمدة = المستحق حالياً (بعد خصم المدفوع).
                 <ul className="mt-1 list-disc list-inside">
                   <li>0-30 يوم: الدين لم يتأخر بعد</li>
                   <li>31-60 يوم: متأخر شهر إلى شهرين</li>
                   <li>61-90 يوم: متأخر ربع سنة (إنذار)</li>
                   <li>+90 يوم: متأخر بشدة (تحصيل صعب)</li>
                 </ul>
+                <p className="mt-2 text-xs">
+                  اضغط على اسم العميل لفتح كشف حسابه الكامل (فواتير + سندات + كشف حساب).
+                </p>
               </div>
             </div>
           </div>
