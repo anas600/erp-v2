@@ -230,9 +230,46 @@ public class RuleEvaluator
             // Apply Nature Logic
             var (debit, credit) = _posting.ComputePlacement(account.nature, line.Nature, amount);
 
+            // Sprint 18c — Skip zero-amount lines entirely instead of
+            // failing the whole entry. A purchase invoice with no VAT
+            // (e.g. tax-exempt goods) would otherwise produce a line
+            // with both debit=0 and credit=0, which the journal
+            // validator rejects with "Line must have either debit or
+            // credit". That rejection used to bubble up to the rule
+            // engine's catch and silently mark the rule as having
+            // produced zero entries, which made the invoice post
+            // endpoint say "no rules enabled for this event" — a
+            // confusing and misleading message.
+            //
+            // The correct behaviour: if a line would have zero
+            // amount, drop it. The remaining lines still balance
+            // because the rule was authored with the assumption
+            // that "subtotal + tax = total" and the other side
+            // (the AP line on the purchase rule, or the AR line
+            // on the sales rule) is always the full total.
+            if (debit == 0 && credit == 0)
+            {
+                _log.LogInformation(
+                    "Rule {RuleId}: skipping zero-amount line for account {Code} (formula '{Formula}' = 0)",
+                    ruleId, line.AccountCode, line.AmountFormula);
+                continue;
+            }
+
             lines.Add(new CreateJournalLineRequest(
                 account.id, debit, credit,
                 SubstituteTokens(line.Description ?? "", payload)));
+        }
+
+        // If the rule produced only zero-amount lines, that's a
+        // real configuration error (e.g. the rule references a
+        // payload field that doesn't exist). Surface it loudly
+        // rather than silently producing an empty entry that
+        // the journal validator will also reject.
+        if (lines.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "قاعدة العمل أنتجت قيد فارغ — كل البنود قيمتها صفر. " +
+                "الرجاء التحقق من الـ payload ومن صيغ المبالغ في القاعدة.");
         }
 
         var req = new CreateJournalEntryRequest(

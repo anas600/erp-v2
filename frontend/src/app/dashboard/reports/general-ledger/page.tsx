@@ -91,9 +91,21 @@ export default function GeneralLedgerPage() {
     if (!activeCompany) return;
     setLoadingAccounts(true);
     api.get(`/accounts?companyId=${activeCompany.id}`)
-      .then((r) => setAccounts(r.data))
+      .then((r) => {
+        setAccounts(r.data);
+        // Auto-select the first account when none is set.
+        // This is a small UX improvement: users landing on
+        // /reports/general-ledger (without ?accountId=...) used
+        // to see a "pick an account" placeholder forever. Now
+        // they see the first account's ledger immediately. They
+        // can still pick another from the dropdown.
+        if (!searchParams.get("accountId") && r.data.length > 0) {
+          setSelectedAccountId(r.data[0].id);
+        }
+      })
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoadingAccounts(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCompany]);
 
   // Load the ledger when account or dates change
