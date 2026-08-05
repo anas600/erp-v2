@@ -15,7 +15,7 @@ public class AccountService
         var rows = await conn.QueryAsync<AccountRow>(@"
             SELECT id, company_id, code, name, name_ar, parent_id, account_type, nature,
                    level, account_class, is_control_account, cost_center_required,
-                   is_active, balance
+                   is_postable, is_active, balance
             FROM accounts
             WHERE company_id = @companyId
             ORDER BY code;",
@@ -29,7 +29,7 @@ public class AccountService
         var row = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
             SELECT id, company_id, code, name, name_ar, parent_id, account_type, nature,
                    level, account_class, is_control_account, cost_center_required,
-                   is_active, balance
+                   is_postable, is_active, balance
             FROM accounts WHERE id = @id;",
             new { id });
         return row is null ? null : Map(row);
@@ -55,6 +55,23 @@ public class AccountService
         if (req.Level < 1 || req.Level > 4)
             throw new ArgumentException("Level must be 1-4");
 
+        // Validate is_postable vs level (Sprint 26).
+        // The level determines what the account can do:
+        //   L1/L2: pure grouping headers — must NOT be postable.
+        //          (Posting here would double-count; the rollup is
+        //          computed from the children.)
+        //   L4:    detail accounts (sub-ledger) — must be postable
+        //          (the whole point of L4 is to receive journal lines).
+        //   L3:    user choice. The default is true (operational
+        //          account), but a user can demote it to a header
+        //          by setting is_postable=false (e.g. a "Reserve for
+        //          Doubtful Accounts" grouping that has its own
+        //          contra-balances but no direct postings).
+        if (req.Level <= 2 && req.IsPostable)
+            throw new ArgumentException("حسابات المستويين 1 و 2 لا يمكن أن تكون قابلة للترحيل (مجموعات فقط)");
+        if (req.Level == 4 && !req.IsPostable)
+            throw new ArgumentException("الحسابات التفصيلية (L4) يجب أن تكون قابلة للترحيل");
+
         // If parent_id is provided, ensure parent exists and is in same company
         if (req.ParentId.HasValue)
         {
@@ -73,20 +90,21 @@ public class AccountService
                 id, company_id, code, name, name_ar, parent_id,
                 account_type, nature, level, account_class,
                 is_control_account, cost_center_required,
-                is_active, balance
+                is_postable, is_active, balance
             )
             VALUES (
                 @id, @companyId, @code, @name, @nameAr, @parentId,
                 @accountType, @nature, @level, @accountClass,
                 @isControlAccount, @costCenterRequired,
-                true, 0
+                @isPostable, true, 0
             );",
             new
             {
                 id, companyId = req.CompanyId, code = req.Code, name = req.Name, nameAr = req.NameAr,
                 parentId = req.ParentId, accountType = req.AccountType, nature = req.Nature,
                 level = req.Level, accountClass = req.AccountClass,
-                isControlAccount = req.IsControlAccount, costCenterRequired = req.CostCenterRequired
+                isControlAccount = req.IsControlAccount, costCenterRequired = req.CostCenterRequired,
+                isPostable = req.IsPostable
             });
 
         return (await GetByIdAsync(id))!;
@@ -116,7 +134,7 @@ public class AccountService
         // Build a map: id -> node
         var byId = all.ToDictionary(a => a.Id, a => new AccountTreeNode(
             a.Id, a.Code, a.Name, a.NameAr, a.AccountType, a.Nature,
-            a.Level, a.IsControlAccount, a.IsActive, a.Balance,
+            a.Level, a.IsControlAccount, a.IsPostable, a.IsActive, a.Balance,
             HasChildren: false, Children: new List<AccountTreeNode>()
         ));
 
@@ -163,11 +181,14 @@ public class AccountService
         var row = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
             SELECT a.id, a.company_id, a.code, a.name, a.name_ar, a.parent_id,
                    a.account_type, a.nature, a.level, a.account_class,
-                   a.is_control_account, a.cost_center_required, a.is_active, a.balance
+                   a.is_control_account, a.cost_center_required,
+                   a.is_postable, a.is_active, a.balance
             FROM accounts a
             JOIN account_contact_links l ON l.account_id = a.id
             WHERE l.contact_id = @contactId
               AND l.company_id = @companyId
+              AND l.is_primary = true
+            ORDER BY l.created_at ASC
             LIMIT 1;",
             new { companyId, contactId });
         return row is null ? null : Map(row);
@@ -197,7 +218,7 @@ public class AccountService
         var parent = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
             SELECT id, company_id, code, name, name_ar, parent_id, account_type, nature,
                    level, account_class, is_control_account, cost_center_required,
-                   is_active, balance
+                   is_postable, is_active, balance
             FROM accounts
             WHERE company_id = @companyId AND code = @parentCode
             LIMIT 1;",
@@ -214,12 +235,12 @@ public class AccountService
                 id, company_id, code, name, name_ar, parent_id,
                 account_type, nature, level, account_class,
                 is_control_account, cost_center_required,
-                is_active, balance
+                is_postable, is_active, balance
             )
             VALUES (
                 @id, @companyId, @code, @name, @nameAr, @parentId,
                 @accountType, @nature, 4, 'detail',
-                false, false, true, 0
+                false, false, true, true, 0
             );",
             new
             {
@@ -228,10 +249,11 @@ public class AccountService
                 parentId = parent.id, accountType = parent.account_type, nature = parent.nature
             });
 
-        // Link to contact
+        // Link to contact (Sprint 26 — also stamp is_primary so the
+        // ux_account_contact_links_primary unique index accepts it).
         await conn.ExecuteAsync(@"
-            INSERT INTO account_contact_links (id, account_id, contact_id, company_id)
-            VALUES (@id, @accountId, @contactId, @companyId);",
+            INSERT INTO account_contact_links (id, account_id, contact_id, company_id, is_primary, created_at)
+            VALUES (@id, @accountId, @contactId, @companyId, true, NOW());",
             new { id = Guid.NewGuid(), accountId = id, contactId, companyId });
 
         return (await GetByIdAsync(id))!;
@@ -241,12 +263,82 @@ public class AccountService
         r.id, r.company_id, r.code, r.name, r.name_ar, r.parent_id,
         r.account_type, r.nature, r.level, r.account_class,
         r.is_control_account, r.cost_center_required,
-        r.is_active, r.balance);
+        r.is_postable, r.is_active, r.balance);
+
+    /// <summary>
+    /// Returns the primary sub-ledger for a contact, creating one
+    /// transparently if none exists.
+    ///
+    /// Called by ReceiptService / PaymentService before posting so
+    /// a contact without a sub-ledger doesn't block transactions.
+    /// The system creates the sub-ledger automatically:
+    ///
+    ///   1. Try GetSubLedgerForContactAsync (existing)
+    ///   2. If not found: pick the parent control account by contact
+    ///      type — 1200 (AR) for customer, 2000 (AP) for supplier.
+    ///   3. If the parent control account doesn't exist, fail with
+    ///      a clear Arabic error. The chart of accounts is the
+    ///      admin's responsibility to set up; we can't synthesize
+    ///      a brand new L3 control account on the fly.
+    ///   4. Create the sub-ledger via CreateSubLedgerForContactAsync
+    ///      (which stamps is_primary=true on the link).
+    ///   5. Return the freshly-created sub-ledger.
+    ///
+    /// All sub-ledgers created here are L4 (level=4) and is_postable=true.
+    /// </summary>
+    public async Task<AccountDto> EnsureSubLedgerAsync(Guid companyId, Guid contactId)
+    {
+        // 1) Fast path: sub-ledger already exists.
+        var existing = await GetSubLedgerForContactAsync(companyId, contactId);
+        if (existing is not null) return existing;
+
+        // 2) Look up the contact to decide which control account to use.
+        using var conn = _db.CreateConnection();
+        var contact = await conn.QuerySingleOrDefaultAsync<(string? type, string? code)>(@"
+            SELECT type, code FROM contacts
+            WHERE id = @id AND company_id = @companyId;",
+            new { id = contactId, companyId });
+        if (contact.type is null || contact.code is null)
+            throw new InvalidOperationException("العميل/المورّد غير موجود");
+
+        // 3) Pick the parent control account.
+        //    customer -> 1200 (AR)
+        //    supplier -> 2000 (AP)
+        var parentCode = contact.type == "customer" ? "1200" : "2000";
+
+        // 4) Create the sub-ledger (CreateSubLedgerForContactAsync
+        //    also creates the account_contact_links row).
+        return await CreateSubLedgerForContactAsync(companyId, contactId, parentCode, contact.code);
+    }
+
+    /// <summary>
+    /// Explicit "link a contact to an account" helper. Used by
+    /// the ContactDetailPage when the user wants to attach a
+    /// second sub-ledger (e.g. one in LYD and one in USD) and
+    /// mark the first one as non-primary.
+    ///
+    /// is_primary=true enforces the partial-unique index
+    /// ux_account_contact_links_primary at the DB level. If the
+    /// contact already has a primary link, the INSERT fails with
+    /// a unique-violation and we surface the error.
+    /// </summary>
+    public async Task LinkContactToAccountAsync(Guid contactId, Guid accountId, bool isPrimary = true)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(@"
+            INSERT INTO account_contact_links
+                (id, account_id, contact_id, company_id, is_primary, created_at)
+            VALUES
+                (@id, @accountId, @contactId,
+                 (SELECT company_id FROM accounts WHERE id = @accountId),
+                 @isPrimary, NOW());",
+            new { id = Guid.NewGuid(), accountId, contactId, isPrimary });
+    }
 
     private record AccountRow(
         Guid id, Guid company_id, string code, string name, string? name_ar,
         Guid? parent_id, string account_type, string nature,
         int level, string account_class,
         bool is_control_account, bool cost_center_required,
-        bool is_active, decimal balance);
+        bool is_postable, bool is_active, decimal balance);
 }

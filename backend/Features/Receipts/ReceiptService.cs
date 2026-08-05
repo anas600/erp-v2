@@ -148,9 +148,8 @@ public class ReceiptService
     /// <summary>
     /// Post the receipt: build a journal entry with two lines
     /// (DR Cash/Bank, CR AR sub-ledger) and post it via the
-    /// regular Posting Engine. The AR sub-ledger is found via
-    /// account_contact_links; if no sub-ledger exists yet, the
-    /// receipt fails with a clear Arabic error.
+    /// regular Posting Engine. The AR sub-ledger is found (and
+    /// created on demand) via <see cref="AccountService.EnsureSubLedgerAsync"/>.
     ///
     /// Sprint 25 — atomic settlement:
     ///   If the receipt has an <c>invoice_id</c>, the same transaction
@@ -159,6 +158,14 @@ public class ReceiptService
     ///   (wrong contact, wrong company, over-payment, locked invoice,
     ///   etc.), the entire transaction rolls back — the journal entry
     ///   is NOT created and the receipt stays in 'draft' state.
+    ///
+    /// Sprint 26 — auto-create sub-ledger:
+    ///   Replaced GetSubLedgerForContactAsync + manual error with
+    ///   EnsureSubLedgerAsync. If the customer has no sub-ledger yet,
+    ///   we create one in the same call (under the AR control account
+    ///   1200). The user no longer needs to provision sub-ledgers
+    ///   manually from the accounts page before they can post a
+    ///   receipt.
     /// </summary>
     public async Task<ReceiptVoucherDto?> PostAsync(Guid id, Guid? userId)
     {
@@ -168,12 +175,10 @@ public class ReceiptService
         if (receipt.Status != "draft")
             throw new InvalidOperationException("لا يمكن ترحيل سند في هذه الحالة");
 
-        // Find the customer's AR sub-ledger account
-        var subLedger = await _accounts.GetSubLedgerForContactAsync(receipt.CompanyId, receipt.ContactId);
-        if (subLedger is null)
-            throw new InvalidOperationException(
-                "لا يوجد حساب تفصيلي (sub-ledger) لهذا العميل. " +
-                "الرجاء إنشاء الحساب التفصيلي من صفحة /dashboard/accounts أولاً.");
+        // Find or auto-create the customer's AR sub-ledger.
+        // EnsureSubLedgerAsync picks 1200 as the parent for customers
+        // and creates the detail account + link on the fly.
+        var subLedger = await _accounts.EnsureSubLedgerAsync(receipt.CompanyId, receipt.ContactId);
 
         // Determine the cash/bank account
         var cashAccountId = receipt.BankAccountId;

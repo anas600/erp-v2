@@ -153,6 +153,10 @@ public class PaymentService
     /// calls <see cref="InvoiceService.ApplyPaymentInTxAsync"/> to bump
     /// <c>invoices.amount_paid</c>. The whole thing rolls back if any
     /// step fails.
+    ///
+    /// Sprint 26 — auto-create sub-ledger (Sprint 26).
+    /// Uses EnsureSubLedgerAsync, which picks 2000 (AP) as the parent
+    /// for suppliers and creates the detail account + link on the fly.
     /// </summary>
     public async Task<PaymentVoucherDto?> PostAsync(Guid id, Guid? userId)
     {
@@ -162,11 +166,8 @@ public class PaymentService
         if (payment.Status != "draft")
             throw new InvalidOperationException("لا يمكن ترحيل سند في هذه الحالة");
 
-        var subLedger = await _accounts.GetSubLedgerForContactAsync(payment.CompanyId, payment.ContactId);
-        if (subLedger is null)
-            throw new InvalidOperationException(
-                "لا يوجد حساب تفصيلي (sub-ledger) لهذا المورّد. " +
-                "الرجاء إنشاء الحساب التفصيلي من صفحة /dashboard/accounts أولاً.");
+        // Find or auto-create the supplier's AP sub-ledger.
+        var subLedger = await _accounts.EnsureSubLedgerAsync(payment.CompanyId, payment.ContactId);
 
         var cashAccountId = payment.BankAccountId;
         if (cashAccountId is null)

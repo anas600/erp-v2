@@ -166,5 +166,100 @@ public static class AdminEndpoints
             }
             return Results.Ok(new { results });
         });
+
+        // ============================================================
+        // Sprint 26 — new endpoints
+        // ============================================================
+
+        // POST /api/admin/cleanup-data
+        // Full demo reset. Compared to /cleanup-transactions this also
+        // wipes vouchers, intercompany pairs, sub-ledger accounts, and
+        // re-opens fiscal periods. Wrapped in a single transaction.
+        // Requires super_admin.
+        grp.MapPost("/cleanup-data", async (HttpContext ctx, [FromServices] AdminService svc, ILogger<Program> logger) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            try
+            {
+                logger.LogWarning(
+                    "ADMIN CLEANUP-DATA: user {Email} is wiping all data at {Time}",
+                    ctx.User.FindFirst(ClaimTypes.Email)?.Value,
+                    DateTime.UtcNow);
+            }
+            catch { /* logging should never block the request */ }
+
+            try
+            {
+                var result = await svc.CleanupDataAsync();
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "CleanupData failed: {Type}: {Message}\n{Stack}",
+                    ex.GetType().Name, ex.Message, ex.StackTrace);
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name,
+                    inner = ex.InnerException?.Message
+                });
+            }
+        });
+
+        // POST /api/admin/seed-demo-data?companyId=...
+        // Creates 5 customers + 3 suppliers + 10 invoices + 5 receipts +
+        // 2 payments with realistic Libyan data. Requires super_admin.
+        // Idempotent at the contact level (re-running won't duplicate
+        // customers/suppliers), but invoices/vouchers will accumulate
+        // (use /cleanup-data first if you want a clean slate).
+        grp.MapPost("/seed-demo-data", async (
+            HttpContext ctx,
+            [FromQuery] Guid companyId,
+            [FromServices] DemoDataSeeder seeder,
+            [FromServices] IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+
+            // Guard: company must exist.
+            using (var conn = db.CreateConnection())
+            {
+                var exists = await conn.ExecuteScalarAsync<bool>(
+                    "SELECT EXISTS (SELECT 1 FROM companies WHERE id = @id);",
+                    new { id = companyId });
+                if (!exists)
+                    return Results.BadRequest(new { error = "الشركة غير موجودة" });
+            }
+
+            var userId = ctx.GetUserId();
+
+            try
+            {
+                var result = await seeder.SeedAsync(companyId, userId);
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name,
+                    inner = ex.InnerException?.Message
+                });
+            }
+        });
     }
 }

@@ -63,6 +63,13 @@ public record AccountDto(
     string AccountClass,
     bool IsControlAccount,
     bool CostCenterRequired,
+    /// <summary>
+    /// Sprint 26 — whether the Posting Engine accepts journal lines
+    /// against this account. L1/L2 are always false (pure grouping
+    /// headers); L4 is always true (detail accounts are by definition
+    /// postable); L3 is user-overrideable.
+    /// </summary>
+    bool IsPostable,
     bool IsActive,
     decimal Balance
 );
@@ -78,7 +85,14 @@ public record CreateAccountRequest(
     int Level = 3,
     string AccountClass = "detail",
     bool IsControlAccount = false,
-    bool CostCenterRequired = false
+    bool CostCenterRequired = false,
+    /// <summary>
+    /// Sprint 26 — defaults to true. Validated by AccountService:
+    ///   L1/L2: must be false
+    ///   L4:    must be true
+    ///   L3:    user choice (default true for "operational account")
+    /// </summary>
+    bool IsPostable = true
 );
 
 public record UpdateAccountRequest(
@@ -107,6 +121,11 @@ public record AccountTreeNode(
     string Nature,
     int Level,
     bool IsControlAccount,
+    /// <summary>
+    /// Sprint 26 — surfaced in the tree so the UI can render a
+    /// badge (e.g. "غير قابل للترحيل" for L1/L2 headers).
+    /// </summary>
+    bool IsPostable,
     bool IsActive,
     decimal Balance,
     bool HasChildren,

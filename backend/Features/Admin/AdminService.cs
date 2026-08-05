@@ -89,6 +89,79 @@ public class AdminService
             CleanedAt: DateTime.UtcNow
         );
     }
+
+    /// <summary>
+    /// Sprint 26 — full demo reset. Compared to CleanupAllTransactionsAsync,
+    /// this goes further:
+    ///   - Wipes receipt_vouchers and payment_vouchers (so the new
+    ///     atomic settlement flow can re-run cleanly).
+    ///   - Wipes intercompany_pairs (Sprint 24) so a re-seed doesn't
+    ///     reference a deleted sister invoice.
+    ///   - Wipes account_contact_links and any L4 sub-ledger accounts
+    ///     the user created — so seed can re-create them.
+    ///   - Re-opens all fiscal periods (Sprint 25) so the seeder
+    ///     can post invoices into 2026.
+    ///
+    /// The operation is wrapped in a single transaction so a failure
+    /// rolls back cleanly (no half-cleaned state).
+    /// </summary>
+    public async Task<CleanupDataResult> CleanupDataAsync()
+    {
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1) journal_lines and journal_entries (lines first — FK)
+            await conn.ExecuteAsync("TRUNCATE TABLE journal_lines CASCADE;", tx);
+            await conn.ExecuteAsync("TRUNCATE TABLE journal_entries CASCADE;", tx);
+
+            // 2) receipt_vouchers and payment_vouchers
+            await conn.ExecuteAsync("TRUNCATE TABLE receipt_vouchers CASCADE;", tx);
+            await conn.ExecuteAsync("TRUNCATE TABLE payment_vouchers CASCADE;", tx);
+
+            // 3) invoice_lines and invoices
+            await conn.ExecuteAsync("TRUNCATE TABLE invoice_lines CASCADE;", tx);
+            await conn.ExecuteAsync("TRUNCATE TABLE invoices CASCADE;", tx);
+
+            // 4) intercompany_pairs (Sprint 24 — they reference deleted invoices)
+            await conn.ExecuteAsync("TRUNCATE TABLE intercompany_pairs CASCADE;", tx);
+
+            // 5) account_contact_links and the L4 sub-ledger accounts
+            //    we created in previous demos. (TRUNCATE ... CASCADE on the
+            //    link table would also wipe the L4 accounts, but we do it
+            //    explicitly so the count is informative.)
+            await conn.ExecuteAsync("DELETE FROM account_contact_links;", tx);
+            await conn.ExecuteAsync("DELETE FROM accounts WHERE level = 4;", tx);
+
+            // 6) Reset every account balance to 0 (including the L3
+            //    control accounts that survived the level=4 delete).
+            await conn.ExecuteAsync("UPDATE accounts SET balance = 0;", tx);
+
+            // 7) Re-open all fiscal periods (Sprint 25 — they were
+            //    left open by default; this is a belt-and-suspenders
+            //    in case the user closed one).
+            await conn.ExecuteAsync("UPDATE fiscal_periods SET is_closed = false;", tx);
+
+            tx.Commit();
+
+            // After commit, count what's left so the result is informative.
+            var l3Accounts = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM accounts WHERE level = 3;");
+            var l4Accounts = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM accounts WHERE level = 4;");
+
+            return new CleanupDataResult(
+                CleanedAt: DateTime.UtcNow,
+                RemainingL3Accounts: l3Accounts,
+                RemainingL4Accounts: l4Accounts,
+                Message: "تم تنظيف جميع البيانات. الحسابات الهيكلية (L1/L2/L3) محفوظة.");
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
 }
 
 public record CleanupResult(
@@ -98,4 +171,11 @@ public record CleanupResult(
     int InvoicesDeleted,
     int AccountsReset,
     DateTime CleanedAt
+);
+
+public record CleanupDataResult(
+    DateTime CleanedAt,
+    long RemainingL3Accounts,
+    long RemainingL4Accounts,
+    string Message
 );
