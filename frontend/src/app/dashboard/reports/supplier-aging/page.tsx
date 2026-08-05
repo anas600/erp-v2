@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
-import { Loader2, Users, AlertCircle } from "lucide-react";
+import { Loader2, Users, AlertCircle, ArrowRight } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 interface AgingLine {
@@ -12,6 +13,8 @@ interface AgingLine {
   contactName: string;
   buckets: number[];  // [0-30, 31-60, 61-90, 91+]
   total: number;
+  /** Sprint 25 — total amount the supplier has already been paid. */
+  paid?: number;
 }
 
 interface AgingReport {
@@ -20,12 +23,14 @@ interface AgingReport {
   lines: AgingLine[];
   totals: number[];
   grandTotal: number;
+  totalPaid?: number;
 }
 
 const BUCKET_LABELS = ["0-30 يوم", "31-60 يوم", "61-90 يوم", "+90 يوم"];
 const BUCKET_CLASSES = ["text-green-700", "text-yellow-700", "text-orange-700", "text-red-700"];
 
 export default function SupplierAgingPage() {
+  const router = useRouter();
   const { activeCompany } = useAuth();
   const [report, setReport] = useState<AgingReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +41,8 @@ export default function SupplierAgingPage() {
     setLoading(true);
     try {
       const r = await api.get(`/reports/supplier-aging?companyId=${activeCompany.id}`);
-      setReport(r.data);
+      const payload: AgingReport = r.data?.data || r.data;
+      setReport(payload);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -45,6 +51,8 @@ export default function SupplierAgingPage() {
   }, [activeCompany]);
 
   useEffect(() => { load(); }, [load]);
+
+  const totalPaid = report?.totalPaid ?? report?.lines.reduce((s, l) => s + (l.paid || 0), 0) ?? 0;
 
   return (
     <div>
@@ -87,21 +95,33 @@ export default function SupplierAgingPage() {
                   {BUCKET_LABELS.map((label, i) => (
                     <th key={i} className="text-left">{label}</th>
                   ))}
-                  <th className="text-left">الإجمالي</th>
+                  <th className="text-left text-green-700">مدفوع</th>
+                  <th className="text-left">الإجمالي المستحق</th>
                 </tr>
               </thead>
               <tbody>
                 {report.lines.map((line) => (
-                  <tr key={line.contactId}>
+                  <tr key={line.contactId} className="hover:bg-gray-50">
                     <td>
-                      <div className="font-semibold">{line.contactName}</div>
-                      <div className="text-xs text-gray-500">{line.contactCode}</div>
+                      <button
+                        onClick={() => router.push(`/dashboard/contacts/${line.contactId}`)}
+                        className="text-right hover:text-primary-700"
+                      >
+                        <div className="font-semibold flex items-center gap-1">
+                          {line.contactName}
+                          <ArrowRight size={12} className="text-gray-400" />
+                        </div>
+                        <div className="text-xs text-gray-500">{line.contactCode}</div>
+                      </button>
                     </td>
                     {line.buckets.map((amt, i) => (
                       <td key={i} className={`font-mono text-left ${amt > 0 ? BUCKET_CLASSES[i] : 'text-gray-300'}`} dir="ltr">
                         {amt > 0 ? formatNumber(amt) : '—'}
                       </td>
                     ))}
+                    <td className="font-mono text-left text-green-700" dir="ltr">
+                      {line.paid != null ? formatNumber(line.paid) : <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="font-mono text-left font-bold" dir="ltr">
                       {formatNumber(line.total)}
                     </td>
@@ -116,6 +136,9 @@ export default function SupplierAgingPage() {
                       {formatNumber(t)}
                     </td>
                   ))}
+                  <td className="font-mono text-left py-2 text-green-700" dir="ltr">
+                    {formatNumber(totalPaid)}
+                  </td>
                   <td className="font-mono text-left py-2 text-amber-700" dir="ltr">
                     {formatNumber(report.grandTotal)}
                   </td>
@@ -125,13 +148,16 @@ export default function SupplierAgingPage() {
             <div className="mt-4 p-3 bg-amber-50 text-amber-800 rounded-md text-sm flex items-start gap-2">
               <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
               <div>
-                <strong>كيفية القراءة:</strong> الأرقام = المبالغ المستحقة من كل عميل موزعة على عمر الدين بالأيام.
+                <strong>كيفية القراءة:</strong> المبالغ = ما لم ندفعه بعد (المستحق حالياً).
                 <ul className="mt-1 list-disc list-inside">
-                  <li>0-30 يوم: الدين لم يتأخر بعد</li>
+                  <li>0-30 يوم: لم يحن موعد السداد بعد</li>
                   <li>31-60 يوم: متأخر شهر إلى شهرين</li>
                   <li>61-90 يوم: متأخر ربع سنة (إنذار)</li>
-                  <li>+90 يوم: متأخر بشدة (تحصيل صعب)</li>
+                  <li>+90 يوم: متأخر بشدة</li>
                 </ul>
+                <p className="mt-2 text-xs">
+                  اضغط على اسم المورّد لفتح كشف حسابه الكامل.
+                </p>
               </div>
             </div>
           </div>

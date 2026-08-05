@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
-import { Plus, FileText, Loader2, Trash2, Send, Inbox, CheckCircle, X } from "lucide-react";
+import {
+  Plus, FileText, Loader2, Trash2, Send, Inbox, CheckCircle, X,
+  Wallet, CreditCard, FileCheck
+} from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 interface ReceiptVoucher {
@@ -19,13 +23,38 @@ interface ReceiptVoucher {
   reference?: string;
   narration?: string;
   postedAt?: string;
+  /** Sprint 25 — link to a specific invoice when the receipt settles one. */
+  invoiceId?: string;
+  invoiceNumber?: string;
+  /** Bank account used (e.g. Cash 1000). */
+  bankAccountId?: string;
+  bankAccountCode?: string;
 }
 
 interface Contact {
   id: string;
   code: string;
   name: string;
+  nameAr?: string;
   type: string;
+}
+
+interface OutstandingInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  total: number;
+  amountPaid: number;
+  outstanding: number;
+  status: string;
+}
+
+interface BankAccount {
+  id: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+  accountType: string;
 }
 
 const PAYMENT_METHODS: Record<string, string> = {
@@ -34,10 +63,44 @@ const PAYMENT_METHODS: Record<string, string> = {
   check: "شيك",
 };
 
+const CASH_ACCOUNT_CODE = "1000"; // Default bank account per Sprint 25 plan.
+
+/**
+ * Receipt vouchers (سندات القبض).
+ *
+ * Sprint 25 changes:
+ *   1. The form now lets the operator link a receipt to a specific
+ *      outstanding invoice. When chosen, the amount auto-fills with
+ *      the invoice's outstanding balance (the user can still override
+ *      for partial payments).
+ *   2. A new required "Bank Account" dropdown lists all Asset-type
+ *      accounts in the active company (1000 Cash by default).
+ *   3. URL params `?contactId=...&invoiceId=...&amount=...` are honoured
+ *      so the contact-detail page can deep-link with a "Pay this
+ *      invoice" pre-filled form.
+ *   4. The list shows the linked invoice number when present, and
+ *      the bank account code.
+ */
 export default function ReceiptsPage() {
+  // useSearchParams forces a Suspense boundary in Next 15.
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center py-12">
+        <Loader2 className="animate-spin text-primary-500" size={32} />
+      </div>
+    }>
+      <ReceiptsPageInner />
+    </Suspense>
+  );
+}
+
+function ReceiptsPageInner() {
   const { activeCompany } = useAuth();
+  const searchParams = useSearchParams();
   const [vouchers, setVouchers] = useState<ReceiptVoucher[]>([]);
   const [customers, setCustomers] = useState<Contact[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [outstandingInvoices, setOutstandingInvoices] = useState<OutstandingInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +110,10 @@ export default function ReceiptsPage() {
   const [form, setForm] = useState({
     voucherDate: new Date().toISOString().slice(0, 10),
     contactId: "",
+    invoiceId: "",   // optional
     amount: 0,
     paymentMethod: "cash",
+    bankAccountId: "",  // required
     reference: "",
     narration: "",
   });
@@ -57,12 +122,26 @@ export default function ReceiptsPage() {
     if (!activeCompany) return;
     setLoading(true);
     try {
-      const [vRes, cRes] = await Promise.all([
+      const [vRes, cRes, aRes] = await Promise.all([
         api.get(`/receipts?companyId=${activeCompany.id}`),
         api.get(`/contacts?companyId=${activeCompany.id}&type=customer`),
+        api.get(`/accounts?companyId=${activeCompany.id}`),
       ]);
       setVouchers(vRes.data);
       setCustomers(cRes.data);
+      // Filter to Asset-type accounts for the bank-account dropdown.
+      // We also exclude headers (accountClass === 'header') so the user
+      // only picks leaf accounts.
+      const assets: BankAccount[] = (aRes.data || [])
+        .filter((a: any) => a.accountType === "Asset" && (a.accountClass === "detail" || a.accountClass === undefined))
+        .map((a: any) => ({
+          id: a.id,
+          code: a.code,
+          name: a.name,
+          nameAr: a.nameAr,
+          accountType: a.accountType
+        }));
+      setBankAccounts(assets);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -76,10 +155,70 @@ export default function ReceiptsPage() {
     return () => clearInterval(i);
   }, [load]);
 
+  // Fetch outstanding invoices for the selected customer. Re-runs when
+  // the contact dropdown changes. Wrapped in try/catch so a 4xx (e.g. the
+  // endpoint isn't registered yet) doesn't blank the whole form — the
+  // user can still save an "on account" receipt.
+  const loadOutstanding = useCallback(async (contactId: string) => {
+    if (!contactId) {
+      setOutstandingInvoices([]);
+      return;
+    }
+    try {
+      // The plan promises `?status=outstanding` — server may also accept
+      // omitting the status and returning all. We pass it explicitly.
+      const r = await api.get(`/invoices?companyId=${activeCompany?.id}&contactId=${contactId}&status=outstanding`);
+      const list: OutstandingInvoice[] = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+      setOutstandingInvoices(list);
+    } catch {
+      setOutstandingInvoices([]);
+    }
+  }, [activeCompany]);
+
+  useEffect(() => {
+    loadOutstanding(form.contactId);
+  }, [form.contactId, loadOutstanding]);
+
+  // Honour deep-link params from the contact-detail "Pay" button.
+  useEffect(() => {
+    const contactId = searchParams.get("contactId");
+    const invoiceId = searchParams.get("invoiceId");
+    const amount = searchParams.get("amount");
+    if (contactId || invoiceId || amount) {
+      setForm((f) => ({
+        ...f,
+        contactId: contactId || f.contactId,
+        invoiceId: invoiceId || f.invoiceId,
+        amount: amount ? Number(amount) : f.amount
+      }));
+      setShowForm(true);
+    }
+  }, [searchParams]);
+
+  // Default bank account = the first Cash account (code 1000), or the
+  // first Asset account if 1000 doesn't exist in this company.
+  useEffect(() => {
+    if (bankAccounts.length === 0) return;
+    if (form.bankAccountId) return; // user has picked one already
+    const cash = bankAccounts.find((a) => a.code === CASH_ACCOUNT_CODE);
+    setForm((f) => ({ ...f, bankAccountId: cash?.id || bankAccounts[0].id }));
+  }, [bankAccounts, form.bankAccountId]);
+
+  // When the user picks an invoice, auto-fill the amount. They can
+  // still override for partial payments.
+  useEffect(() => {
+    if (!form.invoiceId) return;
+    const inv = outstandingInvoices.find((i) => i.invoiceId === form.invoiceId);
+    if (inv) {
+      setForm((f) => ({ ...f, amount: inv.outstanding }));
+    }
+  }, [form.invoiceId, outstandingInvoices]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCompany) return;
     if (!form.contactId) { setError("اختر العميل"); return; }
+    if (!form.bankAccountId) { setError("اختر الحساب (الصندوق/البنك)"); return; }
     if (form.amount <= 0) { setError("المبلغ يجب أن يكون أكبر من صفر"); return; }
     setSubmitting(true);
     setError(null);
@@ -90,13 +229,16 @@ export default function ReceiptsPage() {
         contactId: form.contactId,
         amount: form.amount,
         paymentMethod: form.paymentMethod,
+        bankAccountId: form.bankAccountId,
         reference: form.reference || null,
         narration: form.narration || null,
+        invoiceId: form.invoiceId || null,
       });
       setSuccess(`تم حفظ السند ${res.data.voucherNumber} كمسودة`);
       setForm({
         voucherDate: new Date().toISOString().slice(0, 10),
-        contactId: "", amount: 0, paymentMethod: "cash",
+        contactId: "", invoiceId: "", amount: 0, paymentMethod: "cash",
+        bankAccountId: form.bankAccountId,  // keep the bank account sticky
         reference: "", narration: "",
       });
       await load();
@@ -173,7 +315,9 @@ export default function ReceiptsPage() {
                 <th>رقم السند</th>
                 <th>التاريخ</th>
                 <th>العميل</th>
+                <th>الفاتورة</th>
                 <th>طريقة الدفع</th>
+                <th>الحساب</th>
                 <th>المرجع</th>
                 <th>المبلغ</th>
                 <th>الحالة</th>
@@ -186,7 +330,11 @@ export default function ReceiptsPage() {
                   <td className="font-mono font-semibold">{v.voucherNumber}</td>
                   <td>{formatDate(v.voucherDate)}</td>
                   <td>{v.contactName} <span className="text-xs text-gray-500">({v.contactCode})</span></td>
+                  <td className="font-mono text-sm text-primary-700">
+                    {v.invoiceNumber || <span className="text-gray-400">— على الحساب —</span>}
+                  </td>
                   <td className="text-sm">{PAYMENT_METHODS[v.paymentMethod] || v.paymentMethod}</td>
+                  <td className="font-mono text-sm" dir="ltr">{v.bankAccountCode || "—"}</td>
                   <td className="text-sm text-gray-600">{v.reference || "—"}</td>
                   <td className="font-mono" dir="ltr">{formatNumber(v.amount)}</td>
                   <td>
@@ -219,7 +367,7 @@ export default function ReceiptsPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <FileText size={20} className="text-green-600" /> سند قبض جديد
@@ -239,14 +387,39 @@ export default function ReceiptsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">العميل *</label>
                   <select className="input" value={form.contactId}
-                    onChange={(e) => setForm({ ...form, contactId: e.target.value })} required>
+                    onChange={(e) => setForm({ ...form, contactId: e.target.value, invoiceId: "" })} required>
                     <option value="">— اختر عميل —</option>
                     {customers.map((c) => (
-                      <option key={c.id} value={c.id}>{c.code} - {c.name}</option>
+                      <option key={c.id} value={c.id}>{c.code} - {c.nameAr || c.name}</option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              {/* Sprint 25: link to an outstanding invoice. */}
+              <div>
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <FileCheck size={12} /> الفاتورة
+                  <span className="text-xs text-gray-500 mr-1">(اختياري — للدفعات على الحساب اتركها فارغة)</span>
+                </label>
+                <select
+                  className="input"
+                  value={form.invoiceId}
+                  onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                  disabled={!form.contactId}
+                >
+                  <option value="">— على الحساب (بدون فاتورة) —</option>
+                  {outstandingInvoices.map((inv) => (
+                    <option key={inv.invoiceId} value={inv.invoiceId}>
+                      {inv.invoiceNumber} — {formatDate(inv.invoiceDate)} — متبقي: {formatNumber(inv.outstanding)} د.ل
+                    </option>
+                  ))}
+                </select>
+                {form.contactId && outstandingInvoices.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-1">لا توجد فواتير مستحقة لهذا العميل</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">المبلغ (د.ل) *</label>
@@ -265,6 +438,28 @@ export default function ReceiptsPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Sprint 25: bank account dropdown (required). */}
+              <div>
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <Wallet size={12} /> الحساب (الصندوق/البنك) *
+                </label>
+                <select className="input" value={form.bankAccountId}
+                  onChange={(e) => setForm({ ...form, bankAccountId: e.target.value })} required>
+                  <option value="">— اختر حساب —</option>
+                  {bankAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} — {a.nameAr || a.name}
+                    </option>
+                  ))}
+                </select>
+                {bankAccounts.length === 0 && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    ⚠ لا توجد حسابات أصول مفصّلة. أضف حساب صندوق (كود 1000) من شجرة الحسابات.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-1">المرجع / البيان</label>
                 <input className="input" value={form.reference}

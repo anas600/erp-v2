@@ -65,7 +65,20 @@ interface Invoice {
   subtotal: number;
   taxAmount: number;
   total: number;
-  status: "draft" | "posted" | "paid" | "cancelled";
+  /**
+   * Sprint 25 — backend now emits settlement status. The status
+   * string is one of: "draft" | "posted" | "partiallypaid" | "paid" | "cancelled".
+   * The status badge below renders based on the string value.
+   *
+   * `amountPaid` and `fullyPaidAt` may be returned by the backend
+   * (the new migration 014 added the columns). The frontend
+   * doesn't *require* them — older backends that haven't shipped
+   * the settlement work will simply omit them, and the badge
+   * falls back to the original 4 states.
+   */
+  status: "draft" | "posted" | "partiallypaid" | "paid" | "cancelled";
+  amountPaid?: number;
+  fullyPaidAt?: string;
   createdAt: string;
   postedAt?: string;
   lines: InvoiceLine[];
@@ -346,12 +359,46 @@ export default function InvoicesPage() {
 }
 
 function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
-  const statusBadge = {
-    draft: <span className="badge badge-warning">مسودة</span>,
-    posted: <span className="badge badge-success">مرحّلة</span>,
-    paid: <span className="badge badge-info">مدفوعة</span>,
-    cancelled: <span className="badge badge-danger">ملغاة</span>
-  }[inv.status as string];
+  // Sprint 25 — the status badge now shows settlement progress
+  // when amountPaid is known. The original 4-state badge is still
+  // used for draft / cancelled / paid (no numbers needed).
+  const outstanding = Math.max(0, (inv.total || 0) - (inv.amountPaid || 0));
+  const statusBadge = (() => {
+    switch (inv.status) {
+      case "draft":
+        return <span className="badge badge-warning">مسودة</span>;
+      case "posted":
+        // Outstanding amount in red.
+        return (
+          <span className="badge bg-blue-100 text-blue-800 inline-flex items-center gap-1">
+            مرحّلة
+            {inv.amountPaid !== undefined && outstanding > 0.01 && (
+              <span className="text-red-600 font-mono text-xs">
+                ({formatNumber(outstanding)} د.ل مستحق)
+              </span>
+            )}
+          </span>
+        );
+      case "partiallypaid":
+        // Show "X / Y LYD مدفوع" — paid / total
+        return (
+          <span className="badge bg-amber-100 text-amber-800 inline-flex items-center gap-1">
+            مدفوع جزئياً
+            {inv.amountPaid !== undefined && (
+              <span className="font-mono text-xs">
+                ({formatNumber(inv.amountPaid)} / {formatNumber(inv.total)})
+              </span>
+            )}
+          </span>
+        );
+      case "paid":
+        return <span className="badge badge-success">مدفوع بالكامل</span>;
+      case "cancelled":
+        return <span className="badge badge-danger">ملغاة</span>;
+      default:
+        return <span className="badge bg-gray-100 text-gray-800">{inv.status}</span>;
+    }
+  })();
 
   return (
     <>
