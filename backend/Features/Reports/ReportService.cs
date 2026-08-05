@@ -296,6 +296,8 @@ public class ReportService
         // For now: each posted sales invoice is "outstanding"
         // at its full total. We bucket by invoice age.
         // Future enhancement: subtract receipts linked to invoices.
+        // FIX 2026-08-05: cast i.invoice_date to date too — Postgres rejects
+        // `date - timestamp` (type mismatch). date - date returns integer days.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -303,7 +305,7 @@ public class ReportService
                 c.name AS contact_name,
                 i.invoice_date,
                 i.total AS outstanding,
-                EXTRACT(DAY FROM (@asOfDate::date - i.invoice_date))::int AS days_overdue
+                (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
             JOIN contacts c ON c.id = i.contact_id
             WHERE i.company_id = @companyId
@@ -360,6 +362,8 @@ public class ReportService
     public async Task<SupplierAgingReport> GetSupplierAgingAsync(Guid companyId, DateTime asOfDate)
     {
         using var conn = _db.CreateConnection();
+        // FIX 2026-08-05: cast i.invoice_date to date too — same date-timestamp
+        // mismatch fix as GetCustomerAgingAsync.
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -367,7 +371,7 @@ public class ReportService
                 c.name AS contact_name,
                 i.invoice_date,
                 i.total AS outstanding,
-                EXTRACT(DAY FROM (@asOfDate::date - i.invoice_date))::int AS days_overdue
+                (@asOfDate::date - i.invoice_date::date)::int AS days_overdue
             FROM invoices i
             JOIN contacts c ON c.id = i.contact_id
             WHERE i.company_id = @companyId
