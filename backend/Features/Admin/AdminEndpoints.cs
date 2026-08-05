@@ -18,7 +18,7 @@ public static class AdminEndpoints
         // POST /api/admin/cleanup-transactions
         // Demo-reset endpoint. Requires super_admin.
         // Returns counts of what was deleted.
-        grp.MapPost("/cleanup-transactions", async (HttpContext ctx, AdminService svc, ILogger<Program> logger) =>
+        grp.MapPost("/cleanup-transactions", async (HttpContext ctx, [FromServices] AdminService svc, ILogger<Program> logger) =>
         {
             // 1) Super-admin gate. The JWT carries `is_super_admin`
             //    as a string claim ("true"/"false"); see

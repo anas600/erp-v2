@@ -8,20 +8,20 @@ public static class AccountEndpoints
     {
         var grp = app.MapGroup("/api/accounts").WithTags("Accounts").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, AccountService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromServices] AccountService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetTreeAsync(companyId);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, AccountService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] AccountService svc) =>
         {
             var a = await svc.GetByIdAsync(id);
             return a is null ? Results.NotFound() : Results.Ok(a);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateAccountRequest req, AccountService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateAccountRequest req, [FromServices] AccountService svc) =>
         {
             try
             {
@@ -37,7 +37,7 @@ public static class AccountEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateAccountRequest req, AccountService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateAccountRequest req, [FromServices] AccountService svc) =>
         {
             var a = await svc.UpdateAsync(id, req);
             return a is null ? Results.NotFound() : Results.Ok(a);
@@ -45,7 +45,7 @@ public static class AccountEndpoints
 
         // Sub-ledger: get the detail account linked to a contact
         grp.MapGet("/sub-ledger/{contactId:guid}", async (
-            [FromQuery] Guid companyId, Guid contactId, AccountService svc) =>
+            [FromQuery] Guid companyId, Guid contactId, [FromServices] AccountService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var a = await svc.GetSubLedgerForContactAsync(companyId, contactId);
@@ -54,7 +54,7 @@ public static class AccountEndpoints
 
         // Sub-ledger: create one for a contact (idempotent)
         grp.MapPost("/sub-ledger", async (
-            [FromBody] CreateSubLedgerRequest req, AccountService svc) =>
+            [FromBody] CreateSubLedgerRequest req, [FromServices] AccountService svc) =>
         {
             try
             {

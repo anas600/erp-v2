@@ -8,19 +8,19 @@ public static class ProductEndpoints
     {
         var grp = app.MapGroup("/api/products").WithTags("Products").RequireAuthorization();
 
-        grp.MapGet("/", async (Guid companyId, bool? includeInactive, ProductService svc) =>
+        grp.MapGet("/", async (Guid companyId, bool? includeInactive, [FromServices] ProductService svc) =>
         {
             var list = await svc.GetByCompanyAsync(companyId, includeInactive ?? false);
             return Results.Ok(list);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, ProductService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] ProductService svc) =>
         {
             var p = await svc.GetByIdAsync(id);
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateProductRequest req, ProductService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateProductRequest req, [FromServices] ProductService svc) =>
         {
             try
             {
@@ -33,13 +33,13 @@ public static class ProductEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateProductRequest req, ProductService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateProductRequest req, [FromServices] ProductService svc) =>
         {
             var p = await svc.UpdateAsync(id, req);
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, ProductService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] ProductService svc) =>
         {
             var ok = await svc.DeleteAsync(id);
             return ok ? Results.NoContent() : Results.NotFound();

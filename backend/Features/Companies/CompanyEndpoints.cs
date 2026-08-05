@@ -9,7 +9,7 @@ public static class CompanyEndpoints
     {
         var grp = app.MapGroup("/api/companies").WithTags("Companies").RequireAuthorization();
 
-        grp.MapGet("/", async (HttpContext ctx, CompanyService svc) =>
+        grp.MapGet("/", async (HttpContext ctx, [FromServices] CompanyService svc) =>
         {
             var userId = ctx.GetUserId();
             if (userId is null) return Results.Unauthorized();
@@ -18,13 +18,13 @@ public static class CompanyEndpoints
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, CompanyService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] CompanyService svc) =>
         {
             var c = await svc.GetByIdAsync(id);
             return c is null ? Results.NotFound() : Results.Ok(c);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateCompanyRequest req, CompanyService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateCompanyRequest req, [FromServices] CompanyService svc) =>
         {
             if (string.IsNullOrWhiteSpace(req.Code) || string.IsNullOrWhiteSpace(req.Name))
                 return Results.BadRequest(new { error = "Code and Name required" });
@@ -32,13 +32,13 @@ public static class CompanyEndpoints
             return Results.Created($"/api/companies/{c.Id}", c);
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateCompanyRequest req, CompanyService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateCompanyRequest req, [FromServices] CompanyService svc) =>
         {
             var c = await svc.UpdateAsync(id, req);
             return c is null ? Results.NotFound() : Results.Ok(c);
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, CompanyService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] CompanyService svc) =>
         {
             var ok = await svc.DeleteAsync(id);
             return ok ? Results.NoContent() : Results.NotFound();

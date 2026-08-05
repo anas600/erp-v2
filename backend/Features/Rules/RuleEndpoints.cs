@@ -9,19 +9,19 @@ public static class RuleEndpoints
     {
         var grp = app.MapGroup("/api/rules").WithTags("Rules").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] bool? templates, RuleService svc) =>
+        grp.MapGet("/", async ([FromQuery] bool? templates, [FromServices] RuleService svc) =>
         {
             var data = await svc.GetAllAsync(templates);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, RuleService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] RuleService svc) =>
         {
             var r = await svc.GetByIdAsync(id);
             return r is null ? Results.NotFound() : Results.Ok(r);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateRuleRequest req, RuleService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateRuleRequest req, [FromServices] RuleService svc) =>
         {
             try
             {
@@ -36,13 +36,13 @@ public static class RuleEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateRuleRequest req, RuleService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateRuleRequest req, [FromServices] RuleService svc) =>
         {
             var r = await svc.UpdateAsync(id, req);
             return r is null ? Results.NotFound() : Results.Ok(r);
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, RuleService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] RuleService svc) =>
         {
             var ok = await svc.DeleteAsync(id);
             return ok ? Results.NoContent() : Results.NotFound();

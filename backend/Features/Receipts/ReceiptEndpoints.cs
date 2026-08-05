@@ -9,19 +9,19 @@ public static class ReceiptEndpoints
     {
         var grp = app.MapGroup("/api/receipts").WithTags("Receipts").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, ReceiptService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromServices] ReceiptService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             return Results.Ok(await svc.GetByCompanyAsync(companyId, status));
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, ReceiptService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] ReceiptService svc) =>
         {
             var r = await svc.GetByIdAsync(id);
             return r is null ? Results.NotFound() : Results.Ok(r);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateReceiptVoucherRequest req, ReceiptService svc, HttpContext ctx) =>
+        grp.MapPost("/", async ([FromBody] CreateReceiptVoucherRequest req, [FromServices] ReceiptService svc, HttpContext ctx) =>
         {
             try
             {
@@ -35,7 +35,7 @@ public static class ReceiptEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] CreateReceiptVoucherRequest req, ReceiptService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] CreateReceiptVoucherRequest req, [FromServices] ReceiptService svc) =>
         {
             try
             {
@@ -48,7 +48,7 @@ public static class ReceiptEndpoints
             }
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, ReceiptService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] ReceiptService svc) =>
         {
             try
             {
@@ -61,7 +61,7 @@ public static class ReceiptEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/post", async (Guid id, ReceiptService svc, HttpContext ctx) =>
+        grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] ReceiptService svc, HttpContext ctx) =>
         {
             try
             {

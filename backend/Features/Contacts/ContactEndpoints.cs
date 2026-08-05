@@ -13,20 +13,20 @@ public static class ContactEndpoints
             [FromQuery] Guid companyId,
             [FromQuery] string? type,
             [FromQuery] bool? includeInactive,
-            ContactService svc) =>
+            [FromServices] ContactService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetByCompanyAsync(companyId, type, includeInactive ?? false);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, ContactService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] ContactService svc) =>
         {
             var c = await svc.GetByIdAsync(id);
             return c is null ? Results.NotFound() : Results.Ok(c);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateContactRequest req, ContactService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateContactRequest req, [FromServices] ContactService svc) =>
         {
             try
             {
@@ -39,7 +39,7 @@ public static class ContactEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateContactRequest req, ContactService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateContactRequest req, [FromServices] ContactService svc) =>
         {
             try
             {
@@ -52,7 +52,7 @@ public static class ContactEndpoints
             }
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, ContactService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] ContactService svc) =>
         {
             var ok = await svc.DeleteAsync(id);
             return ok ? Results.NoContent() : Results.NotFound();

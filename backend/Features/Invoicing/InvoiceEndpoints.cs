@@ -9,20 +9,20 @@ public static class InvoiceEndpoints
     {
         var grp = app.MapGroup("/api/invoices").WithTags("Invoices").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, InvoiceService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, [FromServices] InvoiceService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetByCompanyAsync(companyId, limit ?? 100);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, InvoiceService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] InvoiceService svc) =>
         {
             var inv = await svc.GetByIdAsync(id);
             return inv is null ? Results.NotFound() : Results.Ok(inv);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateInvoiceRequest req, InvoiceService svc, HttpContext ctx) =>
+        grp.MapPost("/", async ([FromBody] CreateInvoiceRequest req, [FromServices] InvoiceService svc, HttpContext ctx) =>
         {
             try
             {
@@ -36,7 +36,7 @@ public static class InvoiceEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/post", async (Guid id, InvoiceService svc) =>
+        grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] InvoiceService svc) =>
         {
             try
             {
@@ -49,7 +49,7 @@ public static class InvoiceEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/cancel", async (Guid id, InvoiceService svc) =>
+        grp.MapPost("/{id:guid}/cancel", async (Guid id, [FromServices] InvoiceService svc) =>
         {
             try
             {

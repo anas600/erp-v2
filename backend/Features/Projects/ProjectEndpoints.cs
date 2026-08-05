@@ -9,20 +9,20 @@ public static class ProjectEndpoints
     {
         var grp = app.MapGroup("/api/projects").WithTags("Projects").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, ProjectService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromServices] ProjectService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetByCompanyAsync(companyId);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, ProjectService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] ProjectService svc) =>
         {
             var p = await svc.GetByIdAsync(id);
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateProjectRequest req, ProjectService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateProjectRequest req, [FromServices] ProjectService svc) =>
         {
             try
             {
@@ -37,13 +37,13 @@ public static class ProjectEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateProjectRequest req, ProjectService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateProjectRequest req, [FromServices] ProjectService svc) =>
         {
             var p = await svc.UpdateAsync(id, req);
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, ProjectService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] ProjectService svc) =>
         {
             var ok = await svc.DeleteAsync(id);
             return ok ? Results.NoContent() : Results.NotFound();
@@ -53,7 +53,7 @@ public static class ProjectEndpoints
         grp.MapPost("/{projectId:guid}/milestones", async (
             Guid projectId,
             [FromBody] CreateMilestoneRequest req,
-            ProjectService svc) =>
+            [FromServices] ProjectService svc) =>
         {
             try
             {
@@ -68,7 +68,7 @@ public static class ProjectEndpoints
 
         grp.MapPost("/{projectId:guid}/milestones/{milestoneId:guid}/complete", async (
             Guid projectId, Guid milestoneId,
-            ProjectService svc, HttpContext ctx) =>
+            [FromServices] ProjectService svc, HttpContext ctx) =>
         {
             try
             {

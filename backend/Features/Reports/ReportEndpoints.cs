@@ -8,7 +8,7 @@ public static class ReportEndpoints
     {
         var grp = app.MapGroup("/api/reports").WithTags("Reports").RequireAuthorization();
 
-        grp.MapGet("/trial-balance", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, ReportService svc) =>
+        grp.MapGet("/trial-balance", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var report = await svc.GetTrialBalanceAsync(companyId, asOf);
@@ -19,7 +19,7 @@ public static class ReportEndpoints
             [FromQuery] Guid companyId,
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
-            ReportService svc) =>
+            [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var fromDate = from ?? new DateTime(DateTime.UtcNow.Year, 1, 1);
@@ -28,7 +28,7 @@ public static class ReportEndpoints
             return Results.Ok(report);
         });
 
-        grp.MapGet("/balance-sheet", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, ReportService svc) =>
+        grp.MapGet("/balance-sheet", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var report = await svc.GetBalanceSheetAsync(companyId, asOf);
@@ -52,7 +52,7 @@ public static class ReportEndpoints
             [FromQuery] Guid accountId,
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
-            ReportService svc) =>
+            [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             if (accountId == Guid.Empty) return Results.BadRequest(new { error = "accountId required" });
@@ -84,7 +84,7 @@ public static class ReportEndpoints
         grp.MapGet("/customer-aging", async (
             [FromQuery] Guid companyId,
             [FromQuery] DateTime? asOfDate,
-            ReportService svc) =>
+            [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var asOf = asOfDate ?? DateTime.UtcNow;
@@ -95,7 +95,7 @@ public static class ReportEndpoints
         grp.MapGet("/supplier-aging", async (
             [FromQuery] Guid companyId,
             [FromQuery] DateTime? asOfDate,
-            ReportService svc) =>
+            [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var asOf = asOfDate ?? DateTime.UtcNow;

@@ -9,7 +9,7 @@ public static class AuthEndpoints
     {
         var grp = app.MapGroup("/api/auth").WithTags("Auth");
 
-        grp.MapPost("/login", async ([FromBody] LoginRequest req, AuthService svc) =>
+        grp.MapPost("/login", async ([FromBody] LoginRequest req, [FromServices] AuthService svc) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { error = new { code = "VALIDATION", message = "Email and password required" } });
@@ -20,7 +20,7 @@ public static class AuthEndpoints
                 : Results.Ok(res);
         });
 
-        grp.MapPost("/switch-company", async ([FromBody] SwitchCompanyRequest req, AuthService svc, HttpContext ctx) =>
+        grp.MapPost("/switch-company", async ([FromBody] SwitchCompanyRequest req, [FromServices] AuthService svc, HttpContext ctx) =>
         {
             var userId = ctx.GetUserId();
             if (userId is null) return Results.Unauthorized();

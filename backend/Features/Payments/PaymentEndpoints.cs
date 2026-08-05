@@ -9,19 +9,19 @@ public static class PaymentEndpoints
     {
         var grp = app.MapGroup("/api/payments").WithTags("Payments").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, PaymentService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromServices] PaymentService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             return Results.Ok(await svc.GetByCompanyAsync(companyId, status));
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, PaymentService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] PaymentService svc) =>
         {
             var p = await svc.GetByIdAsync(id);
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
-        grp.MapPost("/", async ([FromBody] CreatePaymentVoucherRequest req, PaymentService svc, HttpContext ctx) =>
+        grp.MapPost("/", async ([FromBody] CreatePaymentVoucherRequest req, [FromServices] PaymentService svc, HttpContext ctx) =>
         {
             try
             {
@@ -35,7 +35,7 @@ public static class PaymentEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] CreatePaymentVoucherRequest req, PaymentService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] CreatePaymentVoucherRequest req, [FromServices] PaymentService svc) =>
         {
             try
             {
@@ -48,7 +48,7 @@ public static class PaymentEndpoints
             }
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, PaymentService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] PaymentService svc) =>
         {
             try
             {
@@ -61,7 +61,7 @@ public static class PaymentEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/post", async (Guid id, PaymentService svc, HttpContext ctx) =>
+        grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] PaymentService svc, HttpContext ctx) =>
         {
             try
             {

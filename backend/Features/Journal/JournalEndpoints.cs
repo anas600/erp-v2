@@ -9,20 +9,20 @@ public static class JournalEndpoints
     {
         var grp = app.MapGroup("/api/journal").WithTags("Journal").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, JournalService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, [FromServices] JournalService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetByCompanyAsync(companyId, limit ?? 50);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, JournalService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] JournalService svc) =>
         {
             var entry = await svc.GetByIdAsync(id);
             return entry is null ? Results.NotFound() : Results.Ok(entry);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateJournalEntryRequest req, JournalService svc, HttpContext ctx) =>
+        grp.MapPost("/", async ([FromBody] CreateJournalEntryRequest req, [FromServices] JournalService svc, HttpContext ctx) =>
         {
             try
             {
@@ -36,7 +36,7 @@ public static class JournalEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/post", async (Guid id, JournalService svc) =>
+        grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] JournalService svc) =>
         {
             try
             {
@@ -49,7 +49,7 @@ public static class JournalEndpoints
             }
         });
 
-        grp.MapPost("/{id:guid}/reverse", async (Guid id, JournalService svc) =>
+        grp.MapPost("/{id:guid}/reverse", async (Guid id, [FromServices] JournalService svc) =>
         {
             try
             {
@@ -71,7 +71,7 @@ public static class JournalEndpoints
         //   200 OK   — entry deleted
         //   404 NF   — entry didn't exist
         //   400 Bad  — entry exists but is in a non-draft state
-        grp.MapDelete("/{id:guid}", async (Guid id, JournalService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] JournalService svc) =>
         {
             try
             {
@@ -86,7 +86,7 @@ public static class JournalEndpoints
 
         // Sprint 15 — Approve a pending entry (rule-generated).
         // Transitions: pending → posted. Affects financial reports on success.
-        grp.MapPost("/{id:guid}/approve", async (Guid id, JournalService svc, HttpContext ctx) =>
+        grp.MapPost("/{id:guid}/approve", async (Guid id, [FromServices] JournalService svc, HttpContext ctx) =>
         {
             try
             {
@@ -103,7 +103,7 @@ public static class JournalEndpoints
         // Sprint 15 — Reject a pending entry.
         // Transitions: pending → draft. The entry keeps the rule's
         // source/reference so the rule author can investigate.
-        grp.MapPost("/{id:guid}/reject", async (Guid id, [FromBody] RejectRequest? req, JournalService svc, HttpContext ctx) =>
+        grp.MapPost("/{id:guid}/reject", async (Guid id, [FromBody] RejectRequest? req, [FromServices] JournalService svc, HttpContext ctx) =>
         {
             try
             {
@@ -119,7 +119,7 @@ public static class JournalEndpoints
 
         // Sprint 15 — List pending entries for a company (for the
         // "Pending Entries" page on the accountant's dashboard).
-        grp.MapGet("/pending", async ([FromQuery] Guid companyId, JournalService svc) =>
+        grp.MapGet("/pending", async ([FromQuery] Guid companyId, [FromServices] JournalService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetPendingAsync(companyId);

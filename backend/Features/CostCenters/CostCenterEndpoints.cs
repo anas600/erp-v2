@@ -20,20 +20,20 @@ public static class CostCenterEndpoints
     {
         var grp = app.MapGroup("/api/cost-centers").WithTags("CostCenters").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, CostCenterService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromServices] CostCenterService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
             var data = await svc.GetByCompanyAsync(companyId);
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, CostCenterService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] CostCenterService svc) =>
         {
             var c = await svc.GetByIdAsync(id);
             return c is null ? Results.NotFound() : Results.Ok(c);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateCostCenterRequest req, CostCenterService svc) =>
+        grp.MapPost("/", async ([FromBody] CreateCostCenterRequest req, [FromServices] CostCenterService svc) =>
         {
             try
             {
@@ -53,7 +53,7 @@ public static class CostCenterEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateCostCenterRequest req, CostCenterService svc) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateCostCenterRequest req, [FromServices] CostCenterService svc) =>
         {
             try
             {
@@ -66,7 +66,7 @@ public static class CostCenterEndpoints
             }
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, CostCenterService svc) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] CostCenterService svc) =>
         {
             try
             {

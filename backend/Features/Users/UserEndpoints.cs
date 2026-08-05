@@ -9,7 +9,7 @@ public static class UserEndpoints
     {
         var grp = app.MapGroup("/api/users").WithTags("Users").RequireAuthorization();
 
-        grp.MapGet("/", async (UserService svc, HttpContext ctx) =>
+        grp.MapGet("/", async ([FromServices] UserService svc, HttpContext ctx) =>
         {
             // Only super admins can list all users
             if (!ctx.IsSuperAdmin()) return Results.Forbid();
@@ -17,13 +17,13 @@ public static class UserEndpoints
             return Results.Ok(data);
         });
 
-        grp.MapGet("/{id:guid}", async (Guid id, UserService svc) =>
+        grp.MapGet("/{id:guid}", async (Guid id, [FromServices] UserService svc) =>
         {
             var u = await svc.GetByIdAsync(id);
             return u is null ? Results.NotFound() : Results.Ok(u);
         });
 
-        grp.MapPost("/", async ([FromBody] CreateUserRequest req, UserService svc, HttpContext ctx) =>
+        grp.MapPost("/", async ([FromBody] CreateUserRequest req, [FromServices] UserService svc, HttpContext ctx) =>
         {
             if (!ctx.IsSuperAdmin()) return Results.Forbid();
             try
@@ -37,7 +37,7 @@ public static class UserEndpoints
             }
         });
 
-        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateUserRequest req, UserService svc, HttpContext ctx) =>
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateUserRequest req, [FromServices] UserService svc, HttpContext ctx) =>
         {
             if (!ctx.IsSuperAdmin()) return Results.Forbid();
             try
@@ -51,7 +51,7 @@ public static class UserEndpoints
             }
         });
 
-        grp.MapDelete("/{id:guid}", async (Guid id, UserService svc, HttpContext ctx) =>
+        grp.MapDelete("/{id:guid}", async (Guid id, [FromServices] UserService svc, HttpContext ctx) =>
         {
             if (!ctx.IsSuperAdmin()) return Results.Forbid();
             var ok = await svc.DeleteAsync(id);
@@ -59,7 +59,7 @@ public static class UserEndpoints
         });
 
         // Self-service: change my own password
-        grp.MapPost("/me/change-password", async ([FromBody] ChangePasswordRequest req, UserService svc, HttpContext ctx) =>
+        grp.MapPost("/me/change-password", async ([FromBody] ChangePasswordRequest req, [FromServices] UserService svc, HttpContext ctx) =>
         {
             var userId = ctx.GetUserId();
             if (userId is null) return Results.Unauthorized();
