@@ -7,6 +7,7 @@ using ErpV2.Features.Journal;
 using ErpV2.Features.Rules;
 using ErpV2.Features.Reports;
 using ErpV2.Features.Invoicing;
+using ErpV2.Features.Intercompany;
 using ErpV2.Features.Projects;
 using ErpV2.Features.Contacts;
 using ErpV2.Features.Users;
@@ -303,6 +304,8 @@ AdminEndpoints.Map(app);
 ReceiptEndpoints.Map(app);
 PaymentEndpoints.Map(app);
 CostCenterEndpoints.Map(app);
+IntercompanyEndpoints.Map(app);
+IntercompanyEliminationEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup
