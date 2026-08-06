@@ -18,18 +18,32 @@ public class ReportService
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
-        var rows = await conn.QueryAsync<TrialBalanceRow>(@"
-            SELECT code, name, account_type, nature, balance
+        var rows = await conn.QueryAsync<TrialBalanceRowEx>(@"
+            SELECT id, code, name, account_type, nature, balance, level, parent_id
             FROM accounts
             WHERE company_id = @companyId AND is_active = true
             ORDER BY code;",
             new { companyId });
+
+        // Sprint 26 hotfix — same de-dup logic as GetBalanceSheetAsync.
+        // A control account (L3) like 1200 already INCLUDES its
+        // sub-ledgers' balances (the posting engine posts to the
+        // control). Summing both would double-count. We drop the
+        // control when it has any L4 children, and keep the
+        // sub-ledgers (which carry the same total).
+        var subLedgerParentIds = rows
+            .Where(r => r.level == 4 && r.parent_id.HasValue)
+            .Select(r => r.parent_id!.Value)
+            .ToHashSet();
 
         var lines = new List<TrialBalanceLine>();
         decimal totalDebit = 0, totalCredit = 0;
 
         foreach (var r in rows)
         {
+            if (r.level == 3 && subLedgerParentIds.Contains(r.id))
+                continue;
+
             // Trial balance presentation: show positive balance on its nature side
             // If account is Asset/Expense (Debit nature) and has positive balance → Debit side
             // If account is Asset/Expense and has negative balance → Credit side (unusual)
@@ -120,13 +134,40 @@ public class ReportService
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
-        var rows = await conn.QueryAsync<BalanceRow>(@"
-            SELECT code, name, account_type, balance
+        // Fetch all balance-sheet accounts including their level + parent.
+        // We need `level` to detect sub-ledgers (L4) and `parent_id` to
+        // find their control account (L3) — see the de-dup logic below.
+        var rows = await conn.QueryAsync<BalanceRowEx>(@"
+            SELECT id, code, name, account_type, balance, level, parent_id
             FROM accounts
             WHERE company_id = @companyId AND is_active = true
               AND account_type IN ('Asset', 'Liability', 'Equity')
             ORDER BY code;",
             new { companyId });
+
+        // ============================================================
+        // Sprint 26 hotfix — sub-ledger double-counting.
+        //
+        // A control account (L3) like 1200 (AR) holds the TOTAL
+        // outstanding for that category. Sub-ledgers (L4) like
+        // 1200-CUST-001 break that total down by customer.
+        //
+        // Posting flow: every journal line against a sub-ledger also
+        // posts to the control account (via _posting.GetByIdAsync
+        // resolution), so the control's balance already INCLUDES the
+        // sub-ledger balances. If we sum both, we double-count.
+        //
+        // Fix: when a control has ANY sub-ledger children, drop the
+        // control from the totals and keep only the sub-ledgers
+        // (whose sum equals the control's balance by construction).
+        //
+        // Pure-L3 control accounts (no children) are kept as-is.
+        // Pure L4 with no parent reference are also kept.
+        // ============================================================
+        var subLedgerParentIds = rows
+            .Where(r => r.level == 4 && r.parent_id.HasValue)
+            .Select(r => r.parent_id!.Value)
+            .ToHashSet();
 
         var assets = new List<BalanceSheetLine>();
         var liabilities = new List<BalanceSheetLine>();
@@ -140,6 +181,12 @@ public class ReportService
 
         foreach (var r in rows)
         {
+            // Skip the control account if it has sub-ledger children.
+            // The sub-ledgers will be added in their own iteration and
+            // carry the same total.
+            if (r.level == 3 && subLedgerParentIds.Contains(r.id))
+                continue;
+
             // For balance sheet, present the absolute balance on its natural side
             var amount = Math.Abs(r.balance);
             switch (r.account_type)
@@ -174,7 +221,9 @@ public class ReportService
     }
 
     private record TrialBalanceRow(string code, string name, string account_type, string nature, decimal balance);
+    private record TrialBalanceRowEx(Guid id, string code, string name, string account_type, string nature, decimal balance, int level, Guid? parent_id);
     private record BalanceRow(string code, string name, string account_type, decimal balance);
+    private record BalanceRowEx(Guid id, string code, string name, string account_type, decimal balance, int level, Guid? parent_id);
     private record IncomeMovementRow(string code, string name, string account_type, decimal net);
 
     /// <summary>

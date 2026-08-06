@@ -104,15 +104,22 @@ export default function AccountTree({
   initialExpanded
 }: AccountTreeProps) {
   const tree = buildTree(accounts);
-  // Track which account ids are expanded. We seed it with the L2
-  // categories open by default so the user can see the L3 sub-categories
-  // (which is the "operational" level — where the seeded 18 accounts live).
+  // Track which account ids are expanded. We seed it with the L2 and L3
+  // categories open by default so the user sees the L3 sub-categories
+  // (operational level — seeded 18 accounts) AND the L4 sub-ledgers
+  // (the contact-specific accounts) without having to click each.
+  //
+  // Sprint 26 hotfix: expanding L3 by default too. The previous
+  // behavior of L1/L2-only expansion hid the L4 sub-ledgers from
+  // view, which made the user think the system wasn't creating
+  // them. With L3 auto-expanded, the sub-ledgers (CUST-001 etc.)
+  // show up under their control account (1200, 2000) immediately.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     accounts.forEach((a) => {
       if (initialExpanded) {
         if (initialExpanded(a)) initial.add(a.id);
-      } else if (a.level === 1 || a.level === 2) {
+      } else if (a.level === 1 || a.level === 2 || a.level === 3) {
         initial.add(a.id);
       }
     });
