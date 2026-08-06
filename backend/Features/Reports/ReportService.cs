@@ -70,10 +70,10 @@ public class ReportService
             string name = r.name;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subSum = rows
+                var subAbsSum = rows
                     .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => s.balance);
-                bal = r.balance - subSum;
+                    .Sum(s => Math.Abs(s.balance));
+                bal = Math.Abs(r.balance) - subAbsSum;
                 name = $"{r.name} (غير مخصص)";
             }
             AddLine(r.code, name, r.account_type, r.nature, bal);
@@ -204,6 +204,12 @@ public class ReportService
 
         // Process controls first (L3) — show NET balance when they
         // have sub-ledger children, full balance otherwise.
+        //
+        // The NET formula: control.balance − Σ|sub_ledger.balance|
+        // Because sub-ledger balances are stored in the natural sign
+        // (negative for credit on debit-nature accounts), we use
+        // Math.Abs so the subtraction is always in the same direction:
+        // the sub-ledgers "absorb" that much of the control's total.
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal amount;
@@ -211,10 +217,11 @@ public class ReportService
             string displayCode = r.code;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subSum = rows
+                var subAbsSum = rows
                     .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => s.balance);
-                amount = Math.Abs(r.balance - subSum);
+                    .Sum(s => Math.Abs(s.balance));
+                amount = Math.Abs(r.balance) - subAbsSum;
+                if (amount < 0) amount = 0;
                 displayCode = r.code;
                 displayName = $"{r.name} (غير مخصص)";
             }
