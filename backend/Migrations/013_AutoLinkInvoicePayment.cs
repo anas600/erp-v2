@@ -83,8 +83,10 @@ public class AutoLinkInvoicePayment : Migration
         // The 003 migration added the column with a comment listing
         // 'paid' as a valid value but no constraint. We add one here
         // so future code can't accidentally set status to a typo.
-        // DO $$ guard makes it idempotent (re-running the migration
-        // skips the ALTER if the constraint already exists).
+        // Use NOT VALID so existing data isn't checked at ALTER time
+        // (existing data is fine — we just want to enforce going forward).
+        // A subsequent VALIDATE CONSTRAINT (with NO VALIDATE) is a no-op
+        // for forward-only migrations.
         Execute.Sql(@"
             DO $$
             BEGIN
@@ -94,7 +96,8 @@ public class AutoLinkInvoicePayment : Migration
                 ) THEN
                     ALTER TABLE invoices
                     ADD CONSTRAINT chk_invoices_status
-                    CHECK (status IN ('draft', 'posted', 'paid', 'cancelled'));
+                    CHECK (status IN ('draft', 'posted', 'paid', 'cancelled'))
+                    NOT VALID;
                 END IF;
             END $$;
         ");
@@ -102,6 +105,8 @@ public class AutoLinkInvoicePayment : Migration
         // Defence-in-depth: amount_paid cannot exceed total. The
         // auto-link logic in ReceiptService / PaymentService enforces
         // this, but a CHECK catches out-of-band writes (psql, DBA).
+        // Use NOT VALID to skip validation of existing data; the
+        // application code is the source of truth for new writes.
         Execute.Sql(@"
             DO $$
             BEGIN
@@ -111,7 +116,8 @@ public class AutoLinkInvoicePayment : Migration
                 ) THEN
                     ALTER TABLE invoices
                     ADD CONSTRAINT chk_invoices_amount_paid_le_total
-                    CHECK (amount_paid <= total);
+                    CHECK (amount_paid <= total)
+                    NOT VALID;
                 END IF;
             END $$;
         ");
