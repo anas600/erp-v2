@@ -168,6 +168,46 @@ public static class AdminEndpoints
         });
 
         // ============================================================
+        // DEBUG (TEMPORARY) — Sprint 26 hotfix investigation
+        // Returns raw L4 + L3 counts per company from the DB.
+        // Helps diagnose the "sub-ledger created but missing from list" bug.
+        // ============================================================
+        grp.MapGet("/debug-account-counts", async (HttpContext ctx, IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            using var conn = db.CreateConnection();
+            var perCompany = await conn.QueryAsync<(string company_id, int l3_count, int l4_count)>(@"
+                SELECT 
+                    company_id::text AS company_id,
+                    COUNT(*) FILTER (WHERE level = 3) AS l3_count,
+                    COUNT(*) FILTER (WHERE level = 4) AS l4_count
+                FROM accounts
+                GROUP BY company_id
+                ORDER BY company_id;");
+            var total = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM accounts;");
+            return Results.Ok(new {
+                total_accounts = total,
+                per_company = perCompany.Select(x => new {
+                    company_id = x.company_id,
+                    l3 = x.l3_count,
+                    l4 = x.l4_count
+                })
+            });
+        });
+
+        grp.MapGet("/debug-l4-rows", async (HttpContext ctx, IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync(@"
+                SELECT id, company_id, code, level, is_postable, is_active, balance, created_at
+                FROM accounts
+                WHERE level = 4
+                ORDER BY code;");
+            return Results.Ok(new { l4_count = rows.Count(), rows });
+        });
+
+        // ============================================================
         // Sprint 26 — new endpoints
         // ============================================================
 
