@@ -44,6 +44,7 @@ public class PostingEngine
         using var conn = _db.CreateConnection();
         using var tx = conn.BeginTransaction();
 
+        // TEMP DEBUG — wrap entire body in try-catch to find NRE.
         try
         {
             // Load entry
@@ -73,27 +74,19 @@ public class PostingEngine
 
             // Update account balances based on Nature Logic.
             // This is the single place where the accounting equation is enforced.
-            foreach (var line in lines)
+            for (int lineIdx = 0; lineIdx < lines.Count; lineIdx++)
             {
+                var line = lines[lineIdx];
                 var account = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
                     SELECT id, account_type, nature FROM accounts WHERE id = @id;",
                     new { id = line.account_id }, tx);
 
                 if (account is null)
-                    throw new InvalidOperationException($"Account {line.account_id} not found");
+                    throw new InvalidOperationException($"Account {line.account_id} not found (line {lineIdx})");
 
-                // Nature Logic:
-                //   Debit-nature accounts (Asset, Expense by default):
-                //     line.debit  -> balance increases
-                //     line.credit -> balance decreases
-                //   Credit-nature accounts (Liability, Equity, Revenue by default):
-                //     line.debit  -> balance decreases
-                //     line.credit -> balance increases
-                //   Contra accounts (e.g. Accumulated Depreciation) override the default
-                //   by setting their stored `nature` to the opposite side.
                 var netChange = account.nature == "Debit"
-                    ? line.debit - line.credit      // Debit-nature: +debit, -credit
-                    : line.credit - line.debit;     // Credit-nature: +credit, -debit
+                    ? line.debit - line.credit
+                    : line.credit - line.debit;
 
                 await conn.ExecuteAsync(@"
                     UPDATE accounts SET balance = balance + @netChange WHERE id = @id;",
@@ -107,27 +100,16 @@ public class PostingEngine
 
             tx.Commit();
 
-            // After commit, load the entry again. We've seen NREs
-            // here when the entry is missing account rows or has a
-            // broken reverses_entry_id pointer, so wrap in a more
-            // descriptive error so the caller can see WHICH entry
-            // and WHICH line is bad.
-            try
-            {
-                return (await GetByIdAsync(entryId))
-                    ?? throw new InvalidOperationException($"Entry {entryId} posted but vanished on reload");
-            }
-            catch (Exception re)
-            {
-                throw new InvalidOperationException(
-                    $"PostAsync succeeded but reload failed for {entryId}: {re.GetType().Name}: {re.Message}",
-                    re);
-            }
+            return (await GetByIdAsync(entryId))
+                ?? throw new InvalidOperationException($"Entry {entryId} posted but vanished on reload");
         }
-        catch
+        catch (Exception ex)
         {
-            try { tx.Rollback(); } catch { /* ignore rollback failures on disposed tx */ }
-            throw;
+            try { tx.Rollback(); } catch { /* ignore */ }
+            // Re-throw with the entry id so the seed error is diagnostic.
+            throw new InvalidOperationException(
+                $"PostAsync({entryId}) failed at {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}: {ex.GetType().Name}: {ex.Message}",
+                ex);
         }
     }
 
