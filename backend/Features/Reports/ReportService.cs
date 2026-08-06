@@ -25,12 +25,17 @@ public class ReportService
             ORDER BY code;",
             new { companyId });
 
-        // Sprint 26 hotfix — same de-dup logic as GetBalanceSheetAsync.
-        // A control account (L3) like 1200 already INCLUDES its
-        // sub-ledgers' balances (the posting engine posts to the
-        // control). Summing both would double-count. We drop the
-        // control when it has any L4 children, and keep the
-        // sub-ledgers (which carry the same total).
+        // Sprint 26 hotfix — same NET-control logic as GetBalanceSheetAsync.
+        // A control account (L3) like 1200 carries the GROSS AR
+        // (invoices post to it). Sub-ledgers (L4) carry the
+        // SETTLEMENT detail (receipts post to them). Without
+        // netting, summing both double-counts the receipt amount.
+        //
+        // The trial balance is a "true" view, so we use the
+        // balance-sheet rule: control is shown with its NET
+        // (control − Σ sub-ledger), labelled "غير مخصص", and the
+        // sub-ledgers are listed separately. Total still equals the
+        // original control balance.
         var subLedgerParentIds = rows
             .Where(r => r.level == 4 && r.parent_id.HasValue)
             .Select(r => r.parent_id!.Value)
@@ -39,33 +44,45 @@ public class ReportService
         var lines = new List<TrialBalanceLine>();
         decimal totalDebit = 0, totalCredit = 0;
 
-        foreach (var r in rows)
+        void AddLine(string code, string name, string type, string nature, decimal balance)
         {
-            if (r.level == 3 && subLedgerParentIds.Contains(r.id))
-                continue;
-
-            // Trial balance presentation: show positive balance on its nature side
-            // If account is Asset/Expense (Debit nature) and has positive balance → Debit side
-            // If account is Asset/Expense and has negative balance → Credit side (unusual)
-            // Same logic reversed for Liability/Equity/Revenue
+            if (Math.Abs(balance) < 0.01m) return;
             decimal debitBal = 0, creditBal = 0;
-            if (r.nature == "Debit")
+            if (nature == "Debit")
             {
-                if (r.balance >= 0) debitBal = r.balance;
-                else creditBal = -r.balance;
+                if (balance >= 0) debitBal = balance;
+                else creditBal = -balance;
             }
             else
             {
-                if (r.balance >= 0) creditBal = r.balance;
-                else debitBal = -r.balance;
+                if (balance >= 0) creditBal = balance;
+                else debitBal = -balance;
             }
+            lines.Add(new TrialBalanceLine(code, name, type, nature, debitBal, creditBal));
+            totalDebit += debitBal;
+            totalCredit += creditBal;
+        }
 
-            if (debitBal > 0 || creditBal > 0)
+        // L3 controls (with NET adjustment for those that have sub-ledgers)
+        foreach (var r in rows.Where(r => r.level == 3))
+        {
+            decimal bal = r.balance;
+            string name = r.name;
+            if (subLedgerParentIds.Contains(r.id))
             {
-                lines.Add(new TrialBalanceLine(r.code, r.name, r.account_type, r.nature, debitBal, creditBal));
-                totalDebit += debitBal;
-                totalCredit += creditBal;
+                var subSum = rows
+                    .Where(s => s.level == 4 && s.parent_id == r.id)
+                    .Sum(s => s.balance);
+                bal = r.balance - subSum;
+                name = $"{r.name} (غير مخصص)";
             }
+            AddLine(r.code, name, r.account_type, r.nature, bal);
+        }
+
+        // L4 sub-ledgers — full balance
+        foreach (var r in rows.Where(r => r.level == 4))
+        {
+            AddLine(r.code, r.name, r.account_type, r.nature, r.balance);
         }
 
         return new TrialBalanceReport(
@@ -148,22 +165,28 @@ public class ReportService
         // ============================================================
         // Sprint 26 hotfix — sub-ledger double-counting.
         //
-        // A control account (L3) like 1200 (AR) holds the TOTAL
-        // outstanding for that category. Sub-ledgers (L4) like
-        // 1200-CUST-001 break that total down by customer.
+        // The current posting flow is asymmetric:
+        //   * Invoices: Dr 1200 (control) / Cr 4000 (revenue).
+        //     Postings go to the CONTROL account, not the sub-ledger.
+        //   * Receipts/payments: Dr cash / Cr 1200-CUST-001 (sub-ledger).
+        //     Postings go to the SUB-LEDGER, not the control.
         //
-        // Posting flow: every journal line against a sub-ledger also
-        // posts to the control account (via _posting.GetByIdAsync
-        // resolution), so the control's balance already INCLUDES the
-        // sub-ledger balances. If we sum both, we double-count.
+        // This means the control carries the GROSS AR (invoices),
+        // and the sub-ledgers carry the SETTLEMENT detail (receipts).
+        // They are NOT the same number.
         //
-        // Fix: when a control has ANY sub-ledger children, drop the
-        // control from the totals and keep only the sub-ledgers
-        // (whose sum equals the control's balance by construction).
+        // Showing both summed would over-count by the receipt amount.
+        // Showing only the control hides the contact-level detail.
         //
-        // Pure-L3 control accounts (no children) are kept as-is.
-        // Pure L4 with no parent reference are also kept.
+        // Fix: present the control with its NET balance
+        // (control_balance − Σ sub_ledger_balances) labelled as
+        // "غير مخصص" (unallocated). The sub-ledgers are shown
+        // individually underneath, carrying the settlement detail.
+        //
+        // Total = NET control + Σ sub-ledgers = control_balance
+        // (no double counting, by construction).
         // ============================================================
+        var rowsById = rows.ToDictionary(r => r.id);
         var subLedgerParentIds = rows
             .Where(r => r.level == 4 && r.parent_id.HasValue)
             .Select(r => r.parent_id!.Value)
@@ -179,15 +202,47 @@ public class ReportService
         var income = await GetIncomeStatementAsync(companyId, yearStart, asOfDate);
         decimal netIncome = income.NetIncome;
 
-        foreach (var r in rows)
+        // Process controls first (L3) — show NET balance when they
+        // have sub-ledger children, full balance otherwise.
+        foreach (var r in rows.Where(r => r.level == 3))
         {
-            // Skip the control account if it has sub-ledger children.
-            // The sub-ledgers will be added in their own iteration and
-            // carry the same total.
-            if (r.level == 3 && subLedgerParentIds.Contains(r.id))
-                continue;
+            decimal amount;
+            string displayName = r.name;
+            string displayCode = r.code;
+            if (subLedgerParentIds.Contains(r.id))
+            {
+                var subSum = rows
+                    .Where(s => s.level == 4 && s.parent_id == r.id)
+                    .Sum(s => s.balance);
+                amount = Math.Abs(r.balance - subSum);
+                displayCode = r.code;
+                displayName = $"{r.name} (غير مخصص)";
+            }
+            else
+            {
+                amount = Math.Abs(r.balance);
+            }
 
-            // For balance sheet, present the absolute balance on its natural side
+            switch (r.account_type)
+            {
+                case "Asset":
+                    assets.Add(new BalanceSheetLine(displayCode, displayName, amount));
+                    totalAssets += amount;
+                    break;
+                case "Liability":
+                    liabilities.Add(new BalanceSheetLine(displayCode, displayName, amount));
+                    totalLiabilities += amount;
+                    break;
+                case "Equity":
+                    equity.Add(new BalanceSheetLine(displayCode, displayName, amount));
+                    totalEquity += amount;
+                    break;
+            }
+        }
+
+        // Then the sub-ledgers (L4) themselves.
+        foreach (var r in rows.Where(r => r.level == 4))
+        {
             var amount = Math.Abs(r.balance);
             switch (r.account_type)
             {
