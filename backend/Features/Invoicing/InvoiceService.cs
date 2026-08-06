@@ -59,6 +59,51 @@ public class InvoiceService
         return result;
     }
 
+    /// <summary>
+    /// Sprint 25 — Unpaid-invoice picker for the auto-link feature.
+    ///
+    /// Returns posted sales (or purchase) invoices for the given
+    /// company + contact that still have an outstanding balance
+    /// (amount_paid &lt; total). Ordered oldest-first so the
+    /// auto-link logic in ReceiptService/PaymentService picks the
+    /// most aged match when several invoices qualify.
+    ///
+    /// Optional <paramref name="invoiceType"/> filter:
+    ///   - "sales"    → for receipt vouchers (auto-link against AR)
+    ///   - "purchase" → for payment vouchers (auto-link against AP)
+    ///   - null       → both (used by the UI's invoice dropdown)
+    ///
+    /// The selector returns InvoiceDto (with lines) for each match.
+    /// For the dropdown UI, that's wasteful — but the volume is
+    /// small (one customer's open invoices) and re-using the DTO
+    /// keeps the contract uniform.
+    /// </summary>
+    public async Task<List<InvoiceDto>> GetUnpaidByContactAsync(
+        Guid companyId, Guid contactId, string? invoiceType = null, int limit = 50)
+    {
+        if (contactId == Guid.Empty) return new List<InvoiceDto>();
+
+        using var conn = _db.CreateConnection();
+        var invoiceIds = (await conn.QueryAsync<Guid>(@"
+            SELECT id FROM invoices
+            WHERE company_id = @companyId
+              AND contact_id = @contactId
+              AND status NOT IN ('cancelled')
+              AND amount_paid < total
+              AND (@invoiceType IS NULL OR invoice_type = @invoiceType)
+            ORDER BY invoice_date ASC, created_at ASC
+            LIMIT @limit;",
+            new { companyId, contactId, invoiceType, limit })).ToList();
+
+        var result = new List<InvoiceDto>();
+        foreach (var id in invoiceIds)
+        {
+            var inv = await GetByIdAsync(id);
+            if (inv is not null) result.Add(inv);
+        }
+        return result;
+    }
+
     public async Task<InvoiceDto?> GetByIdAsync(Guid id)
     {
         using var conn = _db.CreateConnection();
@@ -66,7 +111,8 @@ public class InvoiceService
             SELECT id, company_id, invoice_number, invoice_type, invoice_date,
                    party_name, party_name_ar, party_tax_id, notes,
                    subtotal, tax_amount, total, status, created_at, posted_at,
-                   intercompany_company_id
+                   intercompany_company_id,
+                   amount_paid, paid_at
             FROM invoices WHERE id = @id;",
             new { id });
         if (inv is null) return null;
@@ -89,6 +135,7 @@ public class InvoiceService
             inv.party_name, inv.party_name_ar, inv.party_tax_id, inv.notes,
             inv.subtotal, inv.tax_amount, inv.total, inv.status, inv.created_at, inv.posted_at,
             inv.intercompany_company_id,
+            inv.amount_paid, inv.paid_at,
             lines.Select(l => new InvoiceLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
                 l.product_id, l.product_code, l.product_name, l.product_name_ar,
@@ -842,7 +889,8 @@ public class InvoiceService
         Guid id, Guid company_id, string invoice_number, string invoice_type, DateTime invoice_date,
         string party_name, string? party_name_ar, string? party_tax_id, string? notes,
         decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at,
-        Guid? intercompany_company_id);
+        Guid? intercompany_company_id,
+        decimal amount_paid, DateTime? paid_at);
 
     private record InvoiceLineRow(
         Guid id, Guid invoice_id, Guid? account_id, Guid? product_id,

@@ -15,6 +15,7 @@ using ErpV2.Features.Admin;
 using ErpV2.Features.Receipts;
 using ErpV2.Features.Payments;
 using ErpV2.Features.CostCenters;
+using ErpV2.Features.Intercompany;
 using ErpV2.Migrations;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -229,6 +230,19 @@ builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<ContactService>();
 builder.Services.AddSingleton<CostCenterService>();
+// Sprint 25 — Receipt / Payment voucher services. These were created
+// in Sprint 21 (migration 011) but were never registered in DI — every
+// call to /api/receipts or /api/payments returned 500 with
+// "Unable to resolve service for type 'ReceiptService'...". The
+// Global Exception Handler (added earlier) makes the gap visible.
+// Registering them is sufficient — the endpoints already inject
+// the service.
+builder.Services.AddSingleton<ReceiptService>();
+builder.Services.AddSingleton<PaymentService>();
+// Sprint 25 — Overdue rule seeder. Runs once on startup to install
+// the InvoiceOverdueCheck template rule (idempotent, no-op if
+// already present).
+builder.Services.AddSingleton<OverdueRuleSeeder>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -275,6 +289,12 @@ AdminEndpoints.Map(app);
 ReceiptEndpoints.Map(app);
 PaymentEndpoints.Map(app);
 CostCenterEndpoints.Map(app);
+IntercompanyEndpoints.Map(app);
+// Sprint 24 — intercompany elimination report (consolidation).
+// Registered separately from ReportEndpoints because it lives in
+// its own static class to keep the elimination-report surface
+// discoverable in one file.
+IntercompanyEliminationEndpoints.Map(app);
 
 // ============================================================
 // Run migrations on startup
@@ -283,6 +303,20 @@ using (var scope = app.Services.CreateScope())
 {
     var migrator = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
     migrator.MigrateUp();
+}
+
+// ============================================================
+// Seed rule templates
+// ============================================================
+// Sprint 25 — Install the InvoiceOverdueCheck template rule if
+// it isn't already there. The seeder is idempotent (uses
+// ON CONFLICT and a pre-check count), so calling it on every
+// startup is safe. It runs AFTER migrations so the new
+// business_rules columns from 002 are guaranteed to exist.
+using (var scope = app.Services.CreateScope())
+{
+    var seeder = scope.ServiceProvider.GetRequiredService<OverdueRuleSeeder>();
+    await seeder.SeedAsync();
 }
 
 app.Run();

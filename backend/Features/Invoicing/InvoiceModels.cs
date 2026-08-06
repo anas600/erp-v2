@@ -21,8 +21,17 @@ public record InvoiceDto(
     DateTime CreatedAt,
     DateTime? PostedAt,
     Guid? IntercompanyCompanyId,     // Sprint 24: sister-company target for the mirror invoice. NULL for intra-company invoices.
+    decimal AmountPaid,              // Sprint 25: payments applied so far
+    DateTime? PaidAt,                // Sprint 25: when amount_paid first reached total
     List<InvoiceLineDto> Lines
-);
+)
+{
+    // Sprint 25 — convenience for the aging report + UI. The
+    // Outstanding field is computed from Total - AmountPaid and is
+    // NEVER read back from the database (no Outstanding column in
+    // invoices). Frontend can display it directly.
+    public decimal Outstanding => Total - AmountPaid;
+}
 
 public record InvoiceLineDto(
     Guid Id,

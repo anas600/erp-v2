@@ -16,6 +16,27 @@ public static class InvoiceEndpoints
             return Results.Ok(data);
         });
 
+        // Sprint 25 — Unpaid-invoice picker for the auto-link feature.
+        // The receipts / payments pages call this to populate the
+        // "الفاتورة" dropdown. Returns posted invoices (status !=
+        // cancelled) with amount_paid < total for the given contact.
+        // Optional invoiceType filter ('sales' for receipts, 'purchase'
+        // for payments); omit to list both.
+        grp.MapGet("/unpaid", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] Guid contactId,
+            [FromQuery] string? invoiceType,
+            [FromQuery] int? limit,
+            [FromServices] InvoiceService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            if (contactId == Guid.Empty) return Results.BadRequest(new { error = "contactId required" });
+            if (invoiceType is not null && invoiceType != "sales" && invoiceType != "purchase")
+                return Results.BadRequest(new { error = "invoiceType must be 'sales' or 'purchase'" });
+            var data = await svc.GetUnpaidByContactAsync(companyId, contactId, invoiceType, limit ?? 50);
+            return Results.Ok(data);
+        });
+
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] InvoiceService svc) =>
         {
             var inv = await svc.GetByIdAsync(id);

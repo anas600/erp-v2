@@ -19,6 +19,10 @@ interface ReceiptVoucher {
   reference?: string;
   narration?: string;
   postedAt?: string;
+  // Sprint 25 — denormalised link to the invoice this receipt settled.
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
 }
 
 interface Contact {
@@ -26,6 +30,18 @@ interface Contact {
   code: string;
   name: string;
   type: string;
+}
+
+interface UnpaidInvoice {
+  id: string;
+  invoiceNumber: string;
+  invoiceType: string;
+  invoiceDate: string;
+  partyName: string;
+  total: number;
+  amountPaid: number;
+  outstanding: number;
+  status: string;
 }
 
 const PAYMENT_METHODS: Record<string, string> = {
@@ -38,6 +54,7 @@ export default function ReceiptsPage() {
   const { activeCompany } = useAuth();
   const [vouchers, setVouchers] = useState<ReceiptVoucher[]>([]);
   const [customers, setCustomers] = useState<Contact[]>([]);
+  const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +66,7 @@ export default function ReceiptsPage() {
     contactId: "",
     amount: 0,
     paymentMethod: "cash",
+    invoiceId: "",          // Sprint 25 — pre-link to a sales invoice
     reference: "",
     narration: "",
   });
@@ -70,6 +88,49 @@ export default function ReceiptsPage() {
     }
   }, [activeCompany]);
 
+  // Sprint 25 — When the user picks a customer, fetch their unpaid
+  // sales invoices to populate the invoice dropdown. If exactly one
+  // invoice has total === form.amount, pre-select it.
+  useEffect(() => {
+    if (!activeCompany || !form.contactId) {
+      setUnpaidInvoices([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(
+          `/invoices/unpaid?companyId=${activeCompany.id}&contactId=${form.contactId}&invoiceType=sales`
+        );
+        if (!cancelled) {
+          setUnpaidInvoices(res.data || []);
+          // Pre-select if exactly one invoice matches the amount
+          // exactly (the same heuristic the backend auto-link uses).
+          const exactMatch = (res.data || []).find(
+            (inv: UnpaidInvoice) => Number(inv.total) === Number(form.amount)
+          );
+          if (exactMatch) {
+            setForm((f) => (f.invoiceId ? f : { ...f, invoiceId: exactMatch.id }));
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeCompany, form.contactId]);
+
+  // Re-evaluate the auto-select when amount changes. If a different
+  // invoice now matches the amount exactly, switch the selection.
+  const amount = form.amount;
+  useEffect(() => {
+    if (!unpaidInvoices.length || !amount) return;
+    const exact = unpaidInvoices.find((inv) => Number(inv.total) === Number(amount));
+    if (exact) setForm((f) => ({ ...f, invoiceId: exact.id }));
+    // Don't auto-clear — if the user manually picked one, leave it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const i = setInterval(load, 30_000);
@@ -90,15 +151,17 @@ export default function ReceiptsPage() {
         contactId: form.contactId,
         amount: form.amount,
         paymentMethod: form.paymentMethod,
+        invoiceId: form.invoiceId || null,  // Sprint 25
         reference: form.reference || null,
         narration: form.narration || null,
       });
       setSuccess(`تم حفظ السند ${res.data.voucherNumber} كمسودة`);
       setForm({
         voucherDate: new Date().toISOString().slice(0, 10),
-        contactId: "", amount: 0, paymentMethod: "cash",
+        contactId: "", amount: 0, paymentMethod: "cash", invoiceId: "",
         reference: "", narration: "",
       });
+      setUnpaidInvoices([]);
       await load();
       setShowForm(false);
       setTimeout(() => setSuccess(null), 3000);
@@ -171,6 +234,7 @@ export default function ReceiptsPage() {
             <thead>
               <tr>
                 <th>رقم السند</th>
+                <th>الفاتورة</th>     {/* Sprint 25 — linked invoice */}
                 <th>التاريخ</th>
                 <th>العميل</th>
                 <th>طريقة الدفع</th>
@@ -184,6 +248,16 @@ export default function ReceiptsPage() {
               {vouchers.map((v) => (
                 <tr key={v.id}>
                   <td className="font-mono font-semibold">{v.voucherNumber}</td>
+                  <td className="text-sm">
+                    {v.invoiceNumber ? (
+                      <span className="font-mono text-blue-700">{v.invoiceNumber}</span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                    {v.invoiceStatus === "paid" && (
+                      <span className="badge badge-success mr-1">مسددة</span>
+                    )}
+                  </td>
                   <td>{formatDate(v.voucherDate)}</td>
                   <td>{v.contactName} <span className="text-xs text-gray-500">({v.contactCode})</span></td>
                   <td className="text-sm">{PAYMENT_METHODS[v.paymentMethod] || v.paymentMethod}</td>
@@ -239,7 +313,7 @@ export default function ReceiptsPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">العميل *</label>
                   <select className="input" value={form.contactId}
-                    onChange={(e) => setForm({ ...form, contactId: e.target.value })} required>
+                    onChange={(e) => setForm({ ...form, contactId: e.target.value, invoiceId: "" })} required>
                     <option value="">— اختر عميل —</option>
                     {customers.map((c) => (
                       <option key={c.id} value={c.id}>{c.code} - {c.name}</option>
@@ -264,6 +338,34 @@ export default function ReceiptsPage() {
                     <option value="check">شيك</option>
                   </select>
                 </div>
+              </div>
+              {/* Sprint 25 — invoice dropdown. Populated once a customer
+                  is selected. Pre-selects an invoice whose total equals
+                  the receipt amount (the exact-match heuristic the
+                  backend auto-link also runs). */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  الفاتورة
+                  <span className="text-xs text-gray-500 mr-2">
+                    (اختياري — للربط المباشر)
+                  </span>
+                </label>
+                <select className="input" value={form.invoiceId}
+                  onChange={(e) => setForm({ ...form, invoiceId: e.target.value })}
+                  disabled={!form.contactId}>
+                  <option value="">— بدون ربط (دفعة عامة) —</option>
+                  {unpaidInvoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoiceNumber} — متبقي {formatNumber(inv.outstanding)} د.ل
+                      {Number(inv.total) === Number(form.amount) ? " ✓ مطابق" : ""}
+                    </option>
+                  ))}
+                </select>
+                {unpaidInvoices.length === 0 && form.contactId && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    لا توجد فواتير غير مسددة لهذا العميل
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">المرجع / البيان</label>

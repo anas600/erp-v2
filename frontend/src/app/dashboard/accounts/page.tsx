@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api, getErrorMessage } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { api, getErrorMessage, isColdStartError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { BookOpen, Plus, Loader2, X } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
@@ -42,6 +42,18 @@ export default function AccountsPage() {
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True while we're auto-retrying because Render's free tier backend
+  // is in a cold-start window (the first 502/503/504/ECONNREFUSED).
+  // The api.ts interceptor already does ONE automatic retry, but if
+  // the whole cold-start window is longer than that single retry, we
+  // show a friendly skeleton here and keep retrying on a short timer
+  // until the backend wakes up. The raw "Request failed with status
+  // code 502" red banner is suppressed for these cases.
+  const [coldStarting, setColdStarting] = useState(false);
+  // Guards against stacking multiple cold-start retry timers if a
+  // user fires a manual action (e.g. create + reload) while we're
+  // already in the cold-start loop.
+  const coldStartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [form, setForm] = useState({
     code: "",
@@ -58,14 +70,43 @@ export default function AccountsPage() {
       setLoading(true);
       const res = await api.get(`/accounts?companyId=${activeCompany.id}`);
       setAccounts(res.data);
+      // Success — clear any cold-start UI and the error banner.
+      setError(null);
+      setColdStarting(false);
     } catch (err) {
-      setError(getErrorMessage(err));
+      // Cold-start case: 502/503/504 or network error. Show the
+      // friendly skeleton instead of the red error banner, and
+      // auto-retry after a short delay. The api.ts interceptor
+      // has already done its single retry — this is the fallback
+      // for when even that wasn't enough.
+      if (isColdStartError(err)) {
+        setError(null);
+        setColdStarting(true);
+        if (coldStartTimer.current) clearTimeout(coldStartTimer.current);
+        coldStartTimer.current = setTimeout(() => {
+          load();
+        }, 3000);
+      } else {
+        // Real error (4xx, etc.) — show the red banner as before.
+        setError(getErrorMessage(err));
+        setColdStarting(false);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { load(); }, [activeCompany]);
+
+  // Clean up any pending cold-start retry timer on unmount or
+  // company change so we don't call setState on an unmounted
+  // component (or fire a stale request after the user switched
+  // companies).
+  useEffect(() => {
+    return () => {
+      if (coldStartTimer.current) clearTimeout(coldStartTimer.current);
+    };
+  }, [activeCompany]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +151,18 @@ export default function AccountsPage() {
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
 
       <div className="card">
-        {loading ? (
+        {coldStarting ? (
+          // Cold-start UI: the backend is waking up on Render's free
+          // tier. We suppress the red "Request failed with status
+          // code 502" banner and show a calm skeleton with a spinner
+          // and the Arabic message instead. The page will
+          // auto-retry every 3s until the backend responds.
+          <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-600">
+            <Loader2 className="animate-spin text-primary-500" size={32} />
+            <div className="text-sm font-medium">الخادم يستيقظ، انتظر...</div>
+            <div className="text-xs text-gray-400">جاري إعادة المحاولة تلقائياً</div>
+          </div>
+        ) : loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
