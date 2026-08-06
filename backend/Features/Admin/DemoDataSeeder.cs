@@ -3,6 +3,7 @@ using ErpV2.Common;
 using ErpV2.Features.Accounts;
 using ErpV2.Features.Contacts;
 using ErpV2.Features.Invoicing;
+using ErpV2.Features.Journal;
 using ErpV2.Features.Payments;
 using ErpV2.Features.Receipts;
 
