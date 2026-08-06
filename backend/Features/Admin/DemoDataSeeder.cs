@@ -42,6 +42,7 @@ public class DemoDataSeeder
     private readonly InvoiceService _invoices;
     private readonly ReceiptService _receipts;
     private readonly PaymentService _payments;
+    private readonly JournalService _journal;
 
     public DemoDataSeeder(
         IDbConnectionFactory db,
@@ -49,7 +50,8 @@ public class DemoDataSeeder
         AccountService accounts,
         InvoiceService invoices,
         ReceiptService receipts,
-        PaymentService payments)
+        PaymentService payments,
+        JournalService journal)
     {
         _db = db;
         _contacts = contacts;
@@ -380,6 +382,57 @@ public class DemoDataSeeder
             {
                 result.Errors.Add($"Payment {reference}: {ex.Message}");
             }
+        }
+
+        // ============================================================
+        // 7) Auto-approve + post all pending journal entries
+        // ============================================================
+        // The rule engine (Sprint 15) creates entries in "pending"
+        // status so the accountant can review them before they hit
+        // the books. For demo data, we don't want the trial balance
+        // and balance sheet to be empty just because the accountant
+        // hasn't clicked "Approve" on each entry — so the seed
+        // approves them all in one shot.
+        //
+        // Each approval goes through PostingEngine.PostAsync, which
+        // also updates the account balances — so the trial balance
+        // will reflect the seeded postings as soon as the seed
+        // returns.
+        try
+        {
+            using var conn = _db.CreateConnection();
+            var pendingIds = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM journal_entries
+                WHERE company_id = @companyId AND status = 'pending'
+                ORDER BY entry_date, created_at;",
+                new { companyId })).ToList();
+
+            int approved = 0;
+            foreach (var id in pendingIds)
+            {
+                try
+                {
+                    await _journal.ApproveAsync(id, userId);
+                    approved++;
+                }
+                catch (Exception ex)
+                {
+                    result.Errors.Add($"Approve {id}: {ex.Message}");
+                }
+            }
+            // Stash the count in the result so the response can show
+            // it (we don't add a new field, just record in the message
+            // chain via errors if any).
+            if (approved > 0)
+            {
+                // No-op: success is silent. If you want to surface
+                // this in the API response, add an int field to
+                // SeedResult.
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Errors.Add($"Auto-approve: {ex.Message}");
         }
 
         return result;
