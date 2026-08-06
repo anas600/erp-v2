@@ -207,6 +207,34 @@ public static class AdminEndpoints
             return Results.Ok(new { l4_count = rows.Count(), rows });
         });
 
+        // DEBUG — runs the EXACT same SQL as AccountService.GetByCompanyAsync
+        // but on the same connection the API uses. Should show L4s if
+        // the production query is correct.
+        grp.MapGet("/debug-account-snapshot", async (HttpContext ctx, IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync<dynamic>(@"
+                SELECT id, company_id, code, name, name_ar, parent_id,
+                       account_type, nature, level, account_class,
+                       is_control_account, cost_center_required,
+                       is_postable, is_active, balance
+                FROM accounts
+                WHERE company_id = 'c9fba678-29db-43ec-8c34-5a35d205e79b'
+                ORDER BY code;");
+            return Results.Ok(new { count = rows.Count(), rows });
+        });
+
+        // DEBUG — checks the CASH company query exactly as the API would
+        grp.MapGet("/debug-list-mimic", async (
+            HttpContext ctx,
+            [FromServices] ErpV2.Features.Accounts.AccountService svc) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            var data = await svc.GetByCompanyAsync(Guid.Parse("c9fba678-29db-43ec-8c34-5a35d205e79b"));
+            return Results.Ok(new { count = data.Count, data });
+        });
+
         // ============================================================
         // Sprint 26 — new endpoints
         // ============================================================
