@@ -107,11 +107,26 @@ public class PostingEngine
 
             tx.Commit();
 
-            return await GetByIdAsync(entryId) ?? throw new InvalidOperationException("Failed to load posted entry");
+            // After commit, load the entry again. We've seen NREs
+            // here when the entry is missing account rows or has a
+            // broken reverses_entry_id pointer, so wrap in a more
+            // descriptive error so the caller can see WHICH entry
+            // and WHICH line is bad.
+            try
+            {
+                return (await GetByIdAsync(entryId))
+                    ?? throw new InvalidOperationException($"Entry {entryId} posted but vanished on reload");
+            }
+            catch (Exception re)
+            {
+                throw new InvalidOperationException(
+                    $"PostAsync succeeded but reload failed for {entryId}: {re.GetType().Name}: {re.Message}",
+                    re);
+            }
         }
         catch
         {
-            tx.Rollback();
+            try { tx.Rollback(); } catch { /* ignore rollback failures on disposed tx */ }
             throw;
         }
     }
