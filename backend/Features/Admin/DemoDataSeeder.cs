@@ -422,7 +422,8 @@ public class DemoDataSeeder
                     // seed response is diagnostic enough to debug
                     // the auto-approve loop without re-running.
                     var inner = ex.InnerException?.Message ?? "<none>";
-                    result.Errors.Add($"Approve {id}: {ex.GetType().Name}: {ex.Message} | inner={inner}");
+                    var stack = ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim() ?? "<no stack>";
+                    result.Errors.Add($"Approve {id}: {ex.GetType().Name}: {ex.Message} | inner={inner} | at={stack}");
                 }
             }
             // Stash the count in the result so the response can show
