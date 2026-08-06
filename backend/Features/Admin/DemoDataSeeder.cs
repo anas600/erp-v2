@@ -418,7 +418,11 @@ public class DemoDataSeeder
                 }
                 catch (Exception ex)
                 {
-                    result.Errors.Add($"Approve {id}: {ex.Message}");
+                    // Surface the inner exception + stack so the
+                    // seed response is diagnostic enough to debug
+                    // the auto-approve loop without re-running.
+                    var inner = ex.InnerException?.Message ?? "<none>";
+                    result.Errors.Add($"Approve {id}: {ex.GetType().Name}: {ex.Message} | inner={inner}");
                 }
             }
             // Stash the count in the result so the response can show
