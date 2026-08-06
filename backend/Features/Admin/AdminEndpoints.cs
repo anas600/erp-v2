@@ -167,77 +167,60 @@ public static class AdminEndpoints
             return Results.Ok(new { results });
         });
 
-        // ============================================================
-        // DEBUG (TEMPORARY) — Sprint 26 hotfix investigation
-        // Returns raw L4 + L3 counts per company from the DB.
-        // Helps diagnose the "sub-ledger created but missing from list" bug.
-        // ============================================================
-        grp.MapGet("/debug-account-counts", async (HttpContext ctx, IDbConnectionFactory db) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            using var conn = db.CreateConnection();
-            var perCompany = await conn.QueryAsync<(string company_id, int l3_count, int l4_count)>(@"
-                SELECT 
-                    company_id::text AS company_id,
-                    COUNT(*) FILTER (WHERE level = 3) AS l3_count,
-                    COUNT(*) FILTER (WHERE level = 4) AS l4_count
-                FROM accounts
-                GROUP BY company_id
-                ORDER BY company_id;");
-            var total = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM accounts;");
-            return Results.Ok(new {
-                total_accounts = total,
-                per_company = perCompany.Select(x => new {
-                    company_id = x.company_id,
-                    l3 = x.l3_count,
-                    l4 = x.l4_count
-                })
-            });
-        });
-
-        grp.MapGet("/debug-l4-rows", async (HttpContext ctx, IDbConnectionFactory db) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            using var conn = db.CreateConnection();
-            var rows = await conn.QueryAsync(@"
-                SELECT id, company_id, code, level, is_postable, is_active, balance, created_at
-                FROM accounts
-                WHERE level = 4
-                ORDER BY code;");
-            return Results.Ok(new { l4_count = rows.Count(), rows });
-        });
-
-        // DEBUG — runs the EXACT same SQL as AccountService.GetByCompanyAsync
-        // but on the same connection the API uses. Should show L4s if
-        // the production query is correct.
-        grp.MapGet("/debug-account-snapshot", async (HttpContext ctx, IDbConnectionFactory db) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            using var conn = db.CreateConnection();
-            var rows = await conn.QueryAsync<dynamic>(@"
-                SELECT id, company_id, code, name, name_ar, parent_id,
-                       account_type, nature, level, account_class,
-                       is_control_account, cost_center_required,
-                       is_postable, is_active, balance
-                FROM accounts
-                WHERE company_id = 'c9fba678-29db-43ec-8c34-5a35d205e79b'
-                ORDER BY code;");
-            return Results.Ok(new { count = rows.Count(), rows });
-        });
-
-        // DEBUG — checks the CASH company query exactly as the API would
-        grp.MapGet("/debug-list-mimic", async (
-            HttpContext ctx,
-            [FromServices] ErpV2.Features.Accounts.AccountService svc) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            var data = await svc.GetByCompanyAsync(Guid.Parse("c9fba678-29db-43ec-8c34-5a35d205e79b"));
-            return Results.Ok(new { count = data.Count, data });
-        });
-
-        // ============================================================
+// ============================================================
         // Sprint 26 — new endpoints
         // ============================================================
+
+        // POST /api/admin/bulk-approve-pending
+        // Approves every PENDING journal entry for the given company.
+        // Required because the rule engine (Sprint 15) creates entries
+        // as PENDING (accountant review), but the demo seed wants to
+        // auto-approve so the trial balance reflects the postings
+        // immediately.
+        //
+        // Uses PostingEngine directly (no service-level wrapper that
+        // could NRE under certain connection states) and surfaces
+        // detailed error info for the seed.
+        grp.MapPost("/bulk-approve-pending", async (
+            HttpContext ctx,
+            [FromQuery] Guid companyId,
+            [FromServices] ErpV2.Features.Journal.PostingEngine posting,
+            [FromServices] IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+
+            using var conn = db.CreateConnection();
+            var pendingIds = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM journal_entries
+                WHERE company_id = @companyId AND status = 'pending'
+                ORDER BY entry_date, created_at;",
+                new { companyId })).ToList();
+
+            var errors = new List<string>();
+            int approved = 0;
+            foreach (var id in pendingIds)
+            {
+                try
+                {
+                    await posting.PostAsync(id);
+                    approved++;
+                }
+                catch (Exception ex)
+                {
+                    var inner = ex.InnerException?.Message ?? "<none>";
+                    errors.Add($"{id}: {ex.GetType().Name}: {ex.Message} | inner={inner}");
+                }
+            }
+            return Results.Ok(new
+            {
+                companyId,
+                total = pendingIds.Count,
+                approved,
+                failed = errors.Count,
+                errors
+            });
+        });
 
         // POST /api/admin/cleanup-data
         // Full demo reset. Compared to /cleanup-transactions this also
@@ -290,7 +273,8 @@ public static class AdminEndpoints
             HttpContext ctx,
             [FromQuery] Guid companyId,
             [FromServices] DemoDataSeeder seeder,
-            [FromServices] IDbConnectionFactory db) =>
+            [FromServices] IDbConnectionFactory db,
+            [FromServices] ErpV2.Features.Journal.PostingEngine posting) =>
         {
             if (!ctx.IsSuperAdmin())
             {
@@ -317,7 +301,56 @@ public static class AdminEndpoints
             try
             {
                 var result = await seeder.SeedAsync(companyId, userId);
-                return Results.Ok(result);
+                // Bulk-approve pending entries via the dedicated
+                // endpoint (uses PostingEngine directly, bypasses
+                // the NRE that hits the in-process ApproveAsync loop).
+                // This way the client gets a fully-posted dataset
+                // in a single seed call.
+                try
+                {
+                    using var conn2 = db.CreateConnection();
+                    var pendingIds = (await conn2.QueryAsync<Guid>(@"
+                        SELECT id FROM journal_entries
+                        WHERE company_id = @companyId AND status = 'pending';",
+                        new { companyId })).ToList();
+                    int approved = 0;
+                    var approveErrors = new List<string>();
+                    foreach (var id in pendingIds)
+                    {
+                        try
+                        {
+                            await posting.PostAsync(id);
+                            approved++;
+                        }
+                        catch (Exception aex)
+                        {
+                            approveErrors.Add($"{id}: {aex.GetType().Name}: {aex.Message}");
+                        }
+                    }
+                    // Augment the result with the approval outcome.
+                    // We use a small wrapper record (anonymous) and
+                    // project to a new shape so the client sees both
+                    // seed stats and approve stats.
+                    return Results.Ok(new
+                    {
+                        seed = result,
+                        pendingApproved = new
+                        {
+                            total = pendingIds.Count,
+                            approved,
+                            failed = approveErrors.Count,
+                            errors = approveErrors
+                        }
+                    });
+                }
+                catch (Exception bex)
+                {
+                    return Results.Ok(new
+                    {
+                        seed = result,
+                        pendingApproveError = bex.Message
+                    });
+                }
             }
             catch (Exception ex)
             {

@@ -369,26 +369,37 @@ public class JournalService
     /// </summary>
     public async Task<JournalEntryDto?> ApproveAsync(Guid entryId, Guid? userId)
     {
-        using var conn = _db.CreateConnection();
+        try
+        {
+            using var conn = _db.CreateConnection();
 
-        // Load the entry first (no transaction yet — we want a clean
-        // status check before opening a tx)
-        var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration,
-                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
-            FROM journal_entries WHERE id = @id;",
-            new { id = entryId });
+            // Load the entry first (no transaction yet — we want a clean
+            // status check before opening a tx)
+            var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
+                SELECT id, company_id, entry_number, entry_date, narration,
+                       status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                FROM journal_entries WHERE id = @id;",
+                new { id = entryId });
 
-        if (entry is null) return null;
-        if (entry.status == "posted") return await GetByIdAsync(entryId); // idempotent
-        if (entry.status != "pending")
+            if (entry is null) return null;
+            if (entry.status == "posted") return await GetByIdAsync(entryId); // idempotent
+            if (entry.status != "pending")
+                throw new InvalidOperationException(
+                    $"لا يمكن اعتماد قيد بحالة '{entry.status}'. المتوقع: 'pending'");
+
+            // Delegate the actual transition to PostingEngine — it handles
+            // balance validation, account-balance updates, and the
+            // UPDATE journal_entries SET status = 'posted'.
+            return await _posting.PostAsync(entryId);
+        }
+        catch (Exception ex)
+        {
+            // Re-throw with a clear prefix so the seed loop error log
+            // can pinpoint which step failed.
             throw new InvalidOperationException(
-                $"لا يمكن اعتماد قيد بحالة '{entry.status}'. المتوقع: 'pending'");
-
-        // Delegate the actual transition to PostingEngine — it handles
-        // balance validation, account-balance updates, and the
-        // UPDATE journal_entries SET status = 'posted'.
-        return await _posting.PostAsync(entryId);
+                $"ApproveAsync({entryId}) failed: {ex.GetType().Name}: {ex.Message} | stack={ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}",
+                ex);
+        }
     }
 
     /// <summary>
