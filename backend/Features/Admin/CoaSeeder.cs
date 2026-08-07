@@ -45,7 +45,6 @@ public class CoaSeeder
         await conn.ExecuteAsync(@"
             UPDATE business_rules SET enabled = false;
             DELETE FROM account_contact_links WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
-            UPDATE contacts SET sub_ledger_account_id = NULL WHERE company_id = @companyId;
             DELETE FROM journal_lines WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM accounts WHERE company_id = @companyId;",
             new { companyId });
