@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
 import {
   Wrench, Trash2, Database, AlertTriangle, Loader2, CheckCircle2,
-  AlertCircle, RefreshCw, BarChart3, Lock
+  AlertCircle, RefreshCw, BarChart3, Lock, TreePine
 } from "lucide-react";
 
 /**
@@ -36,7 +36,7 @@ import {
  * are disabled and a clear message is shown.
  */
 export default function AdminPage() {
-  const { user } = useAuth();
+  const { user, activeCompany } = useAuth();
   const isSuperAdmin = !!user?.isSuperAdmin;
 
   const [stats, setStats] = useState<Record<string, number> | null>(null);
@@ -50,6 +50,10 @@ export default function AdminPage() {
 
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Sprint 31 — full COA reseed (drops all accounts + journals, re-inserts the standard 4-level COA)
+  const [coaBusy, setCoaBusy] = useState(false);
+  const [coaMsg, setCoaMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadStats = async () => {
     if (!isSuperAdmin) return;
@@ -163,6 +167,35 @@ export default function AdminPage() {
       setResetMsg({ ok: false, text: msg });
     } finally {
       setResetBusy(false);
+    }
+  };
+
+  // ─── Action: reseed COA (Sprint 31) ──────────────────────────────────
+  const doReseedCoa = async () => {
+    if (!confirm(
+      "⚠️ إعادة بناء دليل الحسابات: سيتم حذف جميع الحسابات (L1-L4) وجميع القيود اليومية المرتبطة بها.\n\n" +
+      "سيتم بعد ذلك إعادة إدراج الهيكل الموحد الجديد (4 مستويات) مع الأكواد الصحيحة:\n" +
+      "  - 6 حسابات L1 (الأصول، الخصوم، إلخ)\n" +
+      "  - 13 حساب L2 (تصنيفات فرعية)\n" +
+      "  - 50 حساب L3 (الحسابات العامة)\n" +
+      "  - 0 حسابات L4 (تُنشأ لاحقاً من جهات الاتصال والمشاريع)\n\n" +
+      "⚠️ هذه العملية لا يمكن التراجع عنها. هل أنت متأكد؟"
+    )) return;
+    if (!activeCompany) return;
+    setCoaBusy(true);
+    setCoaMsg(null);
+    try {
+      const res = await api.post(`/admin/reseed-coa?companyId=${activeCompany.id}`);
+      const { l1Count, l2Count, l3Count } = res.data;
+      setCoaMsg({
+        ok: true,
+        text: `تم بنجاح: L1=${l1Count}، L2=${l2Count}، L3=${l3Count}`
+      });
+      await loadStats();
+    } catch (err) {
+      setCoaMsg({ ok: false, text: getErrorMessage(err) });
+    } finally {
+      setCoaBusy(false);
     }
   };
 
@@ -347,6 +380,38 @@ export default function AdminPage() {
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Sprint 31 — COA Reseed */}
+      <div className="card border-2 border-amber-200 bg-amber-50/30 mt-4">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-amber-900">
+          <TreePine size={20} />
+          إعادة بناء دليل الحسابات الموحد
+        </h2>
+        <p className="text-sm text-gray-700 mb-3">
+          يحذف جميع الحسابات (L1-L4) وجميع القيود اليومية المرتبطة ويُعيد بناء الهيكل الموحد الجديد
+          (L1: 6، L2: 13، L3: 50 حساب) بأكواد صحيحة. استخدمه مرة واحدة لتطبيق الهيكل المقفل.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={doReseedCoa}
+            disabled={!isSuperAdmin || coaBusy}
+            className="btn-primary bg-amber-600 hover:bg-amber-700"
+          >
+            {coaBusy ? <Loader2 className="animate-spin" size={16} /> : <TreePine size={16} />}
+            إعادة بناء COA
+          </button>
+          {coaMsg && (
+            <div
+              className={`text-xs flex items-center gap-1 ${
+                coaMsg.ok ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              {coaMsg.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+              <span>{coaMsg.text}</span>
+            </div>
+          )}
         </div>
       </div>
 
