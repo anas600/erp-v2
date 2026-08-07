@@ -91,9 +91,11 @@ interface AccountTreeProps {
   /** Called when the user clicks the `+` button on a row. */
   onAddChild: (parent: Account) => void;
   /**
-   * Optional initial-expanded state. Defaults to expanded for L1
-   * (so the user sees the categories right away) and collapsed for
-   * deeper levels (so the page isn't overwhelming).
+   * Optional initial-expanded state. By default NOTHING is expanded
+   * (the user sees only the L1 root nodes — the 6 account classes
+   * like 1-أصول, 2-التزامات, etc.). They click to drill down.
+   *
+   * The "Expand All" button at the top reveals the full tree.
    */
   initialExpanded?: (a: Account) => boolean;
 }
@@ -104,24 +106,22 @@ export default function AccountTree({
   initialExpanded
 }: AccountTreeProps) {
   const tree = buildTree(accounts);
-  // Track which account ids are expanded. We seed it with the L2 and L3
-  // categories open by default so the user sees the L3 sub-categories
-  // (operational level — seeded 18 accounts) AND the L4 sub-ledgers
-  // (the contact-specific accounts) without having to click each.
+  // Sprint 33 — Default state: NOTHING is expanded. The user sees
+  // only the 6 L1 root nodes (الأصول، الالتزامات، حقوق الملكية،
+  // الإيرادات، المصروفات، حسابات المراجعة). They click the chevron
+  // to drill down: L1 → L2 → L3 → L4.
   //
-  // Sprint 26 hotfix: expanding L3 by default too. The previous
-  // behavior of L1/L2-only expansion hid the L4 sub-ledgers from
-  // view, which made the user think the system wasn't creating
-  // them. With L3 auto-expanded, the sub-ledgers (CUST-001 etc.)
-  // show up under their control account (1200, 2000) immediately.
+  // The previous behavior of auto-expanding L1/L2/L3 was overwhelming
+  // for a clean COA (78 accounts visible at once). The new default
+  // makes the tree feel like the reference system — collapsed by
+  // default, expanded on demand.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     accounts.forEach((a) => {
       if (initialExpanded) {
         if (initialExpanded(a)) initial.add(a.id);
-      } else if (a.level === 1 || a.level === 2 || a.level === 3) {
-        initial.add(a.id);
       }
+      // No auto-expand for any level. User clicks to drill down.
     });
     return initial;
   });
@@ -221,9 +221,8 @@ function TreeNodeView({
             {isExpanded ? (
               <ChevronDown size={14} />
             ) : (
-              // RTL: arrow points right (toward the children which
-              // are to the right of the parent visually, since the
-              // list starts from the right edge).
+              // RTL: arrow points left when collapsed (toward the
+              // children which are indented to the left in RTL).
               <ChevronLeft size={14} />
             )}
           </button>
