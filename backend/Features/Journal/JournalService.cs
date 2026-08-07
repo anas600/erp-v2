@@ -718,9 +718,17 @@ public class JournalService
                 // If it's already 'paid' / 'partiallypaid' / 'cancelled',
                 // we leave it alone (a payment has been applied on top,
                 // and rolling back the invoice would orphan the payment).
+                //
+                // NOTE: invoices table has no `journal_entry_id` column,
+                // so we can't use ReverseInvoicePostingAsync (which queries
+                // by that column). Update directly using the id we have.
                 if (inv.Value.status == "posted")
                 {
-                    await ReverseInvoicePostingAsync(conn, tx, inv.Value.id);
+                    await conn.ExecuteAsync(@"
+                        UPDATE invoices
+                        SET status = 'draft', posted_at = NULL
+                        WHERE id = @id;",
+                        new { id = inv.Value.id }, tx);
                 }
                 return;
             }
