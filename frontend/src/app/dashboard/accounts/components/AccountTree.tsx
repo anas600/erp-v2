@@ -149,18 +149,23 @@ export default function AccountTree({
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-2 mb-2 text-xs">
+      <div className="flex items-center justify-end gap-2 mb-2 text-xs no-print">
         <button
-          onClick={expandAll}
-          className="text-primary-600 hover:text-primary-800 hover:underline"
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); expandAll(); }}
+          className="px-3 py-1.5 bg-primary-50 hover:bg-primary-100 text-primary-700 rounded border border-primary-200 cursor-pointer font-medium flex items-center gap-1 transition-colors"
+          title="عرض جميع الحسابات في كل المستويات"
         >
+          <ChevronDown size={14} />
           فتح الكل
         </button>
-        <span className="text-gray-300">|</span>
         <button
-          onClick={collapseAll}
-          className="text-primary-600 hover:text-primary-800 hover:underline"
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); collapseAll(); }}
+          className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded border border-gray-200 cursor-pointer font-medium flex items-center gap-1 transition-colors"
+          title="طي جميع الحسابات وإبقاء L1 فقط"
         >
+          <ChevronLeft size={14} />
           طي الكل
         </button>
       </div>
