@@ -219,6 +219,9 @@ public class RuleEvaluator
 
             // Evaluate amount formula (simple {path.to.value} substitution)
             var amount = EvaluateAmount(line.AmountFormula, payload);
+            _log.LogInformation(
+                "Rule {RuleId}: line {Code} formula='{Formula}' evaluated to {Amount}",
+                ruleId, line.AccountCode, line.AmountFormula, amount);
             if (amount == 0 && line.AmountFormula != "0" && line.AmountFormula != "0.0")
             {
                 _log.LogWarning(
