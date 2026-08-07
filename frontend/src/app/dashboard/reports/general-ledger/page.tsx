@@ -87,20 +87,40 @@ export default function GeneralLedgerPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Load the chart of accounts (for the account picker)
+  //
+  // Sprint 33 hotfix: the previous code took r.data directly, which
+  // for our tree API means only the 6 L1 roots. The dropdown showed
+  // only L1 accounts and the accountant couldn't drill down into L3
+  // (operational accounts) or L4 (sub-ledgers) — which is exactly
+  // what they need to audit.
+  //
+  // Now we flatten the nested tree response, then filter out L1
+  // (no own activity) and present L2/L3/L4 grouped by level with
+  // indentation so the hierarchy is obvious in the dropdown.
   useEffect(() => {
     if (!activeCompany) return;
     setLoadingAccounts(true);
     api.get(`/accounts?companyId=${activeCompany.id}`)
       .then((r) => {
-        setAccounts(r.data);
-        // Auto-select the first account when none is set.
-        // This is a small UX improvement: users landing on
-        // /reports/general-ledger (without ?accountId=...) used
-        // to see a "pick an account" placeholder forever. Now
-        // they see the first account's ledger immediately. They
-        // can still pick another from the dropdown.
-        if (!searchParams.get("accountId") && r.data.length > 0) {
-          setSelectedAccountId(r.data[0].id);
+        const raw = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+        const flat = flattenAccounts(raw);
+        // Group by level for an organised dropdown:
+        //   L2  (category headers, e.g. "11 أصول متداولة")
+        //   L3  (operational control accounts, e.g. "1103 المدينون")
+        //   L4  (sub-ledgers, e.g. "1103-CUST-001")
+        // We skip L1 entirely (it's a top-level classification, no
+        // own activity). An L2 with no L3 children is also excluded
+        // since it has nothing to show.
+        const grouped = flat
+          .filter((a) => a.level >= 2 && a.level <= 4)
+          .sort((a, b) =>
+            a.code.localeCompare(b.code, undefined, { numeric: true })
+          );
+        setAccounts(grouped);
+        // Auto-select the first L3 (most useful) when none is set.
+        if (!searchParams.get("accountId") && grouped.length > 0) {
+          const firstL3 = grouped.find((a) => a.level === 3);
+          setSelectedAccountId((firstL3 ?? grouped[0]).id);
         }
       })
       .catch((err) => setError(getErrorMessage(err)))
@@ -176,11 +196,17 @@ export default function GeneralLedgerPage() {
                 onChange={(e) => setSelectedAccountId(e.target.value)}
               >
                 <option value="">— اختر حساب —</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} — {a.nameAr || a.name} ({a.accountType})
-                  </option>
-                ))}
+                {accounts.map((a) => {
+                  // Indent deeper levels so the hierarchy is obvious
+                  // in the dropdown: L3 → no indent, L4 → 2 spaces, L2 → 4 spaces
+                  const indent = a.level === 4 ? "↳ " : a.level === 2 ? "  ‖ " : "";
+                  const levelLabel = LEVEL_LABEL[a.level] ?? `L${a.level}`;
+                  return (
+                    <option key={a.id} value={a.id}>
+                      {indent}{a.code} — {a.nameAr || a.name}  [{levelLabel}]
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>
@@ -323,3 +349,33 @@ function SourceBadge({ source }: { source?: string }) {
     return <span className="badge badge-secondary text-xs">يدوي</span>;
   return <span className="badge text-xs">{source}</span>;
 }
+
+/**
+ * Flatten the nested account tree response into a flat list.
+ * Each node's `children` field is stripped (we only need it
+ * in the chart-of-accounts tree view, not the GL picker).
+ */
+function flattenAccounts(nodes: any[]): Account[] {
+  const out: Account[] = [];
+  const walk = (n: any) => {
+    const { children, ...rest } = n;
+    out.push(rest as Account);
+    if (Array.isArray(children)) children.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return out;
+}
+
+/** Visual label for the level badge in the account picker. */
+const LEVEL_LABEL: Record<number, string> = {
+  1: "نوع",
+  2: "فئة",
+  3: "تشغيلي",
+  4: "تفصيلي"
+};
+
+const LEVEL_BADGE: Record<number, string> = {
+  2: "bg-slate-100 text-slate-600",
+  3: "bg-emerald-100 text-emerald-700",
+  4: "bg-amber-100 text-amber-700"
+};
