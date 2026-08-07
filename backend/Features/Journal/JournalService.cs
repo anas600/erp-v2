@@ -160,8 +160,8 @@ public class JournalService
         var source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source;
 
         await conn.ExecuteAsync(@"
-            INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by)
-            VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @reversesEntryId, @createdBy);",
+            INSERT INTO journal_entries (id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, project_id)
+            VALUES (@id, @companyId, @entryNumber, @entryDate, @narration, @status, @source, @ruleId, @reversesEntryId, @createdBy, @projectId);",
             new
             {
                 id = entryId,
@@ -173,7 +173,10 @@ public class JournalService
                 source,
                 ruleId = req.RuleId,
                 reversesEntryId = req.ReversesEntryId,
-                createdBy
+                createdBy,
+                // Sprint 35: project tag. Default null (backward
+                // compatible). P&L reports query this column.
+                projectId = req.ProjectId
             }, tx);
 
         int lineNum = 1;

@@ -36,7 +36,7 @@ public class ReceiptService
                    r.check_number, r.check_date, r.reference, r.narration,
                    r.status, r.posted_at, r.journal_entry_id,
                    r.invoice_id, i.invoice_number AS invoice_number,
-                   r.created_at, r.created_by,
+                   r.project_id, r.created_at, r.created_by,
                    u.full_name_ar AS created_by_name
             FROM receipt_vouchers r
             JOIN contacts c ON c.id = r.contact_id
@@ -61,7 +61,7 @@ public class ReceiptService
                    r.check_number, r.check_date, r.reference, r.narration,
                    r.status, r.posted_at, r.journal_entry_id,
                    r.invoice_id, i.invoice_number AS invoice_number,
-                   r.created_at, r.created_by,
+                   r.project_id, r.created_at, r.created_by,
                    u.full_name_ar AS created_by_name
             FROM receipt_vouchers r
             JOIN contacts c ON c.id = r.contact_id
@@ -86,12 +86,12 @@ public class ReceiptService
             INSERT INTO receipt_vouchers (
                 id, company_id, voucher_number, voucher_date, contact_id,
                 amount, payment_method, bank_account_id, check_number, check_date,
-                reference, narration, status, created_by, invoice_id
+                reference, narration, status, created_by, invoice_id, project_id
             )
             VALUES (
                 @id, @companyId, @voucherNumber, @voucherDate, @contactId,
                 @amount, @paymentMethod, @bankAccountId, @checkNumber, @checkDate,
-                @reference, @narration, 'draft', @createdBy, @invoiceId
+                @reference, @narration, 'draft', @createdBy, @invoiceId, @projectId
             );",
             new
             {
@@ -99,7 +99,9 @@ public class ReceiptService
                 contactId = req.ContactId, amount = req.Amount, paymentMethod = req.PaymentMethod,
                 bankAccountId = req.BankAccountId, checkNumber = req.CheckNumber,
                 checkDate = req.CheckDate, reference = req.Reference, narration = req.Narration,
-                createdBy, invoiceId = req.InvoiceId
+                createdBy, invoiceId = req.InvoiceId,
+                // Sprint 35: project tag.
+                projectId = req.ProjectId
             });
 
         return (await GetByIdAsync(id))!;
@@ -122,7 +124,7 @@ public class ReceiptService
                 amount = @amount, payment_method = @paymentMethod,
                 bank_account_id = @bankAccountId, check_number = @checkNumber,
                 check_date = @checkDate, reference = @reference, narration = @narration,
-                invoice_id = @invoiceId
+                invoice_id = @invoiceId, project_id = @projectId
             WHERE id = @id;",
             new
             {
@@ -130,7 +132,9 @@ public class ReceiptService
                 amount = req.Amount, paymentMethod = req.PaymentMethod,
                 bankAccountId = req.BankAccountId, checkNumber = req.CheckNumber,
                 checkDate = req.CheckDate, reference = req.Reference, narration = req.Narration,
-                invoiceId = req.InvoiceId
+                invoiceId = req.InvoiceId,
+                // Sprint 35: project tag.
+                projectId = req.ProjectId
             });
 
         return await GetByIdAsync(id);
@@ -338,6 +342,7 @@ public class ReceiptService
         r.check_number, r.check_date, r.reference, r.narration,
         r.status, r.posted_at, r.journal_entry_id,
         r.invoice_id, r.invoice_number,
+        r.project_id,
         r.created_at, r.created_by, r.created_by_name);
 
     private record ReceiptRow(
@@ -347,5 +352,7 @@ public class ReceiptService
         string? check_number, DateTime? check_date, string? reference, string? narration,
         string status, DateTime? posted_at, Guid? journal_entry_id,
         Guid? invoice_id, string? invoice_number,
+        // Sprint 35: project tag.
+        Guid? project_id,
         DateTime created_at, Guid? created_by, string? created_by_name);
 }

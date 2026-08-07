@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { FileText, Plus, Loader2, X, CheckCircle, Send, Trash2, RotateCcw } from "lucide-react";
+import { FileText, Plus, Loader2, X, CheckCircle, Send, Trash2, RotateCcw, FolderKanban } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
+import ProjectPicker from "../projects/components/ProjectPicker";
 
 interface Account {
   id: string;
@@ -67,6 +68,10 @@ export default function JournalPage() {
   const [form, setForm] = useState({
     entryDate: new Date().toISOString().slice(0, 10),
     narration: "",
+    // Sprint 35 — optional project tag on the journal header.
+    // Cost-centers live on lines (per-line granularity), but
+    // projects are header-level: one project per entry.
+    projectId: "" as string,
     lines: [
       { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
       { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
@@ -150,6 +155,8 @@ export default function JournalPage() {
         companyId: activeCompany.id,
         entryDate: form.entryDate,
         narration: form.narration,
+        // Sprint 35 — optional project tag for cost-center reports.
+        projectId: form.projectId || null,
         lines: form.lines
           .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0))
           .map((l) => ({
@@ -164,7 +171,7 @@ export default function JournalPage() {
       // (especially helpful when the entry isn't immediately visible
       // in the table due to large lists or sort order).
       setSuccessMessage(`تم حفظ القيد ${res.data.entryNumber} كمسودة`);
-      setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", lines: [
+      setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", projectId: "", lines: [
         { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
         { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
       ]});
@@ -420,6 +427,24 @@ export default function JournalPage() {
                   <label className="block text-sm font-medium mb-1">البيان</label>
                   <input className="input" value={form.narration} onChange={(e) => setForm({ ...form, narration: e.target.value })} placeholder="وصف القيد" />
                 </div>
+              </div>
+
+              <div>
+                {/* Sprint 35 — project tag (optional). One project
+                    per journal entry. Cost-centers stay per-line
+                    because accountants often need to split a single
+                    entry across multiple cost-centers. */}
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <FolderKanban size={12} />
+                  المشروع
+                  <span className="text-xs text-gray-500 mr-1">(اختياري — لتحميل التكلفة على مركز تكلفة المشروع)</span>
+                </label>
+                <ProjectPicker
+                  companyId={activeCompany?.id}
+                  value={form.projectId || null}
+                  onChange={(id) => setForm({ ...form, projectId: id || "" })}
+                  disabled={submitting}
+                />
               </div>
 
               <div>

@@ -14,6 +14,10 @@ public record JournalEntryDto(
     Guid? CreatedBy,
     DateTime CreatedAt,
     DateTime? PostedAt,
+    // Sprint 35: optional project tag (set when the user allocates
+    // a JE to a project, either via bulk endpoint or directly on
+    // creation). P&L reports use this column to sum cost lines.
+    Guid? ProjectId,
     List<JournalLineDto> Lines
 );
 
@@ -35,7 +39,12 @@ public record CreateJournalEntryRequest(
     List<CreateJournalLineRequest> Lines,
     string? Source = null,            // "manual" | "invoice" | "rule:{ruleId}" | "reverse" — defaults to "manual" in the service
     Guid? RuleId = null,               // FK back to business_rules.id when Source starts with "rule:"
-    Guid? ReversesEntryId = null       // FK back to journal_entries.id when Source = "reverse"
+    Guid? ReversesEntryId = null,      // FK back to journal_entries.id when Source = "reverse"
+    // Sprint 35: optional project tag. Default null so the
+    // hundreds of existing callers (rule pipeline, voucher
+    // posting, etc.) keep working unchanged. P&L reports use
+    // this column to attribute cost lines to projects.
+    Guid? ProjectId = null
 );
 
 public record CreateJournalLineRequest(

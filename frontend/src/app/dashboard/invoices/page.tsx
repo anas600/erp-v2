@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { FileText, Plus, Loader2, X, Send, XCircle, Eye, Pencil } from "lucide-react";
+import { FileText, Plus, Loader2, X, Send, XCircle, Eye, Pencil, FolderKanban } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
+import ProjectPicker from "../projects/components/ProjectPicker";
 
 /**
  * Invoices are now product-based. Each line picks a product from
@@ -126,6 +127,10 @@ export default function InvoicesPage() {
     partyNameAr: "",
     taxRate: 0,
     intercompanyCompanyId: "" as string,
+    // Sprint 35 — project tag (optional). The backend persists
+    // this on the invoice header (invoices.project_id) so the
+    // cost can be grouped under the project P&L later.
+    projectId: "" as string,
     lines: [emptyFormLine] as FormLine[]
   });
 
@@ -207,6 +212,8 @@ export default function InvoicesPage() {
         partyNameAr: form.partyNameAr || null,
         taxRate: form.taxRate,
         intercompanyCompanyId: form.intercompanyCompanyId || null,
+        // Sprint 35 — optional project tag for cost-center reports.
+        projectId: form.projectId || null,
         lines: form.lines
           .filter((l) => l.productId)
           .map((l) => ({
@@ -231,6 +238,7 @@ export default function InvoicesPage() {
         partyNameAr: "",
         taxRate: 0,
         intercompanyCompanyId: "",
+        projectId: "",
         lines: [emptyFormLine] as FormLine[]
       });
       setEditing(null);
@@ -254,6 +262,10 @@ export default function InvoicesPage() {
       partyNameAr: inv.partyNameAr || "",
       taxRate: inv.lines?.[0]?.taxRate ?? 0,
       intercompanyCompanyId: inv.intercompanyCompanyId || "",
+      // Sprint 35 — if the backend returns the project tag, prefill it.
+      // The DTO may not have a `projectId` field if the older backend
+      // hasn't shipped the migration; the `|| ""` keeps us safe.
+      projectId: (inv as any).projectId || "",
       lines: (inv.lines || []).map((l) => ({
         productId: l.productId || "",
         description: l.description || "",
@@ -623,6 +635,23 @@ function InvoiceForm({
               <p className="text-xs text-gray-500 mt-1">
                 عند الترحيل، ينشئ النظام قيداً في الشركة الحالية وفي الشركة الشقيقة
               </p>
+            </div>
+            <div>
+              {/* Sprint 35 — project tag (optional). Lets the
+                  cost get rolled up under the project P&L. We
+                  use a combobox because a 50-project company
+                  can't be scrolled on a phone. */}
+              <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                <FolderKanban size={12} />
+                المشروع
+                <span className="text-xs text-gray-500 mr-1">(اختياري — لتحميل التكلفة على مركز التكلفة)</span>
+              </label>
+              <ProjectPicker
+                companyId={activeCompany?.id}
+                value={form.projectId || null}
+                onChange={(id) => setForm({ ...form, projectId: id || "" })}
+                disabled={submitting}
+              />
             </div>
           </div>
 

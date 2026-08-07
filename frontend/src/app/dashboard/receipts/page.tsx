@@ -6,9 +6,10 @@ import { useAuth } from "@/lib/auth-context";
 import { api, getErrorMessage } from "@/lib/api";
 import {
   Plus, FileText, Loader2, Trash2, Send, Inbox, CheckCircle, X,
-  Wallet, CreditCard, FileCheck
+  Wallet, CreditCard, FileCheck, FolderKanban
 } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
+import ProjectPicker from "../projects/components/ProjectPicker";
 
 interface ReceiptVoucher {
   id: string;
@@ -116,6 +117,11 @@ function ReceiptsPageInner() {
     bankAccountId: "",  // required
     reference: "",
     narration: "",
+    // Sprint 35 — optional project tag. The receipt itself
+    // isn't revenue, but tagging it with a project lets the
+    // P&L report reconcile the cash-in with the project's
+    // collected amount.
+    projectId: "" as string,
   });
 
   const load = useCallback(async () => {
@@ -252,6 +258,8 @@ function ReceiptsPageInner() {
         reference: form.reference || null,
         narration: form.narration || null,
         invoiceId: form.invoiceId || null,
+        // Sprint 35 — optional project tag
+        projectId: form.projectId || null,
       });
       setSuccess(`تم حفظ السند ${res.data.voucherNumber} كمسودة`);
       setForm({
@@ -259,6 +267,7 @@ function ReceiptsPageInner() {
         contactId: "", invoiceId: "", amount: 0, paymentMethod: "cash",
         bankAccountId: form.bankAccountId,  // keep the bank account sticky
         reference: "", narration: "",
+        projectId: "",
       });
       await load();
       setShowForm(false);
@@ -490,6 +499,23 @@ function ReceiptsPageInner() {
                 <input className="input" value={form.narration}
                   onChange={(e) => setForm({ ...form, narration: e.target.value })}
                   placeholder="ملاحظات اختيارية" />
+              </div>
+              <div>
+                {/* Sprint 35 — project tag (optional). Receipts
+                    against a specific project let the project
+                    page show "collected to date" alongside the
+                    billed amount. */}
+                <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                  <FolderKanban size={12} />
+                  المشروع
+                  <span className="text-xs text-gray-500 mr-1">(اختياري)</span>
+                </label>
+                <ProjectPicker
+                  companyId={activeCompany?.id}
+                  value={form.projectId || null}
+                  onChange={(id) => setForm({ ...form, projectId: id || "" })}
+                  disabled={submitting}
+                />
               </div>
 
               <div className="flex gap-2 pt-2">
