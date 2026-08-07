@@ -64,20 +64,74 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: 401 → clear session + redirect to login
+// Response interceptor: 401 → clear session + redirect to login.
+// Also handles a single, silent cold-start retry for 502/503/504 on
+// GET requests — without the previous long delays or visible banner.
 api.interceptors.response.use(
   (r) => r,
-  (err: AxiosError) => {
+  async (err: AxiosError) => {
     if (err.response?.status === 401) {
       Cookies.remove("erp_token");
       Cookies.remove("erp_user");
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/auth/login")) {
         window.location.href = "/auth/login";
       }
+      return Promise.reject(err);
     }
+
+    // Silent cold-start recovery: if we get a 502/503/504 on a GET,
+    // wait 3 seconds and retry ONCE. The backend usually wakes up
+    // in that window. The user sees the request take 3-4 seconds
+    // longer (acceptable) instead of an error message.
+    //
+    // We do NOT retry:
+    //   - POST/PUT/DELETE (could create duplicate records)
+    //   - 4xx errors (caller's fault)
+    //   - status 0 (network error, usually client-side)
+    const config = err.config as any;
+    if (
+      config &&
+      !config.__coldStartRetried &&
+      (config.method ?? "get").toLowerCase() === "get" &&
+      [502, 503, 504].includes(err.response?.status ?? 0)
+    ) {
+      config.__coldStartRetried = true;
+      // eslint-disable-next-line no-console
+      console.log(`[api] cold-start on ${config.url} — waiting 3s and retrying once`);
+      await new Promise((r) => setTimeout(r, 3000));
+      return api.request(config);
+    }
+
     return Promise.reject(err);
   }
 );
+
+// ----------------------------------------------------------
+// Pre-warm: ping /api/health on dashboard mount so the first
+// real request doesn't hit a sleeping backend. This is called
+// by the dashboard layout in a useEffect — see app/dashboard/layout.tsx.
+// ----------------------------------------------------------
+let prewarmPromise: Promise<void> | null = null;
+let prewarmedAt = 0;
+
+export async function prewarmBackend(): Promise<void> {
+  // Only pre-warm once per page load, and only if the previous
+  // pre-warm was more than 5 minutes ago.
+  if (prewarmPromise && Date.now() - prewarmedAt < 5 * 60 * 1000) {
+    return prewarmPromise;
+  }
+  prewarmPromise = (async () => {
+    prewarmedAt = Date.now();
+    try {
+      // Use a short timeout so the pre-warm doesn't block the page
+      await api.get("/health", { timeout: 5000 });
+    } catch {
+      // Backend is sleeping or unreachable — that's fine, the
+      // silent retry in the response interceptor will handle it
+    }
+  })();
+  return prewarmPromise;
+}
 
 /**
  * Extracts a user-friendly Arabic error message from an Axios or generic
