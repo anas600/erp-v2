@@ -193,7 +193,7 @@ public static class AdminEndpoints
             using var conn = db.CreateConnection();
             var pendingIds = (await conn.QueryAsync<Guid>(@"
                 SELECT id FROM journal_entries
-                WHERE company_id = @companyId AND status = 'pending'
+                WHERE company_id = @companyId AND status IN ('pending', 'draft')
                 ORDER BY entry_date, created_at;",
                 new { companyId })).ToList();
 
@@ -311,7 +311,7 @@ public static class AdminEndpoints
                     using var conn2 = db.CreateConnection();
                     var pendingIds = (await conn2.QueryAsync<Guid>(@"
                         SELECT id FROM journal_entries
-                        WHERE company_id = @companyId AND status = 'pending';",
+                        WHERE company_id = @companyId AND status IN ('pending', 'draft');",
                         new { companyId })).ToList();
                     int approved = 0;
                     var approveErrors = new List<string>();
