@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { FileText, Plus, Loader2, X, Send, XCircle, Eye } from "lucide-react";
+import { FileText, Plus, Loader2, X, Send, XCircle, Eye, Pencil } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 
 /**
@@ -62,6 +62,10 @@ interface Invoice {
   invoiceDate: string;
   partyName: string;
   partyNameAr?: string;
+  partyContactId?: string;
+  partyTaxId?: string;
+  intercompanyCompanyId?: string;
+  notes?: string;
   subtotal: number;
   taxAmount: number;
   total: number;
@@ -111,6 +115,8 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "purchase" | "sales">("all");
+  // Sprint 29 — null = create mode, object = edit mode
+  const [editing, setEditing] = useState<Invoice | null>(null);
 
   const [form, setForm] = useState({
     invoiceType: "purchase" as "purchase" | "sales",
@@ -193,7 +199,7 @@ export default function InvoicesPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/invoices", {
+      const payload = {
         companyId: activeCompany.id,
         invoiceType: form.invoiceType,
         invoiceDate: form.invoiceDate,
@@ -210,7 +216,13 @@ export default function InvoicesPage() {
             unitPrice: l.unitPrice,
             taxRate: l.taxRate
           }))
-      });
+      };
+      if (editing) {
+        // Sprint 29 — PUT replaces the draft in place
+        await api.put(`/invoices/${editing.id}`, payload);
+      } else {
+        await api.post("/invoices", payload);
+      }
       setForm({
         invoiceType: "purchase",
         invoiceDate: new Date().toISOString().slice(0, 10),
@@ -221,6 +233,7 @@ export default function InvoicesPage() {
         intercompanyCompanyId: "",
         lines: [emptyFormLine] as FormLine[]
       });
+      setEditing(null);
       setShowForm(false);
       await load();
     } catch (err) {
@@ -228,6 +241,33 @@ export default function InvoicesPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Sprint 29 — open the form pre-filled with the draft invoice's data
+  const startEdit = (inv: Invoice) => {
+    setEditing(inv);
+    setForm({
+      invoiceType: inv.invoiceType,
+      invoiceDate: (inv.invoiceDate || "").slice(0, 10),
+      partyContactId: inv.partyContactId || "",
+      partyName: inv.partyName || "",
+      partyNameAr: inv.partyNameAr || "",
+      taxRate: inv.lines?.[0]?.taxRate ?? 0,
+      intercompanyCompanyId: inv.intercompanyCompanyId || "",
+      lines: (inv.lines || []).map((l) => ({
+        productId: l.productId || "",
+        description: l.description || "",
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        taxRate: l.taxRate
+      }))
+    });
+    setShowForm(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setShowForm(false);
   };
 
   const postInvoice = async (id: string) => {
@@ -321,6 +361,7 @@ export default function InvoicesPage() {
                   onToggle={() => setExpanded(expanded === inv.id ? null : inv.id)}
                   onPost={() => postInvoice(inv.id)}
                   onCancel={() => cancelInvoice(inv.id)}
+                  onEdit={() => startEdit(inv)}
                 />
               ))}
               {filteredInvoices.length === 0 && (
@@ -347,18 +388,19 @@ export default function InvoicesPage() {
           error={error}
           companies={companies}
           activeCompany={activeCompany}
+          editing={editing}
           onSubmit={submit}
           onAddLine={addLine}
           onRemoveLine={removeLine}
           onUpdateLine={updateLine}
-          onCancel={() => setShowForm(false)}
+          onCancel={cancelEdit}
         />
       )}
     </div>
   );
 }
 
-function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
+function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel, onEdit }: any) {
   // Sprint 25 — the status badge now shows settlement progress
   // when amountPaid is known. The original 4-state badge is still
   // used for draft / cancelled / paid (no numbers needed).
@@ -418,6 +460,13 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel }: any) {
         <td>
           {inv.status === "draft" && (
             <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="text-amber-600 hover:bg-amber-50 p-1 rounded text-sm flex items-center gap-1"
+                title="تعديل"
+              >
+                <Pencil size={14} />
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onPost(); }}
                 className="text-primary-600 hover:bg-primary-50 p-1 rounded text-sm flex items-center gap-1"
@@ -499,14 +548,18 @@ function InvoiceForm({
   form, setForm, products, contacts, lineTotalsWithTax,
   subtotal, taxAmount, total,
   submitting, error,
-  companies, activeCompany,
+  companies, activeCompany, editing,
   onSubmit, onAddLine, onRemoveLine, onUpdateLine, onCancel
 }: any) {
+  const isEdit = !!editing;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl p-6 my-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">فاتورة جديدة</h2>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            {isEdit && <Pencil size={18} className="text-amber-600" />}
+            {isEdit ? `تعديل فاتورة مسودة — ${editing.invoiceNumber}` : "فاتورة جديدة"}
+          </h2>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
             <X size={20} />
           </button>
@@ -731,7 +784,7 @@ function InvoiceForm({
 
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={submitting} className="btn-primary flex-1">
-              {submitting ? "جاري الحفظ..." : "حفظ كمسودة"}
+              {submitting ? "جاري الحفظ..." : (isEdit ? "حفظ التعديلات" : "حفظ كمسودة")}
             </button>
             <button type="button" onClick={onCancel} className="btn-secondary">
               إلغاء

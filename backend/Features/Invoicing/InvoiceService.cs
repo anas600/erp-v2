@@ -237,6 +237,159 @@ public class InvoiceService
     }
 
     /// <summary>
+    /// Sprint 29 — Updates a DRAFT invoice in place. Replaces header
+    /// fields and rewrites the lines (delete + re-insert). Throws if
+    /// the invoice is not in 'draft' status (avoids touching posted
+    /// invoices where the journal entry would be left dangling).
+    /// </summary>
+    public async Task<InvoiceDto> UpdateDraftAsync(Guid invoiceId, CreateInvoiceRequest req)
+    {
+        if (req.Lines.Count == 0)
+            throw new InvalidOperationException("الفاتورة يجب أن تحتوي على بند واحد على الأقل");
+
+        if (req.InvoiceType != "purchase" && req.InvoiceType != "sales")
+            throw new InvalidOperationException("نوع الفاتورة يجب أن يكون purchase أو sales");
+
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+
+        // Load + lock the existing invoice. Refuse if not draft.
+        var existing = await conn.QuerySingleOrDefaultAsync<(Guid id, string status, string invoice_type, Guid company_id)>(@"
+            SELECT id, status, invoice_type, company_id
+            FROM invoices WHERE id = @id FOR UPDATE;",
+            new { id = invoiceId }, tx);
+        if (existing.id == Guid.Empty)
+            throw new InvalidOperationException("الفاتورة غير موجودة");
+        if (existing.status != "draft")
+            throw new InvalidOperationException("لا يمكن تعديل فاتورة مرحلة — اعكسها أولاً");
+
+        // Intercompany self-company guard
+        if (req.IntercompanyCompanyId.HasValue &&
+            req.IntercompanyCompanyId.Value == req.CompanyId)
+        {
+            throw new InvalidOperationException(
+                "لا يمكن أن تكون الشركة الشقيقة نفس الشركة الحالية");
+        }
+
+        // Pre-resolve products in the invoice's company (NOT req.CompanyId —
+        // we trust the original company binding, which the type system
+        // already enforces via the request validator).
+        var productIds = req.Lines
+            .Where(l => l.ProductId.HasValue)
+            .Select(l => l.ProductId!.Value)
+            .Distinct()
+            .ToList();
+        var productMap = new Dictionary<Guid, (string code, string name, string? nameAr, decimal unitPrice, decimal defaultTaxRate)>();
+        if (productIds.Count > 0)
+        {
+            var rows = await conn.QueryAsync<(Guid id, string code, string name, string? nameAr, decimal unitPrice, decimal defaultTaxRate)>(@"
+                SELECT id, code, name, name_ar AS nameAr, unit_price AS unitPrice, default_tax_rate AS defaultTaxRate
+                FROM products
+                WHERE company_id = @companyId AND id = ANY(@ids);",
+                new { companyId = existing.company_id, ids = productIds }, tx);
+            foreach (var r in rows) productMap[r.id] = (r.code, r.name, r.nameAr, r.unitPrice, r.defaultTaxRate);
+        }
+
+        decimal subtotal = 0;
+        decimal totalTax = 0;
+        var computedLines = new List<(Guid? accountId, Guid? productId, string description, decimal quantity, decimal unitPrice, decimal taxRate, decimal amount, decimal amountWithTax)>();
+
+        foreach (var line in req.Lines)
+        {
+            string description = line.Description;
+            decimal unitPrice = line.UnitPrice;
+            decimal taxRate = line.TaxRate ?? req.TaxRate;
+            Guid? productId = line.ProductId;
+
+            if (productId.HasValue)
+            {
+                if (!productMap.TryGetValue(productId.Value, out var p))
+                    throw new InvalidOperationException($"المنتج غير موجود في هذه الشركة: {productId}");
+
+                if (string.IsNullOrWhiteSpace(description)) description = p.name;
+                if (unitPrice == 0) unitPrice = p.unitPrice;
+                if (line.TaxRate is null) taxRate = p.defaultTaxRate;
+            }
+
+            var amount = Math.Round(line.Quantity * unitPrice, 2);
+            var amountWithTax = Math.Round(amount * (1 + taxRate), 2);
+            subtotal += amount;
+            totalTax += amountWithTax - amount;
+            computedLines.Add((line.AccountId, productId, description, line.Quantity, unitPrice, taxRate, amount, amountWithTax));
+        }
+        var total = subtotal + totalTax;
+
+        try
+        {
+            // Update header
+            await conn.ExecuteAsync(@"
+                UPDATE invoices SET
+                    invoice_date = @invoiceDate,
+                    party_name = @partyName,
+                    party_name_ar = @partyNameAr,
+                    party_tax_id = @partyTaxId,
+                    notes = @notes,
+                    subtotal = @subtotal,
+                    tax_amount = @taxAmount,
+                    total = @total,
+                    intercompany_company_id = @intercompanyCompanyId,
+                    updated_at = NOW()
+                WHERE id = @id;",
+                new
+                {
+                    id = invoiceId,
+                    invoiceDate = req.InvoiceDate,
+                    partyName = req.PartyName,
+                    partyNameAr = req.PartyNameAr,
+                    partyTaxId = req.PartyTaxId,
+                    notes = req.Notes,
+                    subtotal,
+                    taxAmount = totalTax,
+                    total,
+                    intercompanyCompanyId = req.IntercompanyCompanyId
+                }, tx);
+
+            // Delete old lines
+            await conn.ExecuteAsync(@"DELETE FROM invoice_lines WHERE invoice_id = @id;",
+                new { id = invoiceId }, tx);
+
+            // Insert new lines
+            int lineNum = 1;
+            foreach (var cl in computedLines)
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT INTO invoice_lines (id, invoice_id, account_id, product_id, description,
+                        quantity, unit_price, tax_rate, amount, line_total_with_tax, line_number)
+                    VALUES (@id, @invoiceId, @accountId, @productId, @description,
+                        @quantity, @unitPrice, @taxRate, @amount, @amountWithTax, @lineNum);",
+                    new
+                    {
+                        id = Guid.NewGuid(),
+                        invoiceId = invoiceId,
+                        accountId = cl.accountId,
+                        productId = cl.productId,
+                        description = cl.description,
+                        quantity = cl.quantity,
+                        unitPrice = cl.unitPrice,
+                        taxRate = cl.taxRate,
+                        amount = cl.amount,
+                        amountWithTax = cl.amountWithTax,
+                        lineNum = lineNum++
+                    }, tx);
+            }
+
+            tx.Commit();
+            return (await GetByIdAsync(invoiceId))!;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+
+    /// <summary>
     /// Posts an invoice: builds a journal entry, saves it as a draft, then posts via the Posting Engine.
     ///
     /// Sprint 24 — Intercompany side-effect: when the invoice has

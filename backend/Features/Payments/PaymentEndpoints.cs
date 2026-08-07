@@ -9,10 +9,10 @@ public static class PaymentEndpoints
     {
         var grp = app.MapGroup("/api/payments").WithTags("Payments").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromServices] PaymentService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromQuery] Guid? contactId, [FromServices] PaymentService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
-            return Results.Ok(await svc.GetByCompanyAsync(companyId, status));
+            return Results.Ok(await svc.GetByCompanyAsync(companyId, status, contactId));
         });
 
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] PaymentService svc) =>

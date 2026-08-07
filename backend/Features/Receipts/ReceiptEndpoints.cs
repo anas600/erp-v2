@@ -9,10 +9,10 @@ public static class ReceiptEndpoints
     {
         var grp = app.MapGroup("/api/receipts").WithTags("Receipts").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromServices] ReceiptService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] string? status, [FromQuery] Guid? contactId, [FromServices] ReceiptService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
-            return Results.Ok(await svc.GetByCompanyAsync(companyId, status));
+            return Results.Ok(await svc.GetByCompanyAsync(companyId, status, contactId));
         });
 
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] ReceiptService svc) =>
