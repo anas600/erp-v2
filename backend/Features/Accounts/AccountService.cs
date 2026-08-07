@@ -147,7 +147,7 @@ public class AccountService
 
         // Build a map: id -> node
         var byId = all.ToDictionary(a => a.Id, a => new AccountTreeNode(
-            a.Id, a.Code, a.Name, a.NameAr, a.AccountType, a.Nature,
+            a.Id, a.Code, a.Name, a.NameAr, a.ParentId, a.AccountType, a.Nature,
             a.Level, a.IsControlAccount, a.IsPostable, a.IsActive, a.Balance,
             HasChildren: false, Children: new List<AccountTreeNode>()
         ));
