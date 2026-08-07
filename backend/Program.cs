@@ -225,6 +225,7 @@ builder.Services.AddSingleton<PostingEngine>();
 builder.Services.AddSingleton<RuleService>();
 builder.Services.AddSingleton<RuleEvaluator>();
 builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<ReportingGate>();          // Sprint 32: TB gate
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<UserService>();

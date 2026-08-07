@@ -329,6 +329,11 @@ public static class AdminEndpoints
                     new { id = companyId });
                 if (!exists)
                     return Results.BadRequest(new { error = "الشركة غير موجودة" });
+
+                // Sprint 32 — re-enable all business rules before seeding.
+                // The COA reseed disables all rules as a side effect, so
+                // the seed must re-enable them to produce journal entries.
+                await conn.ExecuteAsync("UPDATE business_rules SET enabled = true;");
             }
 
             var userId = ctx.GetUserId();

@@ -8,10 +8,14 @@ public static class ReportEndpoints
     {
         var grp = app.MapGroup("/api/reports").WithTags("Reports").RequireAuthorization();
 
-        grp.MapGet("/trial-balance", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromServices] ReportService svc) =>
+        grp.MapGet("/trial-balance", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromQuery] int? level, [FromServices] ReportService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
-            var report = await svc.GetTrialBalanceAsync(companyId, asOf);
+            // Sprint 32 — level 3 (L3 only) is the classic trial balance
+            // view. level 4 includes L4 sub-ledgers (expanded).
+            var lvl = level ?? 3;
+            if (lvl < 3 || lvl > 4) return Results.BadRequest(new { error = "level must be 3 or 4" });
+            var report = await svc.GetTrialBalanceAsync(companyId, asOf, lvl);
             return Results.Ok(report);
         });
 
@@ -19,19 +23,47 @@ public static class ReportEndpoints
             [FromQuery] Guid companyId,
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
-            [FromServices] ReportService svc) =>
+            [FromServices] ReportService svc,
+            [FromServices] ReportingGate gate) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
-            var fromDate = from ?? new DateTime(DateTime.UtcNow.Year, 1, 1);
             var toDate = to ?? DateTime.UtcNow;
+            // Sprint 32 — gate: TB must balance before IS renders
+            var tb = await gate.CheckBalanceAsync(companyId, toDate);
+            if (!tb.IsBalanced)
+            {
+                return Results.Json(new
+                {
+                    error = "ميزان المراجعة غير متزن — لا يمكن عرض قائمة الدخل",
+                    gateFailed = true,
+                    totalDebit = tb.TotalDebit,
+                    totalCredit = tb.TotalCredit,
+                    difference = tb.Difference
+                }, statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+            var fromDate = from ?? new DateTime(toDate.Year, 1, 1);
             var report = await svc.GetIncomeStatementAsync(companyId, fromDate, toDate);
             return Results.Ok(report);
         });
 
-        grp.MapGet("/balance-sheet", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromServices] ReportService svc) =>
+        grp.MapGet("/balance-sheet", async ([FromQuery] Guid companyId, [FromQuery] DateTime? asOf, [FromServices] ReportService svc, [FromServices] ReportingGate gate) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
-            var report = await svc.GetBalanceSheetAsync(companyId, asOf);
+            var asOfDate = asOf ?? DateTime.UtcNow;
+            // Sprint 32 — gate: TB must balance before BS renders
+            var tb = await gate.CheckBalanceAsync(companyId, asOfDate);
+            if (!tb.IsBalanced)
+            {
+                return Results.Json(new
+                {
+                    error = "ميزان المراجعة غير متزن — لا يمكن عرض الميزانية العمومية",
+                    gateFailed = true,
+                    totalDebit = tb.TotalDebit,
+                    totalCredit = tb.TotalCredit,
+                    difference = tb.Difference
+                }, statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+            var report = await svc.GetBalanceSheetAsync(companyId, asOfDate);
             return Results.Ok(report);
         });
 
