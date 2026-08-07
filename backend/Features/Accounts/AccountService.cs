@@ -316,9 +316,10 @@ public class AccountService
             throw new InvalidOperationException("العميل/المورّد غير موجود");
 
         // 3) Pick the parent control account.
-        //    customer -> 1200 (AR)
-        //    supplier -> 2000 (AP)
-        var parentCode = contact.type == "customer" ? "1200" : "2000";
+        //    customer -> 1103 (Accounts Receivable)
+        //    supplier -> 2101 (Accounts Payable)
+        // Sprint 32 — updated to the new standard COA codes.
+        var parentCode = contact.type == "customer" ? "1103" : "2101";
 
         // 4) Create the sub-ledger (CreateSubLedgerForContactAsync
         //    also creates the account_contact_links row).
