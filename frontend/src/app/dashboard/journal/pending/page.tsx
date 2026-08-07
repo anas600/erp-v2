@@ -8,8 +8,9 @@
  * before they hit the financial reports.
  *
  * The accountant can:
- *   - Approve a pending entry (transitions to 'posted' → affects reports)
- *   - Reject a pending entry (transitions to 'draft' → editable, not in reports)
+ *   - Approve a pending entry (Sprint 30: transitions to 'draft' — ready to post)
+ *   - Reject a pending entry (transitions to 'draft' — editable, not in reports)
+ *   - Delete a pending entry (Sprint 30: cascade-restore the source invoice/voucher)
  *   - Drill into a single entry to review its lines
  *
  * Why this page exists:
@@ -26,7 +27,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { CheckCircle, XCircle, Loader2, FileText, Inbox, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, FileText, Inbox, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
 interface JournalLine {
@@ -87,11 +88,39 @@ export default function PendingJournalPage() {
     return () => window.removeEventListener("focus", onFocus);
   }, [load]);
 
+  // Sprint 30 — approve now does PENDING → DRAFT (not POSTED).
+  // The entry will be visible on the journal page in "draft" state and
+  // can be reviewed further before the explicit "post" action moves it
+  // into the General Ledger.
   const approve = async (id: string) => {
-    if (!confirm("اعتماد هذا القيد؟ سيدخل حيز التنفيذ في التقارير المالية فوراً.")) return;
+    if (!confirm(
+      "اعتماد هذا القيد؟\n\n" +
+      "سيتحول القيد من 'معلّق' إلى 'مسودة' — ولن يدخل التقارير المالية بعد.\n" +
+      "يجب عليك ترحيله (نشره) بشكل منفصل ليظهر في دفتر الأستاذ والقوائم المالية."
+    )) return;
     setActionInProgress(id);
     try {
       await api.post(`/journal/${id}/approve`);
+      await load();
+    } catch (err) {
+      alert(getErrorMessage(err));
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  // Sprint 30 — direct delete for PENDING entries (e.g. user posted
+  // the wrong invoice and wants to throw away the auto-generated JE
+  // and re-post). Cascades back to the source document.
+  const removePending = async (id: string, entryNumber: string) => {
+    if (!confirm(
+      `حذف القيد المعلّق ${entryNumber}؟\n\n` +
+      "سيُحذف القيد وستُرجع الفاتورة/السند الأصلي إلى حالة 'مسودة' لتتمكن من تعديله وإعادة ترحيله.\n\n" +
+      "هذا الإجراء آمن لأن القيد المعلّق لم يدخل التقارير المالية بعد."
+    )) return;
+    setActionInProgress(id);
+    try {
+      await api.delete(`/journal/${id}`);
       await load();
     } catch (err) {
       alert(getErrorMessage(err));
@@ -187,6 +216,7 @@ export default function PendingJournalPage() {
                     onToggle={() => setExpanded(isExpanded ? null : e.id)}
                     onApprove={() => approve(e.id)}
                     onReject={() => setRejectReason({ id: e.id, reason: "" })}
+                    onDelete={() => removePending(e.id, e.entryNumber)}
                   />
                 );
               })}
@@ -244,7 +274,7 @@ export default function PendingJournalPage() {
 
 function PendingRow({
   entry, isExpanded, total, isProcessing,
-  onToggle, onApprove, onReject
+  onToggle, onApprove, onReject, onDelete
 }: {
   entry: JournalEntry;
   isExpanded: boolean;
@@ -253,6 +283,7 @@ function PendingRow({
   onToggle: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onDelete: () => void;
 }) {
   const sourceLabel = entry.source?.startsWith("rule:")
     ? "قاعدة عمل"
@@ -283,9 +314,17 @@ function PendingRow({
               onClick={(e) => { e.stopPropagation(); onReject(); }}
               disabled={isProcessing}
               className="text-red-600 hover:bg-red-50 p-1.5 rounded disabled:opacity-50"
-              title="رفض"
+              title="رفض (تحويل لمسودة)"
             >
               <XCircle size={16} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              disabled={isProcessing}
+              className="text-gray-500 hover:bg-gray-100 p-1.5 rounded disabled:opacity-50"
+              title="حذف (محو القيد وإعادة المصدر لمسودة)"
+            >
+              <Trash2 size={16} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onToggle(); }}

@@ -172,14 +172,17 @@ public static class AdminEndpoints
         // ============================================================
 
         // POST /api/admin/bulk-approve-pending
-        // Approves every PENDING journal entry for the given company.
+        // Sprint 30 — full PENDING/DRAFT → POSTED chain for the demo seed.
         // Required because the rule engine (Sprint 15) creates entries
-        // as PENDING (accountant review), but the demo seed wants to
-        // auto-approve so the trial balance reflects the postings
-        // immediately.
+        // as PENDING (accountant review), and the seed wants the trial
+        // balance to reflect the postings immediately.
         //
-        // Uses PostingEngine directly (no service-level wrapper that
-        // could NRE under certain connection states) and surfaces
+        // Two-step transition per the user's required workflow:
+        //   1. PENDING → DRAFT  (approve — accountant sign-off, no balance change)
+        //   2. DRAFT   → POSTED (post — hits the General Ledger, updates balances)
+        //
+        // Uses PostingEngine.PostAsync directly (skips the JournalService
+        // wrapper that NRE's in some connection states) and surfaces
         // detailed error info for the seed.
         grp.MapPost("/bulk-approve-pending", async (
             HttpContext ctx,

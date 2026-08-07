@@ -192,12 +192,17 @@ export default function JournalPage() {
     }
   };
 
-  // Delete a draft entry. Refused by the backend if the entry
-  // is anything other than 'draft' (you cannot delete a posted
-  // or pending entry — that would be like ripping a page out
-  // of an accounting ledger).
+  // Sprint 30 — delete a PENDING or DRAFT entry. The backend will:
+  //   1. Refuse if status is 'posted' or 'reversed' (use Reverse instead)
+  //   2. Cascade-restore the source document (invoice/voucher) to draft
+  //      so the data-entry accountant can re-edit and re-post.
+  // Safe because PENDING/DRAFT never touched `accounts.balance`.
   const deleteEntry = async (id: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذه المسودة؟ لا يمكن التراجع.")) return;
+    if (!confirm(
+      "حذف هذا القيد؟\n\n" +
+      "سيُحذف القيد وستُرجع الفاتورة/السند الأصلي إلى 'مسودة' لتتمكن من تعديله.\n\n" +
+      "هذا آمن لأن القيد لم يدخل التقارير المالية بعد."
+    )) return;
     try {
       await api.delete(`/journal/${id}`);
       await load();
@@ -320,7 +325,22 @@ export default function JournalPage() {
                             </>
                           )}
                           {e.status === "pending" && (
-                            <span className="text-xs text-amber-600">من صفحة المعلقة</span>
+                            <div className="flex items-center gap-1">
+                              <a
+                                href="/dashboard/journal/pending"
+                                className="text-xs text-amber-600 hover:underline"
+                              >
+                                من صفحة المعلقة
+                              </a>
+                              <span className="text-gray-300">|</span>
+                              <button
+                                onClick={(ev) => { ev.stopPropagation(); deleteEntry(e.id); }}
+                                className="text-red-500 hover:bg-red-50 p-1 rounded text-sm"
+                                title="حذف القيد المعلّق (يُعيد المصدر لمسودة)"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           )}
                           {e.status === "posted" && (
                             <button
