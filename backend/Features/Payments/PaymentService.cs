@@ -25,7 +25,8 @@ public class PaymentService
         _invoices = invoices;
     }
 
-    public async Task<List<PaymentVoucherDto>> GetByCompanyAsync(Guid companyId, string? status = null)
+    public async Task<List<PaymentVoucherDto>> GetByCompanyAsync(
+        Guid companyId, string? status = null, Guid? contactId = null)
     {
         using var conn = _db.CreateConnection();
         var sql = @"
@@ -42,10 +43,11 @@ public class PaymentService
             LEFT JOIN invoices i ON i.id = p.invoice_id
             LEFT JOIN users u ON u.id = p.created_by
             WHERE p.company_id = @companyId" +
-            (status is not null ? " AND p.status = @status" : "") + @"
+            (status is not null ? " AND p.status = @status" : "") +
+            (contactId.HasValue ? " AND p.contact_id = @contactId" : "") + @"
             ORDER BY p.voucher_date DESC, p.created_at DESC
             LIMIT 200;";
-        var rows = await conn.QueryAsync<PaymentRow>(sql, new { companyId, status });
+        var rows = await conn.QueryAsync<PaymentRow>(sql, new { companyId, status, contactId });
         return rows.Select(Map).ToList();
     }
 

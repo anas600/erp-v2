@@ -337,6 +337,7 @@ export default function ContactDetailPage() {
         <VouchersTab
           contactId={contact.id}
           contactType={contact.type}
+          companyId={activeCompany?.id || ""}
         />
       )}
       {tab === "statement" && (
@@ -518,8 +519,8 @@ function InvoicesTab({ contactId, contactType, companyId }: {
 
 // ─── Vouchers tab ─────────────────────────────────────────────────────────
 
-function VouchersTab({ contactId, contactType }: {
-  contactId: string; contactType: "customer" | "supplier";
+function VouchersTab({ contactId, contactType, companyId }: {
+  contactId: string; contactType: "customer" | "supplier"; companyId: string;
 }) {
   const [vouchers, setVouchers] = useState<VoucherWithInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -533,8 +534,8 @@ function VouchersTab({ contactId, contactType }: {
     setLoading(true);
     try {
       const [r, p] = await Promise.allSettled([
-        api.get(`/receipts?contactId=${contactId}`),
-        api.get(`/payments?contactId=${contactId}`)
+        api.get(`/receipts?companyId=${companyId}&contactId=${contactId}`),
+        api.get(`/payments?companyId=${companyId}&contactId=${contactId}`)
       ]);
       const list: VoucherWithInvoice[] = [];
       if (r.status === "fulfilled") {
@@ -558,13 +559,52 @@ function VouchersTab({ contactId, contactType }: {
     } finally {
       setLoading(false);
     }
-  }, [contactId]);
+  }, [contactId, companyId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Summary chips: total receipts + total payments + count
+  const totalReceipts = vouchers.filter(v => v.voucherType === "receipt").reduce((s, v) => s + (v.amount || 0), 0);
+  const totalPayments = vouchers.filter(v => v.voucherType === "payment").reduce((s, v) => s + (v.amount || 0), 0);
 
   return (
     <div>
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
+
+      {/* Summary chips — Sprint 29 — gives an instant visual sense of
+          the contact's voucher activity before the user dives in. */}
+      {vouchers.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="card bg-emerald-50 border-emerald-200">
+            <div className="text-xs text-emerald-700 font-medium">إجمالي سندات القبض</div>
+            <div className="text-xl font-bold font-mono text-emerald-800 mt-1" dir="ltr">
+              {formatNumber(totalReceipts)} د.ل
+            </div>
+            <div className="text-xs text-emerald-600 mt-1">
+              {vouchers.filter(v => v.voucherType === "receipt").length} سند
+            </div>
+          </div>
+          <div className="card bg-amber-50 border-amber-200">
+            <div className="text-xs text-amber-700 font-medium">إجمالي سندات الصرف</div>
+            <div className="text-xl font-bold font-mono text-amber-800 mt-1" dir="ltr">
+              {formatNumber(totalPayments)} د.ل
+            </div>
+            <div className="text-xs text-amber-600 mt-1">
+              {vouchers.filter(v => v.voucherType === "payment").length} سند
+            </div>
+          </div>
+          <div className="card bg-primary-50 border-primary-200">
+            <div className="text-xs text-primary-700 font-medium">الصافي</div>
+            <div className="text-xl font-bold font-mono text-primary-800 mt-1" dir="ltr">
+              {formatNumber(totalReceipts - totalPayments)} د.ل
+            </div>
+            <div className="text-xs text-primary-600 mt-1">
+              {vouchers.length} سند إجمالي
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         {loading ? (
           <div className="flex justify-center py-8">
@@ -709,6 +749,40 @@ function StatementTab({ contactId, companyId, contactName }: {
         <p className="text-center text-sm">من {formatDate(from)} إلى {formatDate(to)}</p>
       </div>
 
+      {/* Sprint 29 — three summary chips above the table give the user
+          an instant snapshot: opening, period totals, closing. */}
+      {data && data.lines.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 no-print">
+          <div className="card bg-gray-50 border-gray-200">
+            <div className="text-xs text-gray-600 font-medium">رصيد افتتاحي</div>
+            <div className={`text-xl font-bold font-mono mt-1 ${data.openingBalance > 0 ? "text-red-700" : "text-gray-800"}`} dir="ltr">
+              {formatNumber(data.openingBalance)} د.ل
+            </div>
+            <div className="text-xs text-gray-500 mt-1">حتى {formatDate(from)}</div>
+          </div>
+          <div className="card bg-blue-50 border-blue-200">
+            <div className="text-xs text-blue-700 font-medium">حركات الفترة</div>
+            <div className="text-sm font-mono mt-1" dir="ltr">
+              <span className="text-blue-800 font-semibold">مدين: {formatNumber(totalDebit)}</span>
+              <span className="mx-2 text-gray-400">|</span>
+              <span className="text-amber-800 font-semibold">دائن: {formatNumber(totalCredit)}</span>
+            </div>
+            <div className="text-xs text-blue-600 mt-1">{data.lines.length} حركة</div>
+          </div>
+          <div className={`card ${data.closingBalance > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+            <div className={`text-xs font-medium ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`}>
+              رصيد ختامي
+            </div>
+            <div className={`text-xl font-bold font-mono mt-1 ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`} dir="ltr">
+              {formatNumber(data.closingBalance)} د.ل
+            </div>
+            <div className={`text-xs mt-1 ${data.closingBalance > 0 ? "text-red-600" : "text-green-600"}`}>
+              {data.closingBalance > 0 ? "مديونية لنا" : data.closingBalance < 0 ? "مديونية علينا" : "مسوّي"} في {formatDate(to)}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         {loading ? (
           <div className="flex justify-center py-8">
@@ -722,22 +796,28 @@ function StatementTab({ contactId, companyId, contactName }: {
         ) : (
           <div className="overflow-x-auto">
             <table className="table">
-              <thead>
+              <thead className="bg-gray-100">
                 <tr>
-                  <th>التاريخ</th>
-                  <th>النوع</th>
-                  <th>الرقم</th>
-                  <th>البيان</th>
+                  <th className="text-right">التاريخ</th>
+                  <th className="text-right">النوع</th>
+                  <th className="text-right">الرقم</th>
+                  <th className="text-right">البيان</th>
                   <th className="text-left">مدين</th>
                   <th className="text-left">دائن</th>
                   <th className="text-left">الرصيد</th>
                 </tr>
               </thead>
               <tbody>
-                {/* Opening balance row */}
-                <tr className="bg-gray-50 font-semibold">
-                  <td colSpan={6}>رصيد افتتاحي (حتى {formatDate(from)})</td>
-                  <td className="font-mono text-left" dir="ltr">{formatNumber(data.openingBalance)}</td>
+                {/* Opening balance row — Sprint 29: give it a clearer
+                    visual marker (▶) and a soft tinted background. */}
+                <tr className="bg-blue-50/50 font-semibold border-b">
+                  <td colSpan={6} className="text-gray-700">
+                    <span className="text-primary-600 ml-1">▶</span>
+                    رصيد افتتاحي (حتى {formatDate(from)})
+                  </td>
+                  <td className={`font-mono text-left font-semibold ${data.openingBalance > 0 ? "text-red-700" : "text-gray-800"}`} dir="ltr">
+                    {formatNumber(data.openingBalance)}
+                  </td>
                 </tr>
                 {data.lines.map((l, i) => {
                   const typeLabel = {
@@ -746,21 +826,28 @@ function StatementTab({ contactId, companyId, contactName }: {
                     payment: "سند صرف",
                     opening: "افتتاحي"
                   }[l.type] || l.type;
+                  const typeStyle =
+                    l.type === "invoice"  ? "bg-blue-100 text-blue-800 border-blue-200" :
+                    l.type === "receipt"  ? "bg-emerald-100 text-emerald-800 border-emerald-200" :
+                    l.type === "payment"  ? "bg-amber-100 text-amber-800 border-amber-200" :
+                                            "bg-gray-100 text-gray-800 border-gray-200";
                   return (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td>{formatDate(l.date)}</td>
+                    <tr key={i} className="hover:bg-gray-50 border-b border-gray-100">
+                      <td className="text-sm whitespace-nowrap">{formatDate(l.date)}</td>
                       <td>
-                        <span className={`badge text-xs ${
-                          l.type === "invoice" ? "badge-info" :
-                          l.type === "receipt" ? "badge-success" :
-                          l.type === "payment" ? "badge-warning" : "bg-gray-100 text-gray-800"
-                        }`}>{typeLabel}</span>
+                        <span className={`inline-block text-xs px-2 py-0.5 rounded border ${typeStyle}`}>
+                          {typeLabel}
+                        </span>
                       </td>
-                      <td className="font-mono text-sm">{l.number || "—"}</td>
+                      <td className="font-mono text-sm whitespace-nowrap">{l.number || <span className="text-gray-400">—</span>}</td>
                       <td className="text-sm text-gray-700">{l.description}</td>
-                      <td className="font-mono text-left" dir="ltr">{l.debit > 0 ? formatNumber(l.debit) : "—"}</td>
-                      <td className="font-mono text-left" dir="ltr">{l.credit > 0 ? formatNumber(l.credit) : "—"}</td>
-                      <td className={`font-mono text-left font-semibold ${l.runningBalance > 0 ? "text-red-600" : l.runningBalance < 0 ? "text-green-600" : ""}`} dir="ltr">
+                      <td className="font-mono text-left text-sm" dir="ltr">
+                        {l.debit > 0 ? <span className="text-blue-700 font-semibold">{formatNumber(l.debit)}</span> : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="font-mono text-left text-sm" dir="ltr">
+                        {l.credit > 0 ? <span className="text-amber-700 font-semibold">{formatNumber(l.credit)}</span> : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className={`font-mono text-left font-semibold ${l.runningBalance > 0 ? "text-red-600" : l.runningBalance < 0 ? "text-green-600" : "text-gray-500"}`} dir="ltr">
                         {formatNumber(l.runningBalance)}
                       </td>
                     </tr>
@@ -768,16 +855,18 @@ function StatementTab({ contactId, companyId, contactName }: {
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 font-bold bg-gray-50">
-                  <td colSpan={4} className="py-2">الإجماليات</td>
-                  <td className="font-mono text-left py-2" dir="ltr">{formatNumber(totalDebit)}</td>
-                  <td className="font-mono text-left py-2" dir="ltr">{formatNumber(totalCredit)}</td>
-                  <td className="font-mono text-left py-2 text-primary-700" dir="ltr">{formatNumber(data.closingBalance)}</td>
+                <tr className="border-t-2 font-bold bg-gray-100">
+                  <td colSpan={4} className="py-3 text-gray-700">إجمالي حركات الفترة</td>
+                  <td className="font-mono text-left py-3 text-blue-700" dir="ltr">{formatNumber(totalDebit)}</td>
+                  <td className="font-mono text-left py-3 text-amber-700" dir="ltr">{formatNumber(totalCredit)}</td>
+                  <td className="font-mono text-left py-3 text-gray-700" dir="ltr">—</td>
                 </tr>
-                <tr className="font-bold">
-                  <td colSpan={6} className="py-2">رصيد ختامي (في {formatDate(to)})</td>
-                  <td className={`font-mono text-left py-2 ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`} dir="ltr">
-                    {formatNumber(data.closingBalance)}
+                <tr className={data.closingBalance > 0 ? "bg-red-50" : "bg-green-50"}>
+                  <td colSpan={6} className={`py-3 font-bold ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`}>
+                    الرصيد الختامي في {formatDate(to)}
+                  </td>
+                  <td className={`font-mono text-left py-3 text-lg font-bold ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`} dir="ltr">
+                    {formatNumber(data.closingBalance)} د.ل
                   </td>
                 </tr>
               </tfoot>

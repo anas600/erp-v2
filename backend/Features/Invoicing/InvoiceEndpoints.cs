@@ -55,6 +55,22 @@ public static class InvoiceEndpoints
             }
         });
 
+        grp.MapPut("/{id:guid}", async (Guid id, [FromBody] CreateInvoiceRequest req, [FromServices] InvoiceService svc) =>
+        {
+            try
+            {
+                // Sprint 29 — allow editing draft invoices. The service
+                // refuses to touch invoices in any other status, so a
+                // posted invoice returns 400 with an Arabic error.
+                var inv = await svc.UpdateDraftAsync(id, req);
+                return Results.Ok(inv);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] InvoiceService svc) =>
         {
             try
