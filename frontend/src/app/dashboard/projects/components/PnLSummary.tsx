@@ -1,10 +1,19 @@
 "use client";
 
 /**
- * Sprint 35 — P&L summary card.
+ * Sprint 35+36 — P&L summary card.
  *
  * Renders a project's revenue - costs by category, the gross
  * profit, and the margin %.
+ *
+ * Sprint 36 additions:
+ *   - WIP (Work In Progress) card showing the relationship
+ *     between actual costs (from posted JEs) and what we've
+ *     billed (from approved progress billings).
+ *   - WIP = totalCosts - totalBilled
+ *   - Status: BALANCED / COSTS_EXCEED / BILLED_EXCEED
+ *   - The card loads separately to avoid forcing the page
+ *     to re-fetch P&L on every tab switch.
  *
  * Why a dedicated component?
  *   The P&L tab of the project detail page is the "money shot"
@@ -17,8 +26,11 @@
  *   - Zero revenue (margin must not be NaN or Infinity)
  *   - Empty cost categories (render "no costs yet")
  *   - Negative profit (render in red so it's visible)
+ *   - WIP data not yet loaded (render skeleton)
  */
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { TrendingUp, TrendingDown, Minus, Loader2, AlertCircle, Briefcase } from "lucide-react";
+import { api, getErrorMessage } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
 
 export interface CostCategoryPnL {
@@ -44,6 +56,19 @@ interface Props {
   pnl: ProjectPnLResponse | null;
   loading: boolean;
   error: string | null;
+  /** Required for the WIP card. */
+  projectId: string;
+}
+
+export interface WipResponse {
+  projectId: string;
+  projectCode?: string;
+  projectName?: string;
+  totalCosts: number;
+  totalBilled: number;
+  wipAmount: number;
+  wipStatus: string; // BALANCED | COSTS_EXCEED_BILLED | BILLED_EXCEED_COSTS | ...
+  asOfDate?: string;
 }
 
 // Map account code prefix (5401-5407) to a friendly Arabic label.
@@ -65,7 +90,7 @@ function labelForAccount(code?: string | null): string {
   return CATEGORY_LABEL[prefix] || `حساب ${code}`;
 }
 
-export default function PnLSummary({ pnl, loading, error }: Props) {
+export default function PnLSummary({ pnl, loading, error, projectId }: Props) {
   if (loading) {
     return (
       <div className="card flex items-center justify-center py-12 text-gray-500">
@@ -169,6 +194,125 @@ export default function PnLSummary({ pnl, loading, error }: Props) {
           </div>
         )}
       </div>
+
+      {/* Sprint 36 — WIP card (separate fetch, separate loading state) */}
+      <WipCard projectId={projectId} />
+    </div>
+  );
+}
+
+// ============================================================
+// WIP card — Sprint 36 addition
+// ============================================================
+function WipCard({ projectId }: { projectId: string }) {
+  const [wip, setWip] = useState<WipResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api
+      .get(`/projects/${projectId}/wip`)
+      .then((res) => setWip(res.data || null))
+      .catch((err) => {
+        // 404 is fine — project has no billings yet. Don't show as error.
+        if ((err as any)?.response?.status === 404) {
+          setWip(null);
+        } else {
+          setError(getErrorMessage(err));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  if (loading) {
+    return (
+      <div className="card flex items-center justify-center py-8 text-gray-500 gap-2 text-sm">
+        <Loader2 className="animate-spin" size={16} />
+        جاري حساب WIP...
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="card border-red-200 bg-red-50 text-red-700 text-sm flex items-start gap-2">
+        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+        <span>فشل تحميل WIP: {error}</span>
+      </div>
+    );
+  }
+  if (!wip) {
+    return null; // 404 — no billings yet
+  }
+
+  const status = (wip.wipStatus || "BALANCED").toUpperCase();
+  const statusMeta: Record<string, { label: string; tone: string }> = {
+    BALANCED: { label: "متوازن", tone: "good" },
+    COSTS_EXCEED_BILLED: { label: "التكاليف تتجاوز الفوترة", tone: "bad" },
+    BILLED_EXCEED_COSTS: { label: "الفوترة تتجاوز التكاليف", tone: "warn" },
+  };
+  const meta = statusMeta[status] || { label: status, tone: "neutral" };
+  const toneCls: Record<string, string> = {
+    good: "border-green-200 bg-green-50",
+    bad: "border-red-200 bg-red-50",
+    warn: "border-amber-200 bg-amber-50",
+    neutral: "border-gray-200 bg-gray-50",
+  };
+  const toneVal: Record<string, string> = {
+    good: "text-green-700",
+    bad: "text-red-700",
+    warn: "text-amber-700",
+    neutral: "text-gray-700",
+  };
+  const wipValueCls: Record<string, string> = {
+    good: "text-green-700",
+    bad: "text-red-700",
+    warn: "text-amber-700",
+    neutral: "text-gray-900",
+  };
+
+  return (
+    <div className={`card border ${toneCls[meta.tone]}`}>
+      <h3 className="font-semibold flex items-center gap-2 mb-3">
+        <Briefcase size={16} className={toneVal[meta.tone]} />
+        WIP (أعمال تحت التنفيذ)
+      </h3>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-gray-700">إجمالي التكاليف الفعلية</span>
+          <span className="font-mono font-semibold" dir="ltr">
+            {formatNumber(wip.totalCosts)} د.ل
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-gray-700">إجمالي الإيرادات المفوترة</span>
+          <span className="font-mono font-semibold" dir="ltr">
+            {formatNumber(wip.totalBilled)} د.ل
+          </span>
+        </div>
+        <div className="border-t border-gray-300 my-1" />
+        <div className="flex items-center justify-between">
+          <span className="font-semibold">WIP</span>
+          <span
+            className={`font-mono text-lg font-bold ${wipValueCls[meta.tone]}`}
+            dir="ltr"
+          >
+            {formatNumber(wip.wipAmount)} د.ل
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-600">الحالة</span>
+          <span className={`font-semibold ${toneVal[meta.tone]}`}>
+            {meta.label}
+          </span>
+        </div>
+      </div>
+      {wip.asOfDate && (
+        <p className="text-xs text-gray-500 mt-3 text-left" dir="ltr">
+          As of: {wip.asOfDate}
+        </p>
+      )}
     </div>
   );
 }
