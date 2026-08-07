@@ -476,23 +476,26 @@ public static class AdminEndpoints
                 },
                 new
                 {
-                    // NOTE: this rule is informational only — the actual receipt
-                    // posting is done by ReceiptService.PostAsync which already
-                    // uses the receipt's bankAccountId and the customer's
-                    // sub-ledger. Kept here so the rule stays auditable.
-                    name = "تحصيل من عميل (مرجع)",
+                    // Sprint 34 — now uses accountFrom directives so the
+                    // actual posting is fully data-driven:
+                    //   "voucher.bankAccount" → resolve to the bankAccountId
+                    //                             on the voucher (Dr cash)
+                    //   "contact.subLedger"   → resolve to the customer's
+                    //                             sub-ledger account (Cr AR)
+                    // No hard-coded account codes — works for any cash
+                    // account and any customer.
+                    name = "تحصيل من عميل",
                     eventName = "CustomerReceiptReceived",
                     ruleJson = @"{
                       ""actions"": [{
                         ""type"": ""PostJournalEntry"",
                         ""lines"": [
-                          { ""nature"": ""debit"",  ""accountCode"": ""1101-CASH-001"", ""description"": ""الصندوق - تحصيل من عميل"",    ""amountFormula"": ""receipt.amount"" },
-                          { ""nature"": ""credit"", ""accountCode"": ""1103"",         ""description"": ""تسوية حساب العميل (L3 control)"", ""amountFormula"": ""receipt.amount"" }
+                          { ""nature"": ""debit"",  ""accountFrom"": ""voucher.bankAccount"", ""description"": ""الصندوق/البنك - تحصيل من عميل"", ""amountFormula"": ""receipt.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب العميل"",          ""amountFormula"": ""receipt.amount"" }
                         ],
                         ""narration"": ""تحصيل من عميل {customer.name}""
                       }],
-                      ""conditions"": { ""all"": [] },
-                      ""_note"": ""الترحيل الفعلي يستخدم bankAccountId من السند + sub-ledger العميل. هذه القاعدة للتوثيق فقط.""
+                      ""conditions"": { ""all"": [] }
                     }"
                 },
                 new
@@ -531,21 +534,20 @@ public static class AdminEndpoints
                 },
                 new
                 {
-                    // Same note as CustomerReceiptReceived — actual posting
-                    // is done by PaymentService.PostAsync.
-                    name = "دفع مورد (مرجع)",
+                    // Sprint 34 — uses accountFrom directives (see comment on
+                    // CustomerReceiptReceived above). No hard-coded codes.
+                    name = "دفع مورد",
                     eventName = "SupplierPaymentMade",
                     ruleJson = @"{
                       ""actions"": [{
                         ""type"": ""PostJournalEntry"",
                         ""lines"": [
-                          { ""nature"": ""debit"",  ""accountCode"": ""2101"",         ""description"": ""تسوية حساب المورّد (L3 control)"", ""amountFormula"": ""payment.amount"" },
-                          { ""nature"": ""credit"", ""accountCode"": ""1101-CASH-001"", ""description"": ""الصندوق - دفع لمورّد"",            ""amountFormula"": ""payment.amount"" }
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب المورّد"",          ""amountFormula"": ""payment.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""voucher.bankAccount"", ""description"": ""الصندوق/البنك - دفع لمورّد"",    ""amountFormula"": ""payment.amount"" }
                         ],
                         ""narration"": ""دفع لمورّد {supplier.name}""
                       }],
-                      ""conditions"": { ""all"": [] },
-                      ""_note"": ""الترحيل الفعلي يستخدم bankAccountId من السند + sub-ledger المورّد. هذه القاعدة للتوثيق فقط.""
+                      ""conditions"": { ""all"": [] }
                     }"
                 }
             };

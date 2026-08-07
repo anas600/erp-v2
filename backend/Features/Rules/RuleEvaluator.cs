@@ -207,15 +207,27 @@ public class RuleEvaluator
 
         foreach (var line in action.Lines)
         {
-            // Resolve account by code (within the company)
-            var account = await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
-                SELECT id, nature FROM accounts
-                WHERE company_id = @companyId AND code = @code AND is_active = true
-                LIMIT 1;",
-                new { companyId, code = line.AccountCode });
+            // Sprint 34 — resolve account by code OR by AccountFrom directive.
+            //
+            // AccountFrom is a dot-notation that resolves to an account id
+            // from the payload context. Examples:
+            //   "contact.subLedger"   → the sub-ledger account for the contact
+            //                           (looked up via account_contact_links)
+            //   "voucher.bankAccount" → bankAccountId on the voucher (receipt/payment)
+            //   "control.ar"          → the AR control account (1103) for the company
+            //   "control.ap"          → the AP control account (2101) for the company
+            //   "control.cash"        → the default cash sub-ledger (1101-CASH-001)
+            //
+            // When AccountFrom is set, AccountCode is ignored.
+            var account = await ResolveAccountAsync(companyId, line, payload);
 
             if (account.id == Guid.Empty)
-                throw new InvalidOperationException($"Account with code '{line.AccountCode}' not found in this company");
+            {
+                var msg = !string.IsNullOrEmpty(line.AccountFrom)
+                    ? $"AccountFrom='{line.AccountFrom}' did not resolve to a valid account in this company"
+                    : $"Account with code '{line.AccountCode}' not found in this company";
+                throw new InvalidOperationException(msg);
+            }
 
             // Evaluate amount formula (simple {path.to.value} substitution)
             var amount = EvaluateAmount(line.AmountFormula, payload);
@@ -291,6 +303,115 @@ public class RuleEvaluator
         var entry = await new JournalService(_db, _posting).CreatePendingAsync(req, userId);
         _log.LogInformation("Rule {RuleId}: pending entry {EntryId} created — awaits accountant approval", ruleId, entry.Id);
         return entry;
+    }
+
+    /// <summary>
+    /// Resolve the account for a rule line. Uses AccountFrom if set,
+    /// otherwise falls back to AccountCode lookup.
+    /// </summary>
+    private async Task<(Guid id, string nature)> ResolveAccountAsync(
+        Guid companyId, RuleActionLine line, Dictionary<string, object> payload)
+    {
+        using var conn = _db.CreateConnection();
+
+        // If AccountFrom is set, resolve dynamically
+        if (!string.IsNullOrEmpty(line.AccountFrom))
+        {
+            switch (line.AccountFrom.ToLowerInvariant())
+            {
+                case "control.ar":
+                    return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                        SELECT id, nature FROM accounts
+                        WHERE company_id = @companyId AND code = '1103' AND level = 3 AND is_active = true
+                        LIMIT 1;",
+                        new { companyId });
+
+                case "control.ap":
+                    return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                        SELECT id, nature FROM accounts
+                        WHERE company_id = @companyId AND code = '2101' AND level = 3 AND is_active = true
+                        LIMIT 1;",
+                        new { companyId });
+
+                case "control.cash":
+                    // Default cash sub-ledger. The user can override by passing
+                    // the bankAccountId on the voucher and using "voucher.bankAccount".
+                    return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                        SELECT id, nature FROM accounts
+                        WHERE company_id = @companyId
+                          AND code LIKE '1101-%' AND level = 4 AND is_active = true
+                        ORDER BY code LIMIT 1;",
+                        new { companyId });
+
+                case "voucher.bankaccount":
+                    {
+                        // Look for bankAccountId in payload under voucher or payment or receipt
+                        var bankId = ResolveField("voucher.bankAccountId", payload)
+                                   ?? ResolveField("payment.bankAccountId", payload)
+                                   ?? ResolveField("receipt.bankAccountId", payload)
+                                   ?? ResolveField("bankAccountId", payload);
+                        if (bankId is Guid g && g != Guid.Empty)
+                        {
+                            return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                                SELECT id, nature FROM accounts
+                                WHERE id = @id AND company_id = @companyId AND is_active = true
+                                LIMIT 1;",
+                                new { id = g, companyId });
+                        }
+                        // Fallback to default cash sub-ledger
+                        return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                            SELECT id, nature FROM accounts
+                            WHERE company_id = @companyId
+                              AND code LIKE '1101-%' AND level = 4 AND is_active = true
+                            ORDER BY code LIMIT 1;",
+                            new { companyId });
+                    }
+
+                case "contact.subledger":
+                    {
+                        // Look for the contact id in the payload, then find their primary sub-ledger
+                        var contactId = ResolveField("contact.id", payload)
+                                     ?? ResolveField("customer.id", payload)
+                                     ?? ResolveField("supplier.id", payload)
+                                     ?? ResolveField("voucher.contactId", payload)
+                                     ?? ResolveField("payment.contactId", payload)
+                                     ?? ResolveField("receipt.contactId", payload);
+                        if (contactId is Guid cid && cid != Guid.Empty)
+                        {
+                            return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                                SELECT a.id, a.nature FROM accounts a
+                                JOIN account_contact_links l ON l.account_id = a.id
+                                WHERE l.contact_id = @cid
+                                  AND a.company_id = @companyId
+                                  AND l.is_primary = true
+                                  AND a.is_active = true
+                                ORDER BY l.created_at ASC
+                                LIMIT 1;",
+                                new { cid, companyId });
+                        }
+                        // Fallback: AR for customers, AP for suppliers
+                        var isSupplier = ResolveField("voucher.contactType", payload)?.ToString() == "supplier"
+                                      || ResolveField("contact.type", payload)?.ToString() == "supplier";
+                        var fallbackCode = isSupplier ? "2101" : "1103";
+                        return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                            SELECT id, nature FROM accounts
+                            WHERE company_id = @companyId AND code = @code AND level = 3 AND is_active = true
+                            LIMIT 1;",
+                            new { companyId, code = fallbackCode });
+                    }
+
+                default:
+                    _log.LogWarning("Unknown accountFrom directive: {Dir}", line.AccountFrom);
+                    return (Guid.Empty, "");
+            }
+        }
+
+        // Fallback: static accountCode lookup
+        return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+            SELECT id, nature FROM accounts
+            WHERE company_id = @companyId AND code = @code AND is_active = true
+            LIMIT 1;",
+            new { companyId, code = line.AccountCode });
     }
 
     private static decimal EvaluateAmount(string formula, Dictionary<string, object> payload)

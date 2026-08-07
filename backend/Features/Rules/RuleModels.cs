@@ -82,8 +82,25 @@ public class RuleAction
 
 public class RuleActionLine
 {
+    /// <summary>
+    /// Static account code (e.g. "1103", "1101-CASH-001"). Used when
+    /// AccountFrom is empty. For dynamic resolution (e.g. "the contact's
+    /// sub-ledger" or "the voucher's bank account"), prefer AccountFrom.
+    /// </summary>
     [JsonPropertyName("accountCode")]
     public string AccountCode { get; set; } = "";
+
+    /// <summary>
+    /// Sprint 34 — dynamic account resolution. Examples:
+    ///   "contact.subLedger"   → use the sub-ledger of the contact on the voucher
+    ///   "voucher.bankAccount" → use the bankAccountId from the voucher
+    ///   "control.ar"          → use the AR control account (1103)
+    ///   "control.ap"          → use the AP control account (2101)
+    ///   "control.cash"        → use 1101-CASH-001 (or the bank account on the voucher)
+    /// When AccountFrom is set, AccountCode is ignored.
+    /// </summary>
+    [JsonPropertyName("accountFrom")]
+    public string? AccountFrom { get; set; }
 
     [JsonPropertyName("nature")]
     public string Nature { get; set; } = "debit";

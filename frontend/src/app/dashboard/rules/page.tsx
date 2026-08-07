@@ -60,8 +60,10 @@ export default function RulesPage() {
             type: "PostJournalEntry",
             narration: "قيد جديد",
             lines: [
-              { accountCode: "1000", nature: "debit", amountFormula: "100", description: "مدين" },
-              { accountCode: "2000", nature: "credit", amountFormula: "100", description: "دائن" }
+              // Sprint 34: can use either accountCode (static) or
+              // accountFrom (dynamic). Examples below.
+              { accountFrom: "voucher.bankAccount", nature: "debit",  amountFormula: "payment.amount", description: "الصندوق/البنك" },
+              { accountFrom: "contact.subLedger",   nature: "credit", amountFormula: "payment.amount", description: "تسوية العميل/المورّد" }
             ]
           }
         ]
@@ -280,6 +282,25 @@ export default function RulesPage() {
                   onChange={(e) => setEditing({ ...editing, ruleJson: e.target.value })}
                   dir="ltr"
                 />
+                {/* Sprint 34 — quick reference for accountFrom directives */}
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer text-primary-600 hover:text-primary-800">
+                    💡 مرجع سريع للتوجيهات الديناميكية (accountFrom)
+                  </summary>
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-gray-800" dir="rtl">
+                    <p className="font-semibold mb-1">قائمة accountFrom المدعومة:</p>
+                    <ul className="space-y-1 mr-4">
+                      <li><code className="bg-white px-1 rounded">"voucher.bankAccount"</code> — حساب الصندوق/البنك من السند (bankAccountId)</li>
+                      <li><code className="bg-white px-1 rounded">"contact.subLedger"</code> — حساب العميل/المورّد التفصيلي (sub-ledger)</li>
+                      <li><code className="bg-white px-1 rounded">"control.ar"</code> — حساب المدينون الرئيسي (1103)</li>
+                      <li><code className="bg-white px-1 rounded">"control.ap"</code> — حساب الدائنون الرئيسي (2101)</li>
+                      <li><code className="bg-white px-1 rounded">"control.cash"</code> — حساب الصندوق الافتراضي (1101-CASH-001)</li>
+                    </ul>
+                    <p className="mt-2 text-gray-600">
+                      أو استخدم <code className="bg-white px-1 rounded">"accountCode": "1103"</code> لرمز ثابت.
+                    </p>
+                  </div>
+                </details>
               </div>
               <div className="flex gap-2 pt-2">
                 <button onClick={save} className="btn-primary flex-1">حفظ</button>
