@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { Building2, LogIn, AlertCircle, Loader2, Server } from "lucide-react";
-import { prewarmBackend } from "@/lib/api";
+import { Building2, LogIn, AlertCircle, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -13,29 +12,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("admin123");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Sprint 34 hotfix — when the backend is cold-starting, show
-  // a small inline hint that the login may take a few extra seconds.
-  // The pre-warm tries to avoid this, but it's not a guarantee.
-  const [wakeup, setWakeup] = useState(false);
 
   useEffect(() => {
     if (!loading && user) router.push("/dashboard");
   }, [user, loading, router]);
 
-  // Pre-warm on mount so the first POST /auth/login is more likely
-  // to land on a warm backend.
-  useEffect(() => {
-    prewarmBackend();
-  }, []);
-
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    setWakeup(false);
-    // Pre-warm just before the login attempt — if the backend is
-    // cold, this wakes it up so the login request succeeds.
-    await prewarmBackend();
     try {
       const res = await login(email, password);
       if (!res.ok) {

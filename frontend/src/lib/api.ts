@@ -6,28 +6,27 @@
  * company id (from `erp_active_company`) to every request, so individual
  * call sites never need to think about headers.
  *
- * Sprint 33 hotfix v3 (2026-08-07): the user reported the cold-start retry
- * mechanism (added in Sprint 33) was actually slowing the system down and
- * blocking pages from loading. The retry added 4+8=12s of waiting on top
- * of the cold-start delay, and the WakeupBanner was overlapping the page
- * content. The user explicitly said: "نحتاج اليه" → "we don't need it".
+ * Sprint 34 hotfix v4 (2026-08-07): the user reported the pre-warm + silent
+ * retry was causing extra requests against Render's free tier (which has
+ * hard monthly usage limits). Each pre-warm on dashboard mount was an
+ * additional GET to /api/health, and any cold-start 502 was doubled by
+ * the silent retry. The cleanest fix: remove all proactive mechanisms.
+ * Let the error show, let the user refresh.
  *
- * Decision: remove the retry logic entirely. The trade-off is that the
- * user might see a brief 502 on the first request after Render's free
- * tier spins down the backend (~15 min idle). A simple page refresh fixes
- * it. This is much better than making the user wait 12+ seconds on every
- * request, or having a banner block the page.
+ * What this file does (final):
+ *  - Request interceptor: attach auth + company header
+ *  - Response interceptor: 401 → clear session + redirect to login
+ *  - Timeout: 30s (long enough for normal requests, short enough that
+ *    a stuck connection doesn't lock the page for a minute)
+ *  - Error helper: friendly Arabic messages for common statuses
  *
- * What stays:
- *  - 401 → clear session + redirect to login (security-critical)
- *  - Request interceptor (auth + company header)
- *  - Friendly error message helper
+ * What it doesn't do (intentionally):
+ *  - No pre-warm (was: GET /api/health on page mount)
+ *  - No retry on 502/503/504 (was: silent retry after 3s)
+ *  - No background pings or polling
  *
- * What goes away:
- *  - Retry on 502/503/504 (with delays 4s+8s)
- *  - Wakeup event dispatching
- *  - WakeupBanner overlay
- *  - Slow request detection
+ * The user is happy with: see an error → refresh the page → see the
+ * data. That's the simplest model and the safest for the free tier.
  *
  * IMPORTANT: we use a *relative* baseURL ("/api") so that all API calls
  * stay on the same origin. The Next.js rewrite (configured in
@@ -65,73 +64,32 @@ api.interceptors.request.use((config) => {
 });
 
 // Response interceptor: 401 → clear session + redirect to login.
-// Also handles a single, silent cold-start retry for 502/503/504 on
-// GET requests — without the previous long delays or visible banner.
+//
+// Sprint 34 hotfix v4 (2026-08-07): removed pre-warm + silent retry.
+// The user reported: "لا تعمل اسكربتات لكي تزعج الخادم اعتقد ان
+// هناك حدود استخدام للخطه المجانيه" — every pre-warm call + every
+// retry = extra request against Render's free tier, which has hard
+// monthly limits. The pre-warm itself can fail with 502 and cause
+// the same error the user was seeing. The cleanest fix: just let
+// errors happen and show them. The user can refresh manually.
+//
+// What stayed:
+//  - 401 handling (security-critical)
+//  - Friendly Arabic error messages
+//  - 30s axios timeout
 api.interceptors.response.use(
   (r) => r,
-  async (err: AxiosError) => {
+  (err: AxiosError) => {
     if (err.response?.status === 401) {
       Cookies.remove("erp_token");
       Cookies.remove("erp_user");
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/auth/login")) {
         window.location.href = "/auth/login";
       }
-      return Promise.reject(err);
     }
-
-    // Silent cold-start recovery: if we get a 502/503/504 on a GET,
-    // wait 3 seconds and retry ONCE. The backend usually wakes up
-    // in that window. The user sees the request take 3-4 seconds
-    // longer (acceptable) instead of an error message.
-    //
-    // We do NOT retry:
-    //   - POST/PUT/DELETE (could create duplicate records)
-    //   - 4xx errors (caller's fault)
-    //   - status 0 (network error, usually client-side)
-    const config = err.config as any;
-    if (
-      config &&
-      !config.__coldStartRetried &&
-      (config.method ?? "get").toLowerCase() === "get" &&
-      [502, 503, 504].includes(err.response?.status ?? 0)
-    ) {
-      config.__coldStartRetried = true;
-      // eslint-disable-next-line no-console
-      console.log(`[api] cold-start on ${config.url} — waiting 3s and retrying once`);
-      await new Promise((r) => setTimeout(r, 3000));
-      return api.request(config);
-    }
-
     return Promise.reject(err);
   }
 );
-
-// ----------------------------------------------------------
-// Pre-warm: ping /api/health on dashboard mount so the first
-// real request doesn't hit a sleeping backend. This is called
-// by the dashboard layout in a useEffect — see app/dashboard/layout.tsx.
-// ----------------------------------------------------------
-let prewarmPromise: Promise<void> | null = null;
-let prewarmedAt = 0;
-
-export async function prewarmBackend(): Promise<void> {
-  // Only pre-warm once per page load, and only if the previous
-  // pre-warm was more than 5 minutes ago.
-  if (prewarmPromise && Date.now() - prewarmedAt < 5 * 60 * 1000) {
-    return prewarmPromise;
-  }
-  prewarmPromise = (async () => {
-    prewarmedAt = Date.now();
-    try {
-      // Use a short timeout so the pre-warm doesn't block the page
-      await api.get("/health", { timeout: 5000 });
-    } catch {
-      // Backend is sleeping or unreachable — that's fine, the
-      // silent retry in the response interceptor will handle it
-    }
-  })();
-  return prewarmPromise;
-}
 
 /**
  * Extracts a user-friendly Arabic error message from an Axios or generic
