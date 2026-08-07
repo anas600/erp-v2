@@ -40,6 +40,10 @@ interface Account {
   nameAr?: string;
   accountType: string;
   nature: string;
+  /** 1=L1 type, 2=L2 category, 3=L3 operational, 4=L4 sub-ledger. */
+  level?: number;
+  /** Whether this account accepts direct journal postings (L4 only). */
+  isPostable?: boolean;
 }
 
 interface LedgerEntry {
@@ -110,9 +114,11 @@ export default function GeneralLedgerPage() {
         //   L4  (sub-ledgers, e.g. "1103-CUST-001")
         // We skip L1 entirely (it's a top-level classification, no
         // own activity). An L2 with no L3 children is also excluded
-        // since it has nothing to show.
+        // since it has nothing to show. `level` is optional in the
+        // Account type (we define it for this page) but the API
+        // always sends it, so we use a default of 0 for type safety.
         const grouped = flat
-          .filter((a) => a.level >= 2 && a.level <= 4)
+          .filter((a) => (a.level ?? 0) >= 2 && (a.level ?? 0) <= 4)
           .sort((a, b) =>
             a.code.localeCompare(b.code, undefined, { numeric: true })
           );
@@ -199,8 +205,9 @@ export default function GeneralLedgerPage() {
                 {accounts.map((a) => {
                   // Indent deeper levels so the hierarchy is obvious
                   // in the dropdown: L3 → no indent, L4 → 2 spaces, L2 → 4 spaces
-                  const indent = a.level === 4 ? "↳ " : a.level === 2 ? "  ‖ " : "";
-                  const levelLabel = LEVEL_LABEL[a.level] ?? `L${a.level}`;
+                  const lvl = a.level ?? 3;
+                  const indent = lvl === 4 ? "↳ " : lvl === 2 ? "  ‖ " : "";
+                  const levelLabel = LEVEL_LABEL[lvl] ?? `L${lvl}`;
                   return (
                     <option key={a.id} value={a.id}>
                       {indent}{a.code} — {a.nameAr || a.name}  [{levelLabel}]
