@@ -1,25 +1,39 @@
 "use client";
 
 /**
- * Sprint 35 — Project detail page with 4 tabs.
+ * Sprint 35+36 — Project detail page with 8 tabs.
  *
- *   Overview   — project info, milestones, edit/back actions
- *   Costs      — table of allocated transactions (invoices + JE lines)
- *   Revenue    — table of sales invoices billed to this project
- *   P&L        — money shot: revenue - costs grouped by 5401-5407
- *   Allocation — bulk-allocate purchase invoices to this project
+ *   Overview       — project info, milestones, edit/back actions
+ *   Costs          — table of allocated transactions (invoices + JE lines)
+ *   Revenue        — table of sales invoices billed to this project
+ *   P&L            — money shot: revenue - costs grouped by 5401-5407
+ *   Allocation     — bulk-allocate purchase invoices to this project
+ *   Contract       — Sprint 36: contract CRUD
+ *   Billings       — Sprint 36: progress billings + approve/cancel
+ *   Client Stmt    — Sprint 36: customer-facing statement of account
  *
  * Tab state is local to this page (useState). We don't persist
  * it in the URL on purpose — most of the time the user lands
  * here, picks an action (P&L or Allocation), and goes back. URL
  * state would just add complexity without value.
+ *
+ * Cross-tab data flow:
+ *   - Contract state is owned by [id]/page.tsx (the page knows
+ *     whether a contract exists; ContractTab and BillingsTab
+ *     share the same contract via the `contract` prop).
+ *   - Billings list is owned by [id]/page.tsx for the same
+ *     reason — when BillingModal or Approve updates the list,
+ *     the page's view stays in sync.
+ *   - This avoids both tabs racing to fetch the same data, and
+ *     keeps the modal-open/closed lifecycle on the parent.
  */
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight, Loader2, Pencil, FolderKanban, MapPin, User, Calendar,
-  DollarSign, FileText, TrendingUp, Wallet, ClipboardList, CheckCircle2
+  DollarSign, FileText, TrendingUp, Wallet, ClipboardList, CheckCircle2,
+  FileSignature, FileBarChart, Receipt
 } from "lucide-react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -28,6 +42,10 @@ import ProjectTypeBadge from "../components/ProjectTypeBadge";
 import StatusBadge from "../components/StatusBadge";
 import PnLSummary, { type ProjectPnLResponse } from "../components/PnLSummary";
 import AllocationPanel from "../components/AllocationPanel";
+import ContractTab from "../components/ContractTab";
+import type { ContractDto } from "../components/ContractModal";
+import BillingsTab, { type ProgressBillingDto } from "../components/BillingsTab";
+import StatementTab from "../components/StatementTab";
 
 interface Project {
   id: string;
@@ -87,14 +105,17 @@ interface RevenueRow {
   status: string;
 }
 
-type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation";
+type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation" | "contract" | "billings" | "statement";
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
-  { id: "overview",   label: "نظرة عامة",     icon: ClipboardList },
-  { id: "costs",      label: "التكاليف",      icon: Wallet },
-  { id: "revenue",    label: "الإيرادات",     icon: TrendingUp },
-  { id: "pnl",        label: "الربح والخسارة", icon: DollarSign },
-  { id: "allocation", label: "التخصيص",       icon: FileText },
+  { id: "overview",   label: "نظرة عامة",       icon: ClipboardList },
+  { id: "contract",   label: "العقد",           icon: FileSignature },
+  { id: "billings",   label: "المستخلصات",      icon: Receipt },
+  { id: "costs",      label: "التكاليف",        icon: Wallet },
+  { id: "revenue",    label: "الإيرادات",       icon: TrendingUp },
+  { id: "pnl",        label: "الربح والخسارة",   icon: DollarSign },
+  { id: "statement",  label: "كشف حساب العميل",  icon: FileBarChart },
+  { id: "allocation", label: "التخصيص",         icon: FileText },
 ];
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -111,6 +132,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
   const [editing, setEditing] = useState(false);
+  // Sprint 36 — cross-tab state. The contract and billings tabs
+  // are tightly coupled (you can't create a billing without a
+  // contract), so the page owns the contract and shares it.
+  const [contract, setContract] = useState<ContractDto | null>(null);
+  const [billings, setBillings] = useState<ProgressBillingDto[]>([]);
 
   const loadProject = async () => {
     try {
@@ -247,9 +273,32 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       )}
       {tab === "costs" && <CostsTab rows={costs} />}
       {tab === "revenue" && <RevenueTab rows={revenue} />}
-      {tab === "pnl" && <PnLSummary pnl={pnl} loading={pnlLoading} error={error} />}
+      {tab === "pnl" && (
+        <PnLSummary pnl={pnl} loading={pnlLoading} error={error} projectId={projectId} />
+      )}
       {tab === "allocation" && (
         <AllocationPanel projectId={projectId} onChange={() => { setPnl(null); loadTab("pnl"); }} />
+      )}
+      {tab === "contract" && (
+        <ContractTab
+          projectId={projectId}
+          initialContract={contract}
+          onContractChange={setContract}
+        />
+      )}
+      {tab === "billings" && (
+        <BillingsTab
+          projectId={projectId}
+          contract={contract}
+          initialBillings={billings}
+          onBillingsChange={setBillings}
+        />
+      )}
+      {tab === "statement" && (
+        <StatementTab
+          projectId={projectId}
+          projectName={project.nameAr || project.name}
+        />
       )}
     </div>
   );
