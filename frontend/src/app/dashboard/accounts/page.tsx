@@ -41,16 +41,45 @@ export default function AccountsPage() {
   const [search, setSearch] = useState("");
   const [hideInactive, setHideInactive] = useState(false);
 
+  /**
+   * Load accounts from the backend.
+   *
+   * The backend `GET /api/accounts` returns a TREE — each node has
+   * a `children: Account[]` field. The page needs a FLAT list to
+   * feed into the tree component, so we recursively flatten the
+   * response.
+   *
+   * The earlier version only took the top-level array (6 L1 roots),
+   * which meant the tree was built from just 6 accounts and could
+   * never expand to show L2/L3/L4. This is the root cause of the
+   * "Expand All button doesn't work" bug the user reported on
+   * 2026-08-07.
+   */
+  const flatten = (nodes: any[]): Account[] => {
+    const out: Account[] = [];
+    const walk = (n: any) => {
+      // Strip the children field — we don't need it in the flat list
+      const { children, ...rest } = n;
+      out.push(rest as Account);
+      if (Array.isArray(children)) {
+        children.forEach(walk);
+      }
+    };
+    nodes.forEach(walk);
+    return out;
+  };
+
   const load = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
       const res = await api.get(`/accounts?companyId=${activeCompany.id}`);
-      // Same normalise trick the other pages use: backend may wrap or not.
-      const list: Account[] = Array.isArray(res.data)
+      const raw: any[] = Array.isArray(res.data)
         ? res.data
         : (res.data?.data || []);
-      setAccounts(list);
+      // CRITICAL: flatten the tree response into a flat list
+      const flat = flatten(raw);
+      setAccounts(flat);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
