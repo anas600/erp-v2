@@ -132,9 +132,28 @@ function ReceiptsPageInner() {
       // Filter to Asset-type accounts for the bank-account dropdown.
       // We also exclude headers (accountClass === 'header') so the user
       // only picks leaf accounts.
-      const assets: BankAccount[] = (aRes.data || [])
-        .filter((a: any) => a.accountType === "Asset" && (a.accountClass === "detail" || a.accountClass === undefined))
-        .map((a: any) => ({
+      //
+      // Sprint 33 hotfix — flatten the tree response (same fix as
+      // payments). The previous code took aRes.data directly which
+      // meant only the 6 L1 roots, so the dropdown showed only
+      // "1 - الأصول". Now we get every L4 sub-ledger under 1101
+      // (Cash) and 1102 (Bank).
+      const raw = Array.isArray(aRes.data) ? aRes.data : (aRes.data?.data || []);
+      const flat: any[] = [];
+      const walk = (n: any) => {
+        const { children, ...rest } = n;
+        flat.push(rest);
+        if (Array.isArray(children)) children.forEach(walk);
+      };
+      raw.forEach(walk);
+
+      const assets: BankAccount[] = flat
+        .filter((a) =>
+          a.accountType === "Asset" &&
+          a.isPostable === true &&
+          a.isActive !== false
+        )
+        .map((a) => ({
           id: a.id,
           code: a.code,
           name: a.name,
@@ -455,7 +474,7 @@ function ReceiptsPageInner() {
                 </select>
                 {bankAccounts.length === 0 && (
                   <p className="text-xs text-amber-700 mt-1">
-                    ⚠ لا توجد حسابات أصول مفصّلة. أضف حساب صندوق (كود 1000) من شجرة الحسابات.
+                    ⚠ لا توجد حسابات أصول قابلة للترحيل. أضف حساب L4 فرعي للصندوق (1101-CASH-XXX) أو البنك (1102-BANK-XXX) من شجرة الحسابات.
                   </p>
                 )}
               </div>
