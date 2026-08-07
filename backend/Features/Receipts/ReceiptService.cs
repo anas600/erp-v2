@@ -186,19 +186,24 @@ public class ReceiptService
         var cashAccountId = receipt.BankAccountId;
         if (cashAccountId is null)
         {
-            // Default: use 1101 (Cash) if it exists, else 1102 (Bank).
-            // Sprint 33 hotfix — Sprint 31 refactored the COA from
-            // 1000/1100 to 1101/1102. The default lookup was never
-            // updated, so receipts defaulted to "no account found" and
-            // the user saw "لا يوجد حساب صندوق أو بنك" even when both
-            // accounts existed in the chart of accounts.
+            // Default: find any L4 sub-ledger under 1101 (Cash) or
+            // 1102 (Bank). The 4-level COA keeps L3 control accounts
+            // non-postable, so a voucher can never post to '1101' or
+            // '1102' directly — it must use a sub-ledger like
+            // '1101-CASH-001' or '1102-BANK-001'.
+            //
+            // Sprint 33 hotfix — the previous lookup hardcoded the
+            // L3 codes ('1101', '1102') which can never be postable,
+            // so the default lookup always returned null. Real fix:
+            // match sub-ledgers by LIKE '1101-%' / '1102-%' OR by
+            // parent_id = (the L3 control account id).
             using var conn = _db.CreateConnection();
             cashAccountId = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
                 SELECT id FROM accounts
                 WHERE company_id = @companyId
-                  AND code IN ('1101', '1102')
                   AND is_active = true
                   AND is_postable = true
+                  AND (code LIKE '1101-%' OR code LIKE '1102-%')
                 ORDER BY code LIMIT 1;",
                 new { companyId = receipt.CompanyId });
             if (cashAccountId is null)
