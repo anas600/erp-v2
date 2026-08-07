@@ -8,7 +8,8 @@ import { useAuth } from "@/lib/auth-context";
 import {
   LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, ScrollText as ScrollTextIcon
 } from "lucide-react";
-import WakeupBanner from "@/components/WakeupBanner";
+// WakeupBanner removed in Sprint 33 hotfix v3 — the retry script it
+// coordinated with was removed because it slowed the system down.
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, companies, activeCompany, loading, logout, switchCompany } = useAuth();
@@ -179,7 +180,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      <WakeupBanner />
       {/* Sidebar */}
       <aside className="w-64 bg-white border-l border-gray-200 fixed right-0 top-0 h-full overflow-y-auto">
         <div className="p-4 border-b border-gray-200">
