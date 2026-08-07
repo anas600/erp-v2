@@ -71,28 +71,39 @@ public class ReportService
         }
 
         // L3 controls (with NET adjustment for those that have sub-ledgers)
+        //
+        // Sprint 33 fix — same bug as BalanceSheet: the previous formula
+        // (|control| − Σ|sub|) assumed L3 always has the GROSS postings
+        // and L4 has the OFFSET. For Cash/Bank that's wrong: the L3
+        // control sits at 0 and the L4 sub-ledger IS the position. The
+        // correct formula is control + Σ sub (with natural signs).
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal bal = r.balance;
             string name = r.name;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subAbsSum = rows
+                var subSum = rows
                     .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => Math.Abs(s.balance));
-                bal = Math.Abs(r.balance) - subAbsSum;
+                    .Sum(s => s.balance);
+                bal = r.balance + subSum;
+                if (Math.Abs(bal) < 0.01m) bal = 0;
                 name = $"{r.name} (غير مخصص)";
             }
             AddLine(r.code, name, r.account_type, r.nature, bal);
         }
 
-        // NOTE: L4 sub-ledgers are NOT added to the trial balance totals.
-        // The control account (L3) above already carries the NET
-        // balance after subtracting the sub-ledgers, so adding the
-        // sub-ledgers separately would double-count. Sub-ledgers
-        // are shown as detail in the Balance Sheet and the contact
-        // statement, not in the TB. The TB is the "summary" view
-        // for accountants to verify A=L+E.
+        // L4 sub-ledgers (Sprint 33 fix — add as separate lines so
+        // Cash/Bank L4 sub-ledgers show up). The previous code omitted
+        // them assuming the L3 NET already included them; for Cash/Bank
+        // that's false (L3 = 0, L4 = 4800).
+        foreach (var r in rows.Where(r => r.level == 4))
+        {
+            AddLine(r.code, r.name, r.account_type, r.nature, r.balance);
+        }
+
+        // (The old "don't add L4" comment is no longer accurate. The
+        // TB is the summary view; sub-ledgers are part of the books.)
 
         return new TrialBalanceReport(
             companyId, company, asOfDate, lines, totalDebit, totalCredit,
@@ -214,11 +225,23 @@ public class ReportService
         // Process controls first (L3) — show NET balance when they
         // have sub-ledger children, full balance otherwise.
         //
-        // The NET formula: control.balance − Σ|sub_ledger.balance|
-        // Because sub-ledger balances are stored in the natural sign
-        // (negative for credit on debit-nature accounts), we use
-        // Math.Abs so the subtraction is always in the same direction:
-        // the sub-ledgers "absorb" that much of the control's total.
+        // The NET formula (Sprint 33 fix): control.balance + Σsub_ledger.balance
+        //
+        // The previous formula (|control| − Σ|sub_ledger|) assumed the
+        // L3 control always carries the GROSS postings and the L4
+        // sub-ledgers always carry the OFFSET. That's true for AR/AP
+        // (invoices hit L3, receipts hit L4), but WRONG for Cash/Bank
+        // (no invoices hit L3 cash; the L4 sub-ledger 1101-CASH-001
+        // IS the actual cash position, with L3 at zero).
+        //
+        // The correct NET is L3 + ΣL4 with natural signs:
+        //   AR:  10550 (L3 debit) + (-5800) (L4 credit) = 4750 unallocated ✓
+        //   Cash: 0 (L3) + 4800 (L4 debit) = 4800 actual cash ✓
+        //
+        // We still display the L3 control row with the NET figure
+        // (labelled "غير مخصص" = unallocated) and add each L4
+        // sub-ledger underneath, so the user sees both the gross
+        // picture and the per-contact detail.
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal amount;
@@ -226,45 +249,66 @@ public class ReportService
             string displayCode = r.code;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subAbsSum = rows
+                // NET = control + Σ sub_ledger (natural signs)
+                var subSum = rows
                     .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => Math.Abs(s.balance));
-                amount = Math.Abs(r.balance) - subAbsSum;
-                if (amount < 0) amount = 0;
+                    .Sum(s => s.balance);
+                amount = r.balance + subSum;
+                if (Math.Abs(amount) < 0.01m) amount = 0;
                 displayCode = r.code;
                 displayName = $"{r.name} (غير مخصص)";
             }
             else
             {
-                amount = Math.Abs(r.balance);
+                amount = r.balance;
+                if (Math.Abs(amount) < 0.01m) continue; // skip zero rows
             }
 
             switch (r.account_type)
             {
                 case "Asset":
-                    assets.Add(new BalanceSheetLine(displayCode, displayName, amount));
-                    totalAssets += amount;
+                    assets.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
+                    totalAssets += Math.Abs(amount);
                     break;
                 case "Liability":
-                    liabilities.Add(new BalanceSheetLine(displayCode, displayName, amount));
-                    totalLiabilities += amount;
+                    liabilities.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
+                    totalLiabilities += Math.Abs(amount);
                     break;
                 case "Equity":
-                    equity.Add(new BalanceSheetLine(displayCode, displayName, amount));
-                    totalEquity += amount;
+                    equity.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
+                    totalEquity += Math.Abs(amount);
                     break;
             }
         }
 
-        // NOTE: L4 sub-ledgers are NOT added to the balance sheet totals.
-        // The control account (L3) above already carries the NET
-        // balance after subtracting the sub-ledgers, so adding the
-        // sub-ledgers separately would double-count. Sub-ledgers
-        // are visible via the contact detail pages and aging
-        // reports (where they ARE the point), but the balance
-        // sheet is a summary view that should reflect "what's on
-        // the books" without sub-ledger noise. The TB and BS now
-        // use the same rule.
+        // Add L4 sub-ledgers as separate lines (Sprint 33 fix).
+        //
+        // The previous code omitted L4 sub-ledgers entirely, assuming
+        // the L3 control NET already includes their effect. That's
+        // true for AR/AP but WRONG for Cash/Bank (where the L3
+        // control carries no activity). Now we always list each L4
+        // sub-ledger separately so the contact-level detail and the
+        // cash/bank L4s are both visible on the balance sheet.
+        foreach (var r in rows.Where(r => r.level == 4))
+        {
+            if (Math.Abs(r.balance) < 0.01m) continue; // skip zero rows
+            var amount = Math.Abs(r.balance);
+            switch (r.account_type)
+            {
+                case "Asset":
+                    assets.Add(new BalanceSheetLine(r.code, r.name, amount));
+                    totalAssets += amount;
+                    break;
+                case "Liability":
+                    liabilities.Add(new BalanceSheetLine(r.code, r.name, amount));
+                    totalLiabilities += amount;
+                    break;
+                case "Equity":
+                    equity.Add(new BalanceSheetLine(r.code, r.name, amount));
+                    totalEquity += amount;
+                    break;
+            }
+        }
 
         if (Math.Abs(netIncome) > 0.01m)
         {
