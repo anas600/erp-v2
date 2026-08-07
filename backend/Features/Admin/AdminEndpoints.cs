@@ -402,5 +402,210 @@ public static class AdminEndpoints
                 });
             }
         });
+
+        // POST /api/admin/fix-business-rules?companyId=...
+        // Sprint 33 — bulk-update the 5 default business rules so they
+        // reference the correct standard COA codes after the Sprint 31
+        // refactor (1000/1100/1200/2000 → 1101/1102/1103/2101 etc).
+        //
+        // Without this, the existing rules would still try to post to
+        // non-existent accounts. The wizard (Sprint 34) will let the
+        // accountant edit any rule, but for now we hard-code the
+        // correct mappings to keep the system running.
+        //
+        // Returns a list of every rule that was updated, with before/after.
+        grp.MapPost("/fix-business-rules", async (
+            HttpContext ctx,
+            [FromServices] IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // Mapping: each entry is (eventName, new accountCode, new description).
+            // We rebuild the ruleJson from scratch so the structure is
+            // consistent (some of the old rules had inconsistent quoting).
+            //
+            // COA mapping (Sprint 31 standard):
+            //   Cash:       1101 (L3)  / 1101-CASH-001 (L4)
+            //   Bank:       1102 (L3)  / 1102-BANK-001 (L4)
+            //   AR:         1103 (L3)  / 1103-CUST-XXX (L4 per customer)
+            //   AP:         2101 (L3)  / 2101-SUPP-XXX (L4 per supplier)
+            //   VAT In:     1107
+            //   VAT Out:    2104
+            //   Sales:      4101 (goods), 4102 (services), 4103 (projects)
+            //   COGS:       5301
+            //   Depreciation expense: 5106
+            //   Acc. depreciation:    1202 (equip) / 1204 (furniture)
+            var ruleTemplates = new[]
+            {
+                new
+                {
+                    name = "إهلاك أصول شهري",
+                    eventName = "PeriodClose",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""5106"", ""description"": ""مصروف إهلاك شهري"",   ""amountFormula"": ""depreciation.amount"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""1202"", ""description"": ""مجمع إهلاك المعدات"", ""amountFormula"": ""depreciation.amount"" }
+                        ],
+                        ""narration"": ""إهلاك شهري للمعدات""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+                new
+                {
+                    name = "إيراد مشروع (Milestone)",
+                    eventName = "ProjectMilestoneCompleted",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""1103"", ""description"": ""مدينون - {customer.name}"",  ""amountFormula"": ""milestone.amount"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4103"", ""description"": ""إيراد مشروع {project.name}"", ""amountFormula"": ""milestone.amount"" }
+                        ],
+                        ""narration"": ""إيراد مرحلة {milestone.name} من مشروع {project.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+                new
+                {
+                    // NOTE: this rule is informational only — the actual receipt
+                    // posting is done by ReceiptService.PostAsync which already
+                    // uses the receipt's bankAccountId and the customer's
+                    // sub-ledger. Kept here so the rule stays auditable.
+                    name = "تحصيل من عميل (مرجع)",
+                    eventName = "CustomerReceiptReceived",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""1101-CASH-001"", ""description"": ""الصندوق - تحصيل من عميل"",    ""amountFormula"": ""receipt.amount"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""1103"",         ""description"": ""تسوية حساب العميل (L3 control)"", ""amountFormula"": ""receipt.amount"" }
+                        ],
+                        ""narration"": ""تحصيل من عميل {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] },
+                      ""_note"": ""الترحيل الفعلي يستخدم bankAccountId من السند + sub-ledger العميل. هذه القاعدة للتوثيق فقط.""
+                    }"
+                },
+                new
+                {
+                    name = "ترحيل فاتورة مبيعات",
+                    eventName = "SalesInvoiceApproved",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""1103"", ""description"": ""مدينون - {customer.name}"",                                ""amountFormula"": ""invoice.total"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4101"", ""description"": ""إيرادات المبيعات - {customer.name}"",                      ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2104"", ""description"": ""ضريبة مخرجات مستحقة - INV {invoice.number}"",               ""amountFormula"": ""invoice.tax"" }
+                        ],
+                        ""narration"": ""فاتورة مبيعات رقم {invoice.number} - {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+                new
+                {
+                    name = "ترحيل فاتورة مشتريات",
+                    eventName = "PurchaseInvoiceApproved",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""5301"", ""description"": ""تكلفة المشتريات - {supplier.name}"",                        ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""debit"",  ""accountCode"": ""1107"", ""description"": ""ضريبة مدخلات - INV {invoice.number}"",                       ""amountFormula"": ""invoice.tax"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2101"", ""description"": ""دائنون - {supplier.name}"",                                  ""amountFormula"": ""invoice.total"" }
+                        ],
+                        ""narration"": ""فاتورة مشتريات رقم {invoice.number} - {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+                new
+                {
+                    // Same note as CustomerReceiptReceived — actual posting
+                    // is done by PaymentService.PostAsync.
+                    name = "دفع مورد (مرجع)",
+                    eventName = "SupplierPaymentMade",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""2101"",         ""description"": ""تسوية حساب المورّد (L3 control)"", ""amountFormula"": ""payment.amount"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""1101-CASH-001"", ""description"": ""الصندوق - دفع لمورّد"",            ""amountFormula"": ""payment.amount"" }
+                        ],
+                        ""narration"": ""دفع لمورّد {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] },
+                      ""_note"": ""الترحيل الفعلي يستخدم bankAccountId من السند + sub-ledger المورّد. هذه القاعدة للتوثيق فقط.""
+                    }"
+                }
+            };
+
+            using var conn = db.CreateConnection();
+            var updated = new List<object>();
+
+            foreach (var tmpl in ruleTemplates)
+            {
+                // Find the rule by event name. We update the FIRST enabled
+                // rule for each event (rules are unique per event in the
+                // standard seed).
+                var existing = await conn.QueryFirstOrDefaultAsync<(Guid id, string ruleJson)?>(@"
+                    SELECT id, rule_json
+                    FROM business_rules
+                    WHERE event_name = @eventName AND is_template = true
+                    LIMIT 1;",
+                    new { eventName = tmpl.eventName });
+
+                if (existing is null)
+                {
+                    // Create the rule
+                    var newId = Guid.NewGuid();
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO business_rules (id, name, description, event_name, enabled, priority, rule_json, is_template, created_at, updated_at)
+                        VALUES (@id, @name, @description, @eventName, true, 10, @ruleJson::jsonb, true, NOW(), NOW());",
+                        new
+                        {
+                            id = newId,
+                            name = tmpl.name,
+                            description = $"Sprint 33 auto-fixed: {tmpl.name}",
+                            eventName = tmpl.eventName,
+                            ruleJson = tmpl.ruleJson
+                        });
+                    updated.Add(new { eventName = tmpl.eventName, action = "created", name = tmpl.name });
+                }
+                else
+                {
+                    await conn.ExecuteAsync(@"
+                        UPDATE business_rules
+                        SET rule_json = @ruleJson::jsonb,
+                            name = @name,
+                            updated_at = NOW()
+                        WHERE id = @id;",
+                        new
+                        {
+                            id = existing.Value.id,
+                            name = tmpl.name,
+                            ruleJson = tmpl.ruleJson
+                        });
+                    updated.Add(new { eventName = tmpl.eventName, action = "updated", name = tmpl.name });
+                }
+            }
+
+            return Results.Ok(new
+            {
+                fixedAt = DateTime.UtcNow,
+                rulesUpdated = updated.Count,
+                details = updated
+            });
+        });
     }
 }

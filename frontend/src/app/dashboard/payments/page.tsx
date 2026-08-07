@@ -121,9 +121,31 @@ function PaymentsPageInner() {
       ]);
       setVouchers(vRes.data);
       setSuppliers(cRes.data);
-      const assets: BankAccount[] = (aRes.data || [])
-        .filter((a: any) => a.accountType === "Asset" && (a.accountClass === "detail" || a.accountClass === undefined))
-        .map((a: any) => ({
+      // Sprint 33 hotfix — the previous code took aRes.data directly,
+      // which for our tree API means only the 6 L1 roots. The payment
+      // form's "bank account" dropdown then showed only "1 - الأصول"
+      // because that's the only L1 with accountType=Asset. The user
+      // had no way to pick a specific cash/bank sub-ledger.
+      //
+      // Fix: flatten the tree, then filter to Asset accounts that are
+      // POSTABLE (L4 sub-ledgers under 1101 Cash / 1102 Bank, plus
+      // any other postable Asset accounts the admin may have added).
+      const raw = Array.isArray(aRes.data) ? aRes.data : (aRes.data?.data || []);
+      const flat: any[] = [];
+      const walk = (n: any) => {
+        const { children, ...rest } = n;
+        flat.push(rest);
+        if (Array.isArray(children)) children.forEach(walk);
+      };
+      raw.forEach(walk);
+
+      const assets: BankAccount[] = flat
+        .filter((a) =>
+          a.accountType === "Asset" &&
+          a.isPostable === true &&
+          a.isActive !== false
+        )
+        .map((a) => ({
           id: a.id,
           code: a.code,
           name: a.name,
@@ -431,7 +453,7 @@ function PaymentsPageInner() {
                 </select>
                 {bankAccounts.length === 0 && (
                   <p className="text-xs text-amber-700 mt-1">
-                    ⚠ لا توجد حسابات أصول مفصّلة. أضف حساب صندوق (كود 1000) من شجرة الحسابات.
+                    ⚠ لا توجد حسابات أصول قابلة للترحيل. أضف حساب L4 فرعي للصندوق (1101-CASH-XXX) أو البنك (1102-BANK-XXX) من شجرة الحسابات.
                   </p>
                 )}
               </div>
