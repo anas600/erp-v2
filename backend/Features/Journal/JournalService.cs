@@ -621,6 +621,17 @@ public class JournalService
     /// the JE to the journal but no one has yet approved/posted the
     /// JE to the GL), so rolling it back to draft lets the data-entry
     /// accountant re-edit and re-post it.
+    ///
+    /// Source detection — the rule engine sets source="rule:UUID"
+    /// (the rule's own id) and the voucher code sets source="receipt"
+    /// or "payment" (a plain string for the voucher type). For rules
+    /// we have to dig into the narration to find the source document
+    /// number, because the rule id doesn't tell us which invoice/voucher
+    /// it processed. The narration is a stable, human-readable format:
+    ///   "فاتورة مبيعات رقم INV-S-2026-0007 - Customer Name"
+    ///   "فاتورة مشتريات رقم INV-P-2026-0003 - Supplier Name"
+    ///   "سند قبض RV-2026-0005 - Customer Name (RV-005)"
+    ///   "سند صرف PV-2026-0002 - Supplier Name (PV-002)"
     /// </summary>
     private async Task RestoreSourceForDeletedEntryAsync(
         System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
@@ -681,6 +692,89 @@ public class JournalService
             if (!Guid.TryParse(invoiceIdStr, out var invoiceId)) return;
 
             await ReverseInvoicePostingAsync(conn, tx, invoiceId);
+        }
+        else if (source.StartsWith("rule:"))
+        {
+            // Rule-generated entry — parse the narration to find the
+            // source document number, then look it up.
+            var narration = await conn.QuerySingleOrDefaultAsync<string?>(@"
+                SELECT narration FROM journal_entries WHERE id = @id;",
+                new { id = entryId }, tx);
+            if (string.IsNullOrWhiteSpace(narration)) return;
+
+            // INV-?-YYYY-NNNN (sales INV-S, purchase INV-P) — invoice rule
+            var invMatch = System.Text.RegularExpressions.Regex.Match(
+                narration, @"INV-[SP]-\d{4}-\d{4}");
+            if (invMatch.Success)
+            {
+                var invoiceNumber = invMatch.Value;
+                var inv = await conn.QuerySingleOrDefaultAsync<(Guid id, string status, string invoice_type)?>(@"
+                    SELECT id, status, invoice_type FROM invoices
+                    WHERE invoice_number = @num LIMIT 1;",
+                    new { num = invoiceNumber }, tx);
+                if (inv is null) return;
+
+                // Only roll back if invoice is currently in 'posted' state.
+                // If it's already 'paid' / 'partiallypaid' / 'cancelled',
+                // we leave it alone (a payment has been applied on top,
+                // and rolling back the invoice would orphan the payment).
+                if (inv.Value.status == "posted")
+                {
+                    await ReverseInvoicePostingAsync(conn, tx, inv.Value.id);
+                }
+                return;
+            }
+
+            // RV-YYYY-NNNN — receipt rule (the narration has "سند قبض RV-...")
+            var rvMatch = System.Text.RegularExpressions.Regex.Match(
+                narration, @"RV-\d{4}-\d{4}");
+            if (rvMatch.Success)
+            {
+                var rvNumber = rvMatch.Value;
+                var rv = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid? invoice_id, decimal amount)?>(@"
+                    SELECT id, invoice_id, amount FROM receipt_vouchers
+                    WHERE voucher_number = @num LIMIT 1;",
+                    new { num = rvNumber }, tx);
+                if (rv is null) return;
+
+                await conn.ExecuteAsync(@"
+                    UPDATE receipt_vouchers
+                    SET status = 'draft', posted_at = NULL, journal_entry_id = NULL
+                    WHERE id = @id;",
+                    new { id = rv.Value.id }, tx);
+
+                if (rv.Value.invoice_id.HasValue)
+                {
+                    await RestoreInvoiceAmountPaidAsync(
+                        conn, tx, rv.Value.invoice_id.Value, -rv.Value.amount);
+                }
+                return;
+            }
+
+            // PV-YYYY-NNNN — payment rule
+            var pvMatch = System.Text.RegularExpressions.Regex.Match(
+                narration, @"PV-\d{4}-\d{4}");
+            if (pvMatch.Success)
+            {
+                var pvNumber = pvMatch.Value;
+                var pv = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid? invoice_id, decimal amount)?>(@"
+                    SELECT id, invoice_id, amount FROM payment_vouchers
+                    WHERE voucher_number = @num LIMIT 1;",
+                    new { num = pvNumber }, tx);
+                if (pv is null) return;
+
+                await conn.ExecuteAsync(@"
+                    UPDATE payment_vouchers
+                    SET status = 'draft', posted_at = NULL, journal_entry_id = NULL
+                    WHERE id = @id;",
+                    new { id = pv.Value.id }, tx);
+
+                if (pv.Value.invoice_id.HasValue)
+                {
+                    await RestoreInvoiceAmountPaidAsync(
+                        conn, tx, pv.Value.invoice_id.Value, -pv.Value.amount);
+                }
+            }
         }
     }
 
