@@ -332,8 +332,7 @@ public class InvoiceService
                     subtotal = @subtotal,
                     tax_amount = @taxAmount,
                     total = @total,
-                    intercompany_company_id = @intercompanyCompanyId,
-                    updated_at = NOW()
+                    intercompany_company_id = @intercompanyCompanyId
                 WHERE id = @id;",
                 new
                 {
