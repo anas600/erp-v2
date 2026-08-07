@@ -212,7 +212,12 @@ export default function JournalPage() {
   // opposite debits/credits neutralizes the effect. The
   // original is marked status='reversed' for display.
   const reverseEntry = async (id: string) => {
-    if (!confirm("عكس هذا القيد المرحّل؟\n\nسيُنشأ قيد عكسي جديد يلغي تأثير القيد الأصلي (دون حذفه). هذا هو الإجراء المحاسبي الصحيح.")) return;
+    if (!confirm(
+      "عكس هذا القيد المرحّل؟\n\n" +
+      "سيُنشأ قيد عكسي جديد يلغي تأثير القيد الأصلي (دون حذفه) — هذا هو الإجراء المحاسبي الصحيح.\n\n" +
+      "في حال ارتبط القيد بسند قبض/صرف، سيُعاد السند إلى مسودة وسيُعاد المبلغ إلى الفاتورة الأصلية (بحالة 'مدفوعة جزئياً' أو 'مفتوحة').\n\n" +
+      "هذا الإجراء لا يحذف أي بيانات — كل شيء قابل للمراجعة من دفتر الأستاذ."
+    )) return;
     try {
       await api.post(`/journal/${id}/reverse`);
       await load();
