@@ -5,11 +5,18 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { prewarmBackend } from "@/lib/api";
 import {
   LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, ScrollText as ScrollTextIcon
 } from "lucide-react";
 // WakeupBanner removed in Sprint 33 hotfix v3 — the retry script it
 // coordinated with was removed because it slowed the system down.
+//
+// Sprint 34 hotfix — replaced the explicit banner with a silent
+// pre-warm + single-shot retry. The api.ts response interceptor now
+// retries a 502/503/504 GET request once after 3 seconds. Combined
+// with the pre-warm call below, the user almost never sees a
+// cold-start error.
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, companies, activeCompany, loading, logout, switchCompany } = useAuth();
@@ -145,6 +152,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!loading && !user) router.push("/auth/login");
   }, [user, loading, router]);
+
+  // Pre-warm the backend on mount (fire-and-forget). Render's free
+  // tier spins down the service after ~15 min of inactivity; this
+  // first GET wakes it up so the user's actual page loads don't
+  // hit a 502. The promise is cached (max once per 5 min) so it's
+  // cheap to call from every page mount.
+  useEffect(() => {
+    prewarmBackend();
+  }, []);
 
   if (loading) {
     return (
