@@ -157,11 +157,11 @@ export default function ProjectsPage() {
     <div>
       <div className="flex items-center justify-between mb-4 gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <FolderKanban size={24} className="text-primary-600" />
             المشاريع
           </h1>
-          <p className="text-sm text-gray-600 mt-1">إدارة المشاريع، التكاليف، والربحية</p>
+          <p className="text-sm text-ink-muted mt-1">إدارة المشاريع، التكاليف، والربحية</p>
         </div>
         <Link href="/dashboard/projects/new" className="btn-primary">
           <Plus size={18} />
@@ -174,9 +174,9 @@ export default function ProjectsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Search */}
           <div className="lg:col-span-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">بحث</label>
-            <div className="flex items-center gap-1 px-2 py-1.5 border border-gray-300 rounded-md bg-white">
-              <Search size={14} className="text-gray-400" />
+            <label className="block text-xs font-medium text-ink-muted mb-1">بحث</label>
+            <div className="flex items-center gap-1 px-2 py-1.5 border border-edge rounded-md bg-canvas dark:bg-neutral-900">
+              <Search size={14} className="text-ink-subtle" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -184,7 +184,7 @@ export default function ProjectsPage() {
                 className="flex-1 text-sm outline-none bg-transparent"
               />
               {search && (
-                <button type="button" onClick={() => setSearch("")} className="text-gray-400 hover:text-red-600">
+                <button type="button" onClick={() => setSearch("")} className="text-ink-subtle hover:text-red-600">
                   <X size={14} />
                 </button>
               )}
@@ -192,7 +192,7 @@ export default function ProjectsPage() {
           </div>
           {/* Type */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">النوع</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">النوع</label>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
@@ -205,7 +205,7 @@ export default function ProjectsPage() {
           </div>
           {/* Status */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">الحالة</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">الحالة</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -218,7 +218,7 @@ export default function ProjectsPage() {
           </div>
           {/* Customer */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">العميل</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">العميل</label>
             <select
               value={customerFilter}
               onChange={(e) => setCustomerFilter(e.target.value)}
@@ -235,7 +235,7 @@ export default function ProjectsPage() {
           </div>
         </div>
         {(typeFilter || statusFilter || customerFilter || search) && (
-          <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+          <div className="mt-3 text-xs text-ink-muted flex items-center gap-2">
             <span>النتائج: {filtered.length} من {projects.length}</span>
             <button
               type="button"
@@ -255,7 +255,7 @@ export default function ProjectsPage() {
           <Loader2 className="animate-spin text-primary-500" size={32} />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center text-gray-500 py-8 card">
+        <div className="text-center text-ink-muted py-8 card">
           {projects.length === 0
             ? "لا توجد مشاريع. أنشئ مشروعك الأول للبدء."
             : "لا توجد نتائج تطابق الفلاتر"}
@@ -266,32 +266,32 @@ export default function ProjectsPage() {
           <div className="hidden md:block card overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الكود</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الاسم</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">النوع</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الحالة</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">العميل</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">قيمة العقد</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">التاريخ</th>
+                <tr className="bg-raised border-b border-edge">
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">الكود</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">الاسم</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">النوع</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">الحالة</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">العميل</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">قيمة العقد</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">التاريخ</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((p) => (
                   <tr
                     key={p.id}
-                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    className="border-b border-edge hover:bg-raised cursor-pointer"
                     onClick={() => (window.location.href = `/dashboard/projects/${p.id}`)}
                   >
                     <td className="py-2 px-3 font-mono text-xs">{p.code}</td>
                     <td className="py-2 px-3 font-medium">{p.nameAr || p.name}</td>
                     <td className="py-2 px-3"><ProjectTypeBadge type={p.type} /></td>
                     <td className="py-2 px-3"><StatusBadge status={p.status} /></td>
-                    <td className="py-2 px-3 text-gray-600">{p.customerName || "—"}</td>
+                    <td className="py-2 px-3 text-ink-muted">{p.customerName || "—"}</td>
                     <td className="py-2 px-3 text-left font-mono" dir="ltr">
                       {formatNumber(p.contractValue ?? p.budget)}
                     </td>
-                    <td className="py-2 px-3 text-gray-500 text-xs">
+                    <td className="py-2 px-3 text-ink-muted text-xs">
                       {formatDate(p.startDate)}
                     </td>
                   </tr>
@@ -311,7 +311,7 @@ export default function ProjectsPage() {
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-xs text-gray-500">{p.code}</span>
+                      <span className="font-mono text-xs text-ink-muted">{p.code}</span>
                     </div>
                     <div className="font-semibold truncate">{p.nameAr || p.name}</div>
                   </div>
@@ -320,12 +320,12 @@ export default function ProjectsPage() {
                     <StatusBadge status={p.status} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-2">
+                <div className="grid grid-cols-2 gap-2 text-xs text-ink-muted mt-2">
                   <div>
-                    <span className="text-gray-500">العميل:</span> {p.customerName || "—"}
+                    <span className="text-ink-muted">العميل:</span> {p.customerName || "—"}
                   </div>
                   <div className="text-left" dir="ltr">
-                    <span className="text-gray-500">القيمة:</span>{" "}
+                    <span className="text-ink-muted">القيمة:</span>{" "}
                     <span className="font-mono font-semibold">{formatNumber(p.contractValue ?? p.budget)}</span>
                   </div>
                 </div>

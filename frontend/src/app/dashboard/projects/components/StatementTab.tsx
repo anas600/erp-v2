@@ -59,7 +59,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
 
   if (loading) {
     return (
-      <div className="card flex items-center justify-center py-12 text-gray-500 gap-2">
+      <div className="card flex items-center justify-center py-12 text-ink-muted gap-2">
         <Loader2 className="animate-spin" size={20} />
         جاري تحميل كشف الحساب...
       </div>
@@ -75,7 +75,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
   }
   if (!data) {
     return (
-      <div className="card text-center text-gray-500 py-8 text-sm">
+      <div className="card text-center text-ink-muted py-8 text-sm">
         لا توجد بيانات
       </div>
     );
@@ -159,7 +159,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
   // back, show a "no data" hint.
   if (rows.length === 0) {
     return (
-      <div className="card text-center text-gray-500 py-8 text-sm">
+      <div className="card text-center text-ink-muted py-8 text-sm">
         لا توجد بيانات في كشف الحساب
       </div>
     );
@@ -170,7 +170,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
       <div className="card">
         <h3 className="font-semibold flex items-center gap-2 mb-4">
           <FileBarChart size={16} className="text-primary-600" />
-          كشف حساب العميل — <span className="text-gray-700">{projectName}</span>
+          كشف حساب العميل — <span className="text-ink-muted">{projectName}</span>
         </h3>
 
         <div className="space-y-2">
@@ -182,7 +182,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
                 <div
                   className={cn(
                     "flex items-center justify-between gap-3 px-3 py-2 rounded-md",
-                    isLast ? "bg-primary-50 border border-primary-200" : "hover:bg-gray-50"
+                    isLast ? "bg-primary-50 border border-primary-200" : "hover:bg-raised"
                   )}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -192,8 +192,8 @@ export default function StatementTab({ projectId, projectName }: Props) {
                         r.tone === "good" && "text-green-600",
                         r.tone === "bad" && "text-red-600",
                         r.tone === "warn" && "text-amber-600",
-                        r.tone === "info" && "text-blue-600",
-                        r.tone === "default" && "text-gray-500"
+                        r.tone === "info" && "text-primary-700",
+                        r.tone === "default" && "text-ink-muted"
                       )}
                     />
                     <div className="min-w-0">
@@ -206,7 +206,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
                         {r.label}
                       </p>
                       {r.hint && (
-                        <p className="text-xs text-gray-500">{r.hint}</p>
+                        <p className="text-xs text-ink-muted">{r.hint}</p>
                       )}
                     </div>
                   </div>
@@ -220,14 +220,14 @@ export default function StatementTab({ projectId, projectName }: Props) {
                       r.tone === "good" && !isLast && "text-green-700",
                       r.tone === "bad" && !isLast && "text-red-700",
                       r.tone === "warn" && !isLast && "text-amber-700",
-                      r.tone === "info" && !isLast && "text-blue-700"
+                      r.tone === "info" && !isLast && "text-primary-700"
                     )}
                   >
                     {formatNumber(r.value)} د.ل
                   </div>
                 </div>
                 {idx < rows.length - 1 && (
-                  <div className="h-px bg-gray-100 mx-3" />
+                  <div className="h-px bg-raised mx-3" />
                 )}
               </div>
             );
@@ -235,7 +235,7 @@ export default function StatementTab({ projectId, projectName }: Props) {
         </div>
       </div>
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-ink-muted text-center">
         آخر تحديث: {new Date().toLocaleString("en-GB")}
       </p>
     </div>

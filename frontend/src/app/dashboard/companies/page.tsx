@@ -74,8 +74,8 @@ export default function CompaniesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">الشركات</h1>
-          <p className="text-sm text-gray-600 mt-1">إدارة الشركة القابضة والشركات التابعة</p>
+          <h1 className="text-2xl font-bold text-ink-strong">الشركات</h1>
+          <p className="text-sm text-ink-muted mt-1">إدارة الشركة القابضة والشركات التابعة</p>
         </div>
         {user?.isSuperAdmin && (
           <button onClick={() => setShowForm(true)} className="btn-primary">
@@ -129,7 +129,7 @@ export default function CompaniesPage() {
               ))}
               {companies.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-gray-500 py-6">لا توجد شركات</td>
+                  <td colSpan={6} className="text-center text-ink-muted py-6">لا توجد شركات</td>
                 </tr>
               )}
             </tbody>
@@ -139,10 +139,10 @@ export default function CompaniesPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">شركة جديدة</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>

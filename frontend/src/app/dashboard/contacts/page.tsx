@@ -211,7 +211,7 @@ function ContactsPageInner() {
   // is the same in both cases, the *colour* is what the user expects: red
   // = "money I need to track/collect/pay", green = settled or in our favour.
   const balanceColor = (c: Contact, bal?: ContactBalance) => {
-    if (!bal || Math.abs(bal.balance) < 0.01) return "text-gray-500";
+    if (!bal || Math.abs(bal.balance) < 0.01) return "text-ink-muted";
     return "text-red-600 font-bold";
   };
 
@@ -219,11 +219,11 @@ function ContactsPageInner() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Users size={24} className="text-primary-600" />
             العملاء والموردون
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             كتالوج العملاء والموردين — اضغط على أي صف لعرض كشف الحساب
           </p>
         </div>
@@ -250,7 +250,7 @@ function ContactsPageInner() {
                 className={`px-4 py-2 rounded-md text-sm font-medium ${
                   typeFilter === t.v
                     ? "bg-primary-600 text-white"
-                    : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                    : "bg-canvas dark:bg-neutral-900 text-ink-muted border border-edge hover:bg-raised"
                 }`}
               >
                 {t.l}
@@ -258,19 +258,19 @@ function ContactsPageInner() {
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+          <label className="flex items-center gap-2 text-sm text-ink-muted cursor-pointer select-none">
             <input
               type="checkbox"
               checked={onlyWithBalance}
               onChange={(e) => setOnlyWithBalance(e.target.checked)}
-              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              className="rounded border-edge text-primary-600 focus:ring-primary-500"
             />
             لديهم رصيد
           </label>
 
           <div className="flex-1 min-w-[200px]">
             <div className="relative">
-              <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-subtle pointer-events-none" />
               <input
                 className="input pr-9"
                 placeholder="بحث بالاسم أو الكود أو الرقم الضريبي..."
@@ -288,8 +288,8 @@ function ContactsPageInner() {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Users size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <Users size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>{onlyWithBalance ? "لا توجد جهات عليها رصيد حالياً" : "لا توجد جهات مسجلة"}</p>
           </div>
         ) : (
@@ -319,17 +319,17 @@ function ContactsPageInner() {
                       <td>
                         <div className="font-medium">{c.nameAr || c.name}</div>
                         {c.nameAr && c.name !== c.nameAr && (
-                          <div className="text-xs text-gray-500" dir="ltr">{c.name}</div>
+                          <div className="text-xs text-ink-muted" dir="ltr">{c.name}</div>
                         )}
                       </td>
                       <td>
                         <span className={`badge ${TYPE_BADGE[c.type]}`}>{TYPE_LABELS[c.type]}</span>
                       </td>
-                      <td className="text-sm text-gray-600 font-mono" dir="ltr">{c.taxId || "—"}</td>
-                      <td className="text-sm text-gray-600" dir="ltr">{c.phone || "—"}</td>
+                      <td className="text-sm text-ink-muted font-mono" dir="ltr">{c.taxId || "—"}</td>
+                      <td className="text-sm text-ink-muted" dir="ltr">{c.phone || "—"}</td>
                       <td className={`font-mono text-left ${balanceColor(c, bal)}`} dir="ltr">
                         {balanceLoading && !bal ? (
-                          <span className="inline-block w-12 h-4 bg-gray-100 animate-pulse rounded" />
+                          <span className="inline-block w-12 h-4 bg-raised animate-pulse rounded" />
                         ) : bal ? (
                           formatNumber(bal.balance)
                         ) : (
@@ -347,7 +347,7 @@ function ContactsPageInner() {
                           </button>
                           <button
                             onClick={() => openEdit(c)}
-                            className="text-gray-600 hover:bg-gray-100 p-1 rounded"
+                            className="text-ink-muted hover:bg-raised p-1 rounded"
                             title="تعديل"
                           >
                             <Edit size={14} />
@@ -365,13 +365,13 @@ function ContactsPageInner() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <FileText size={20} className="text-primary-600" />
                 {editing ? "تعديل بيانات الجهة" : "جهة جديدة"}
               </h2>
-              <button onClick={() => { setShowForm(false); resetForm(); }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setShowForm(false); resetForm(); }} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>

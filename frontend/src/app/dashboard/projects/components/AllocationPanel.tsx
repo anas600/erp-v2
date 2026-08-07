@@ -173,7 +173,7 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
               <FolderKanban size={16} className="text-primary-600" />
               فواتير الشراء غير المخصصة
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-ink-muted mt-0.5">
               حدد الفواتير التي تريد تحميلها على هذا المشروع
             </p>
           </div>
@@ -189,12 +189,12 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-8 text-gray-500 text-sm gap-2">
+          <div className="flex items-center justify-center py-8 text-ink-muted text-sm gap-2">
             <Loader2 className="animate-spin" size={16} />
             جاري التحميل...
           </div>
         ) : unallocated.length === 0 ? (
-          <p className="text-sm text-gray-500 py-6 text-center">
+          <p className="text-sm text-ink-muted py-6 text-center">
             لا توجد فواتير شراء بدون تخصيص. كل الفواتير إما مُحمَّلة على مشروع أو لم تُرحَّل بعد.
           </p>
         ) : (
@@ -203,12 +203,12 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200">
+                  <tr className="border-b border-edge">
                     <th className="py-2 text-right w-8">
                       <button
                         type="button"
                         onClick={toggleAll}
-                        className="text-gray-500 hover:text-primary-600"
+                        className="text-ink-muted hover:text-primary-600"
                         aria-label="تحديد الكل"
                       >
                         {selected.size === unallocated.length && unallocated.length > 0 ? (
@@ -218,17 +218,17 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
                         )}
                       </button>
                     </th>
-                    <th className="text-right py-2 font-semibold text-gray-600">رقم الفاتورة</th>
-                    <th className="text-right py-2 font-semibold text-gray-600">التاريخ</th>
-                    <th className="text-right py-2 font-semibold text-gray-600">المورّد</th>
-                    <th className="text-left py-2 font-semibold text-gray-600">المبلغ</th>
+                    <th className="text-right py-2 font-semibold text-ink-muted">رقم الفاتورة</th>
+                    <th className="text-right py-2 font-semibold text-ink-muted">التاريخ</th>
+                    <th className="text-right py-2 font-semibold text-ink-muted">المورّد</th>
+                    <th className="text-left py-2 font-semibold text-ink-muted">المبلغ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {unallocated.map((inv) => (
                     <tr
                       key={inv.id}
-                      className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                      className={`border-b border-edge cursor-pointer hover:bg-raised ${
                         selected.has(inv.id) ? "bg-primary-50" : ""
                       }`}
                       onClick={() => toggle(inv.id)}
@@ -237,7 +237,7 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
                         {selected.has(inv.id) ? (
                           <CheckSquare size={16} className="text-primary-600" />
                         ) : (
-                          <Square size={16} className="text-gray-400" />
+                          <Square size={16} className="text-ink-subtle" />
                         )}
                       </td>
                       <td className="py-2 font-mono text-xs">{inv.invoiceNumber}</td>
@@ -267,7 +267,7 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
                   <label
                     key={inv.id}
                     className={`block border rounded-md p-3 cursor-pointer ${
-                      isSel ? "border-primary-500 bg-primary-50" : "border-gray-200"
+                      isSel ? "border-primary-500 bg-primary-50" : "border-edge"
                     }`}
                   >
                     <div className="flex items-start gap-2">
@@ -279,13 +279,13 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs text-gray-600">{inv.invoiceNumber}</span>
+                          <span className="font-mono text-xs text-ink-muted">{inv.invoiceNumber}</span>
                           <span className="font-mono text-sm font-semibold" dir="ltr">
                             {formatNumber(inv.total)}
                           </span>
                         </div>
                         <div className="text-sm mt-1 truncate">{inv.partyNameAr || inv.partyName}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{formatDate(inv.invoiceDate)}</div>
+                        <div className="text-xs text-ink-muted mt-0.5">{formatDate(inv.invoiceDate)}</div>
                       </div>
                     </div>
                   </label>
@@ -303,18 +303,18 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
             <FolderKanban size={16} className="text-primary-600" />
             الفواتير المخصصة لهذا المشروع
           </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-ink-muted mt-0.5">
             {allocated.length} فاتورة محمَّلة — اضغط "إزالة" لإلغاء التخصيص
           </p>
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-8 text-gray-500 text-sm gap-2">
+          <div className="flex items-center justify-center py-8 text-ink-muted text-sm gap-2">
             <Loader2 className="animate-spin" size={16} />
             جاري التحميل...
           </div>
         ) : allocated.length === 0 ? (
-          <p className="text-sm text-gray-500 py-6 text-center">
+          <p className="text-sm text-ink-muted py-6 text-center">
             لا توجد فواتير مخصصة لهذا المشروع بعد
           </p>
         ) : (
@@ -323,17 +323,17 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-right py-2 font-semibold text-gray-600">رقم الفاتورة</th>
-                    <th className="text-right py-2 font-semibold text-gray-600">التاريخ</th>
-                    <th className="text-right py-2 font-semibold text-gray-600">المورّد</th>
-                    <th className="text-left py-2 font-semibold text-gray-600">المبلغ</th>
-                    <th className="text-left py-2 font-semibold text-gray-600 w-16">إجراء</th>
+                  <tr className="border-b border-edge">
+                    <th className="text-right py-2 font-semibold text-ink-muted">رقم الفاتورة</th>
+                    <th className="text-right py-2 font-semibold text-ink-muted">التاريخ</th>
+                    <th className="text-right py-2 font-semibold text-ink-muted">المورّد</th>
+                    <th className="text-left py-2 font-semibold text-ink-muted">المبلغ</th>
+                    <th className="text-left py-2 font-semibold text-ink-muted w-16">إجراء</th>
                   </tr>
                 </thead>
                 <tbody>
                   {allocated.map((inv) => (
-                    <tr key={inv.id} className="border-b border-gray-100">
+                    <tr key={inv.id} className="border-b border-edge">
                       <td className="py-2 font-mono text-xs">{inv.invoiceNumber}</td>
                       <td className="py-2">{formatDate(inv.invoiceDate)}</td>
                       <td className="py-2">{inv.partyNameAr || inv.partyName}</td>
@@ -359,17 +359,17 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
             {/* Mobile cards */}
             <div className="md:hidden space-y-2">
               {allocated.map((inv) => (
-                <div key={inv.id} className="border border-gray-200 rounded-md p-3">
+                <div key={inv.id} className="border border-edge rounded-md p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs text-gray-600">{inv.invoiceNumber}</span>
+                        <span className="font-mono text-xs text-ink-muted">{inv.invoiceNumber}</span>
                         <span className="font-mono text-sm font-semibold" dir="ltr">
                           {formatNumber(inv.total)}
                         </span>
                       </div>
                       <div className="text-sm mt-1 truncate">{inv.partyNameAr || inv.partyName}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">{formatDate(inv.invoiceDate)}</div>
+                      <div className="text-xs text-ink-muted mt-0.5">{formatDate(inv.invoiceDate)}</div>
                     </div>
                     <button
                       type="button"

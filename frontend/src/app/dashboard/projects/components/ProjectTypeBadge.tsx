@@ -15,13 +15,13 @@ export type ProjectType = "construction" | "supply" | "service" | "maintenance" 
 
 const META: Record<string, { label: string; cls: string; Icon: any }> = {
   construction: { label: "مقاولات",   cls: "bg-amber-100 text-amber-800 border border-amber-200", Icon: Building2 },
-  supply:       { label: "توريد",     cls: "bg-blue-100 text-blue-800 border border-blue-200",     Icon: Package },
+  supply:       { label: "توريد",     cls: "bg-primary-100 text-primary-800 border border-primary-200",     Icon: Package },
   service:      { label: "خدمات",     cls: "bg-purple-100 text-purple-800 border border-purple-200",Icon: Briefcase },
   maintenance:  { label: "صيانة",     cls: "bg-teal-100 text-teal-800 border border-teal-200",    Icon: Wrench },
 };
 
 export default function ProjectTypeBadge({ type, withIcon = true }: { type?: string | null; withIcon?: boolean }) {
-  const meta = (type && META[type]) || { label: type || "—", cls: "bg-gray-100 text-gray-700 border border-gray-200", Icon: Briefcase };
+  const meta = (type && META[type]) || { label: type || "—", cls: "bg-raised text-ink-muted border border-edge", Icon: Briefcase };
   const Icon = meta.Icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${meta.cls}`}>

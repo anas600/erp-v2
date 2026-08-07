@@ -81,16 +81,16 @@ export default function IntercompanyEliminationPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <FileSpreadsheet size={24} className="text-primary-600" />
             تقرير استبعاد المعاملات البينية
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             المعاملات بين شركات المجموعة التي يجب استبعادها عند إعداد القوائم الموحدة
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">حتى تاريخ:</label>
+          <label className="text-sm text-ink-muted">حتى تاريخ:</label>
           <input
             type="date"
             className="input"
@@ -110,22 +110,22 @@ export default function IntercompanyEliminationPage() {
           {/* Summary cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="card">
-              <div className="text-sm text-gray-500">إجمالي المعاملات البينية</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1" dir="ltr">
+              <div className="text-sm text-ink-muted">إجمالي المعاملات البينية</div>
+              <div className="text-2xl font-bold text-ink-strong mt-1" dir="ltr">
                 {fmt(report.totalEliminations)}
               </div>
-              <div className="text-xs text-gray-500 mt-1">{report.currency}</div>
+              <div className="text-xs text-ink-muted mt-1">{report.currency}</div>
             </div>
             <div className="card">
-              <div className="text-sm text-gray-500">عدد المعاملات</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1" dir="ltr">
+              <div className="text-sm text-ink-muted">عدد المعاملات</div>
+              <div className="text-2xl font-bold text-ink-strong mt-1" dir="ltr">
                 {report.pairs.length}
               </div>
-              <div className="text-xs text-gray-500 mt-1">معاملة بينية</div>
+              <div className="text-xs text-ink-muted mt-1">معاملة بينية</div>
             </div>
             <div className="card">
-              <div className="text-sm text-gray-500">تاريخ التقرير</div>
-              <div className="text-lg font-semibold text-gray-900 mt-1">
+              <div className="text-sm text-ink-muted">تاريخ التقرير</div>
+              <div className="text-lg font-semibold text-ink-strong mt-1">
                 {dateFmt(report.asOfDate)}
               </div>
             </div>
@@ -134,7 +134,7 @@ export default function IntercompanyEliminationPage() {
           {/* By-company breakdown */}
           {Object.keys(report.byCompany).length > 0 && (
             <div className="card mb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              <h3 className="text-sm font-semibold text-ink-muted mb-3">
                 التوزيع حسب الشركة
               </h3>
               <div className="space-y-2">
@@ -152,7 +152,7 @@ export default function IntercompanyEliminationPage() {
 
           {/* Detailed table */}
           <div className="card">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            <h3 className="text-sm font-semibold text-ink-muted mb-3">
               تفاصيل المعاملات البينية
             </h3>
             {loading ? (
@@ -176,11 +176,11 @@ export default function IntercompanyEliminationPage() {
                       <td>{dateFmt(p.date)}</td>
                       <td>
                         <div className="font-mono font-semibold">{p.primaryCompanyCode}</div>
-                        <div className="text-xs text-gray-500">{p.primaryCompanyName}</div>
+                        <div className="text-xs text-ink-muted">{p.primaryCompanyName}</div>
                       </td>
                       <td>
                         <div className="font-mono font-semibold">{p.mirrorCompanyCode}</div>
-                        <div className="text-xs text-gray-500">{p.mirrorCompanyName}</div>
+                        <div className="text-xs text-ink-muted">{p.mirrorCompanyName}</div>
                       </td>
                       <td className="font-mono" dir="ltr">
                         {fmt(p.amount)}
@@ -197,7 +197,7 @@ export default function IntercompanyEliminationPage() {
                   ))}
                   {report.pairs.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="text-center text-gray-500 py-6">
+                      <td colSpan={5} className="text-center text-ink-muted py-6">
                         لا توجد معاملات بينية في هذه الفترة
                       </td>
                     </tr>

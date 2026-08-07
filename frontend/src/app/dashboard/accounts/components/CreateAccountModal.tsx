@@ -192,12 +192,12 @@ export default function CreateAccountModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">حساب جديد</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-ink-subtle hover:text-ink-muted"
             type="button"
           >
             <X size={20} />
@@ -210,7 +210,7 @@ export default function CreateAccountModal({
             <label className="block text-sm font-medium mb-1">
               الحساب الأب
               {parentLocked && (
-                <span className="text-xs text-gray-500 mr-2">
+                <span className="text-xs text-ink-muted mr-2">
                   (محجوب — تم اختياره من الشجرة)
                 </span>
               )}
@@ -231,7 +231,7 @@ export default function CreateAccountModal({
           </div>
 
           {/* Level info */}
-          <div className="flex items-center gap-2 text-xs bg-blue-50 text-blue-800 p-2 rounded">
+          <div className="flex items-center gap-2 text-xs bg-primary-50 text-primary-800 p-2 rounded">
             <Info size={14} />
             <span>
               المستوى المحسوب تلقائياً:{" "}
@@ -247,7 +247,7 @@ export default function CreateAccountModal({
             <label className="block text-sm font-medium mb-1">الكود *</label>
             <div className="flex items-stretch gap-0" dir="ltr">
               {selectedParent && (
-                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-100 text-gray-700 font-mono text-sm">
+                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-edge bg-raised text-ink-muted font-mono text-sm">
                   {selectedParent.code}-
                 </span>
               )}
@@ -263,7 +263,7 @@ export default function CreateAccountModal({
               />
             </div>
             {fullCode && (
-              <p className="text-xs text-gray-500 mt-1" dir="ltr">
+              <p className="text-xs text-ink-muted mt-1" dir="ltr">
                 الكود الكامل: <span className="font-mono font-semibold">{fullCode}</span>
               </p>
             )}
@@ -319,7 +319,7 @@ export default function CreateAccountModal({
           </div>
 
           {/* IsPostable toggle — level-aware */}
-          <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+          <div className="border border-edge rounded-md p-3 bg-raised">
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -332,14 +332,14 @@ export default function CreateAccountModal({
                 <div className="text-sm font-medium">
                   قابل للترحيل المباشر
                   {forcedPostable !== null && (
-                    <span className="text-xs text-gray-500 mr-2">
+                    <span className="text-xs text-ink-muted mr-2">
                       ({forcedPostable
                         ? "إجباري — قابل للترحيل"
                         : "إجباري — غير قابل للترحيل"})
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-600 mt-1">
+                <p className="text-xs text-ink-muted mt-1">
                   {level === 1 || level === 2
                     ? "الحسابات من المستوى 1 و 2 هي حسابات تجميعية فقط ولا تقبل القيود المباشرة."
                     : level === 3

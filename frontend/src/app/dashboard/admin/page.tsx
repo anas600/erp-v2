@@ -204,11 +204,11 @@ export default function AdminPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Wrench size={24} className="text-primary-600" />
             أدوات المدير
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             إجراءات حساسة على قاعدة البيانات — تتطلب صلاحية المدير العام
           </p>
         </div>
@@ -223,7 +223,7 @@ export default function AdminPage() {
       {/* DB stats card */}
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-ink-muted flex items-center gap-2">
             <BarChart3 size={16} />
             إحصائيات قاعدة البيانات
           </h2>
@@ -239,14 +239,14 @@ export default function AdminPage() {
         {stats ? (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
             {Object.entries(stats).map(([k, v]) => (
-              <div key={k} className="bg-gray-50 rounded-md px-3 py-2">
-                <div className="text-xs text-gray-500" dir="ltr">{k}</div>
-                <div className="text-lg font-bold text-gray-900" dir="ltr">{v}</div>
+              <div key={k} className="bg-raised rounded-md px-3 py-2">
+                <div className="text-xs text-ink-muted" dir="ltr">{k}</div>
+                <div className="text-lg font-bold text-ink-strong" dir="ltr">{v}</div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ink-muted">
             {isSuperAdmin ? "جاري التحميل..." : "غير متاح — يلزم صلاحية المدير العام"}
           </p>
         )}
@@ -261,8 +261,8 @@ export default function AdminPage() {
               <Trash2 size={20} />
             </div>
             <div className="flex-1">
-              <h2 className="text-base font-semibold text-gray-900">تنظيف البيانات</h2>
-              <p className="text-sm text-gray-600 mt-1">
+              <h2 className="text-canvas font-semibold text-ink-strong">تنظيف البيانات</h2>
+              <p className="text-sm text-ink-muted mt-1">
                 يمسح كل الفواتير والقيود والسندات. يُصفّر أرصدة الحسابات.
                 يحتفظ بالهيكل (الشركات، الحسابات L1-L3، جهات الاتصال).
               </p>
@@ -303,8 +303,8 @@ export default function AdminPage() {
               <Database size={20} />
             </div>
             <div className="flex-1">
-              <h2 className="text-base font-semibold text-gray-900">بيانات تجريبية</h2>
-              <p className="text-sm text-gray-600 mt-1">
+              <h2 className="text-canvas font-semibold text-ink-strong">بيانات تجريبية</h2>
+              <p className="text-sm text-ink-muted mt-1">
                 ينشئ 5 عملاء + 3 موردين + 10 فواتير + 5 سندات قبض + 2 سندات صرف.
                 مفيد للعروض التوضيحية والاختبار.
               </p>
@@ -345,10 +345,10 @@ export default function AdminPage() {
               <AlertTriangle size={20} />
             </div>
             <div className="flex-1">
-              <h2 className="text-base font-semibold text-gray-900">
+              <h2 className="text-canvas font-semibold text-ink-strong">
                 إعادة تعيين للبيانات التجريبية
               </h2>
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-sm text-ink-muted mt-1">
                 يدمج العمليتين: يمسح كل البيانات الحالية ثم ينشئ البيانات التجريبية.
                 استخدم هذا الإجراء بعد العرض التوضيحي لإعادة النظام إلى حالة قابلة للاختبار.
               </p>
@@ -389,7 +389,7 @@ export default function AdminPage() {
           <TreePine size={20} />
           إعادة بناء دليل الحسابات الموحد
         </h2>
-        <p className="text-sm text-gray-700 mb-3">
+        <p className="text-sm text-ink-muted mb-3">
           يحذف جميع الحسابات (L1-L4) وجميع القيود اليومية المرتبطة ويُعيد بناء الهيكل الموحد الجديد
           (L1: 6، L2: 13، L3: 50 حساب) بأكواد صحيحة. استخدمه مرة واحدة لتطبيق الهيكل المقفل.
         </p>

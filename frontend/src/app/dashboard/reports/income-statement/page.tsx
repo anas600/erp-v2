@@ -50,17 +50,17 @@ export default function IncomeStatementPage() {
   }
 
   if (!report) {
-    return <div className="text-center text-gray-500">لا توجد بيانات</div>;
+    return <div className="text-center text-ink-muted">لا توجد بيانات</div>;
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
           <TrendingUp size={24} className="text-green-600" />
           قائمة الدخل
         </h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-ink-muted mt-1">
           {report.companyName} • الإيرادات والمصروفات خلال الفترة
         </p>
       </div>
@@ -71,7 +71,7 @@ export default function IncomeStatementPage() {
       <div className="card mb-4">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-gray-500" />
+            <Calendar size={16} className="text-ink-muted" />
             <span className="text-sm font-medium">من:</span>
             <input
               type="date"
@@ -113,7 +113,7 @@ export default function IncomeStatementPage() {
                 </tr>
               ))}
               {report.revenues.length === 0 && (
-                <tr><td colSpan={3} className="text-center text-gray-500 py-4">لا توجد إيرادات</td></tr>
+                <tr><td colSpan={3} className="text-center text-ink-muted py-4">لا توجد إيرادات</td></tr>
               )}
             </tbody>
             <tfoot>
@@ -145,7 +145,7 @@ export default function IncomeStatementPage() {
                 </tr>
               ))}
               {report.expenses.length === 0 && (
-                <tr><td colSpan={3} className="text-center text-gray-500 py-4">لا توجد مصروفات</td></tr>
+                <tr><td colSpan={3} className="text-center text-ink-muted py-4">لا توجد مصروفات</td></tr>
               )}
             </tbody>
             <tfoot>
@@ -178,7 +178,7 @@ export default function IncomeStatementPage() {
             {formatNumber(report.netIncome)}
           </span>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
+        <p className="text-xs text-ink-muted mt-2">
           📐 المعادلة: <strong>الإيرادات − المصروفات = صافي الدخل</strong> (Expenses = Revenues)
         </p>
       </div>

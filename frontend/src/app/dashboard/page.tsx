@@ -49,13 +49,13 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-primary-500" size={32} />
+        <Loader2 className="animate-spin text-primary-700" size={32} />
       </div>
     );
   }
 
   if (!tb || !is_) {
-    return <div className="text-center text-gray-500">لا توجد بيانات</div>;
+    return <div className="text-center text-ink-subtle py-12">لا توجد بيانات</div>;
   }
 
   const totalAssets = tb.lines
@@ -71,8 +71,8 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">لوحة التحكم</h1>
-        <p className="text-gray-600 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-ink-strong">لوحة التحكم</h1>
+        <p className="text-ink-muted text-sm mt-1">
           مرحباً {user?.fullNameAr || user?.fullName} • {activeCompany?.nameAr || activeCompany?.name}
         </p>
       </div>
@@ -82,56 +82,56 @@ export default function DashboardPage() {
           icon={Wallet}
           label="إجمالي الأصول"
           value={formatNumber(totalAssets)}
-          color="green"
+          color="success"
         />
         <StatCard
           icon={TrendingDown}
           label="إجمالي الخصوم"
           value={formatNumber(totalLiabilities)}
-          color="red"
+          color="danger"
         />
         <StatCard
           icon={Users}
           label="حقوق الملكية"
           value={formatNumber(totalEquity)}
-          color="blue"
+          color="brand"
         />
         <StatCard
           icon={is_.netIncome >= 0 ? TrendingUp : TrendingDown}
           label="صافي الدخل"
           value={formatNumber(is_.netIncome)}
-          color={is_.netIncome >= 0 ? "green" : "red"}
+          color={is_.netIncome >= 0 ? "success" : "danger"}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card">
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <BookOpen size={20} className="text-primary-600" />
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-ink-strong">
+            <BookOpen size={20} className="text-primary-700" />
             ملخص مالي
           </h2>
           <div className="space-y-2 text-sm">
-            <Row label="إجمالي الإيرادات" value={formatNumber(is_.totalRevenue)} valueClass="text-green-600" />
-            <Row label="إجمالي المصروفات" value={formatNumber(is_.totalExpense)} valueClass="text-red-600" />
-            <div className="border-t pt-2 mt-2"></div>
-            <Row label="صافي الدخل" value={formatNumber(is_.netIncome)} bold valueClass={is_.netIncome >= 0 ? "text-green-700" : "text-red-700"} />
+            <Row label="إجمالي الإيرادات" value={formatNumber(is_.totalRevenue)} valueClass="text-green-600 dark:text-green-400" />
+            <Row label="إجمالي المصروفات" value={formatNumber(is_.totalExpense)} valueClass="text-red-600 dark:text-red-400" />
+            <div className="border-t border-edge pt-2 mt-2"></div>
+            <Row label="صافي الدخل" value={formatNumber(is_.netIncome)} bold valueClass={is_.netIncome >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"} />
           </div>
         </div>
 
         <div className="card">
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <FileText size={20} className="text-primary-600" />
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-ink-strong">
+            <FileText size={20} className="text-primary-700" />
             ميزان المراجعة
           </h2>
           <div className="space-y-2 text-sm">
             <Row label="إجمالي المدين" value={formatNumber(tb.totalDebit)} />
             <Row label="إجمالي الدائن" value={formatNumber(tb.totalCredit)} />
-            <div className="border-t pt-2 mt-2"></div>
+            <div className="border-t border-edge pt-2 mt-2"></div>
             <Row
               label="الحالة"
               value={tb.balanced ? "متوازن ✓" : "غير متوازن ✗"}
               bold
-              valueClass={tb.balanced ? "text-green-600" : "text-red-600"}
+              valueClass={tb.balanced ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
             />
           </div>
         </div>
@@ -142,20 +142,20 @@ export default function DashboardPage() {
 
 function StatCard({ icon: Icon, label, value, color }: any) {
   const colorMap: any = {
-    green: "bg-green-50 text-green-600",
-    red: "bg-red-50 text-red-600",
-    blue: "bg-blue-50 text-blue-600",
-    yellow: "bg-yellow-50 text-yellow-600"
+    success: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+    danger: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+    brand: "bg-brand-light text-primary-700 dark:bg-brand-900/40 dark:text-primary-300",
+    warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
   };
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-sm text-gray-600">{label}</p>
+        <p className="text-sm text-ink-muted">{label}</p>
         <div className={`w-9 h-9 rounded-md flex items-center justify-center ${colorMap[color]}`}>
           <Icon size={18} />
         </div>
       </div>
-      <p className="text-2xl font-bold" dir="ltr">{value}</p>
+      <p className="text-2xl font-bold text-ink-strong" dir="ltr">{value}</p>
     </div>
   );
 }
@@ -163,8 +163,8 @@ function StatCard({ icon: Icon, label, value, color }: any) {
 function Row({ label, value, bold, valueClass }: any) {
   return (
     <div className="flex justify-between items-center">
-      <span className={bold ? "font-semibold" : "text-gray-600"}>{label}</span>
-      <span className={`${bold ? "font-bold" : ""} ${valueClass || ""}`} dir="ltr">{value}</span>
+      <span className={bold ? "font-semibold text-ink-strong" : "text-ink-muted"}>{label}</span>
+      <span className={`${bold ? "font-bold" : ""} ${valueClass || "text-ink-strong"}`} dir="ltr">{value}</span>
     </div>
   );
 }

@@ -198,13 +198,13 @@ export default function BillingsTab({
               <FileText size={16} className="text-primary-600" />
               المستخلصات
               {billings.length > 0 && (
-                <span className="text-xs text-gray-500 font-normal">
+                <span className="text-xs text-ink-muted font-normal">
                   ({billings.length})
                 </span>
               )}
             </h3>
             {!contract && (
-              <p className="text-xs text-gray-500 mt-0.5">
+              <p className="text-xs text-ink-muted mt-0.5">
                 يتطلب إنشاء مستخلص وجود عقد للمشروع
               </p>
             )}
@@ -230,12 +230,12 @@ export default function BillingsTab({
 
       {/* Loading */}
       {loading ? (
-        <div className="card flex items-center justify-center py-12 text-gray-500 gap-2">
+        <div className="card flex items-center justify-center py-12 text-ink-muted gap-2">
           <Loader2 className="animate-spin" size={20} />
           جاري التحميل...
         </div>
       ) : billings.length === 0 ? (
-        <div className="card text-center text-gray-500 py-12 text-sm">
+        <div className="card text-center text-ink-muted py-12 text-sm">
           لا توجد مستخلصات بعد.
           {contract && (
             <div className="mt-2">
@@ -274,16 +274,16 @@ export default function BillingsTab({
           <div className="hidden md:block card p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">رقم</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">التاريخ</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">% إنجاز</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Gross</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">خصم مقدمة</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">احتجاز</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">الصافي</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الحالة</th>
-                  <th className="text-right py-2 px-3 font-semibold text-gray-600 w-32">إجراءات</th>
+                <tr className="bg-raised border-b border-edge">
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">رقم</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">التاريخ</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">% إنجاز</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">Gross</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">خصم مقدمة</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">احتجاز</th>
+                  <th className="text-left py-2 px-3 font-semibold text-ink-muted">الصافي</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted">الحالة</th>
+                  <th className="text-right py-2 px-3 font-semibold text-ink-muted w-32">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -291,7 +291,7 @@ export default function BillingsTab({
                   <tr
                     key={b.id}
                     className={cn(
-                      "border-b border-gray-100",
+                      "border-b border-edge",
                       b.status === "CANCELLED" && "opacity-60"
                     )}
                   >
@@ -303,10 +303,10 @@ export default function BillingsTab({
                     <td className="py-2 px-3 text-left font-mono" dir="ltr">
                       {formatNumber(b.grossAmount)}
                     </td>
-                    <td className="py-2 px-3 text-left font-mono text-gray-600" dir="ltr">
+                    <td className="py-2 px-3 text-left font-mono text-ink-muted" dir="ltr">
                       {formatNumber(b.advanceDeducted)}
                     </td>
-                    <td className="py-2 px-3 text-left font-mono text-gray-600" dir="ltr">
+                    <td className="py-2 px-3 text-left font-mono text-ink-muted" dir="ltr">
                       {formatNumber(b.retentionDeducted)}
                     </td>
                     <td className="py-2 px-3 text-left font-mono font-semibold" dir="ltr">
@@ -343,24 +343,24 @@ export default function BillingsTab({
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-xs text-gray-500">
+                      <span className="font-mono text-xs text-ink-muted">
                         #{b.billingNumber}
                       </span>
                       <StatusBadgeBilling status={b.status} />
                     </div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                    <div className="text-xs text-ink-muted flex items-center gap-1">
                       <Calendar size={12} />
                       {formatDate(b.billingDate)}
                     </div>
                   </div>
                   <div className="text-left shrink-0">
-                    <div className="text-xs text-gray-500">الصافي</div>
+                    <div className="text-xs text-ink-muted">الصافي</div>
                     <div className="font-mono font-bold" dir="ltr">
                       {formatNumber(b.netAmount)}
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                <div className="grid grid-cols-2 gap-2 text-xs text-ink-muted">
                   <div>
                     <Percent size={11} className="inline ml-0.5" />
                     إنجاز:{" "}
@@ -369,19 +369,19 @@ export default function BillingsTab({
                     </span>
                   </div>
                   <div className="text-left">
-                    <span className="text-gray-500">Gross:</span>{" "}
+                    <span className="text-ink-muted">Gross:</span>{" "}
                     <span className="font-mono">{formatNumber(b.grossAmount)}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">مقدمة:</span>{" "}
+                    <span className="text-ink-muted">مقدمة:</span>{" "}
                     <span className="font-mono">{formatNumber(b.advanceDeducted)}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">احتجاز:</span>{" "}
+                    <span className="text-ink-muted">احتجاز:</span>{" "}
                     <span className="font-mono">{formatNumber(b.retentionDeducted)}</span>
                   </div>
                 </div>
-                <div className="mt-3 pt-2 border-t border-gray-100">
+                <div className="mt-3 pt-2 border-t border-edge">
                   <RowActions
                     b={b}
                     onView={() => setViewing(b)}
@@ -437,7 +437,7 @@ function RowActions({
       <button
         type="button"
         onClick={onView}
-        className="text-blue-600 hover:bg-blue-50 p-1 rounded"
+        className="text-primary-700 hover:bg-primary-50 p-1 rounded"
         title="عرض"
         aria-label="عرض المستخلص"
       >
@@ -488,16 +488,16 @@ function Summary({
     <div
       className={cn(
         "px-3 py-2 rounded-md",
-        highlight ? "bg-blue-50 border border-blue-200" : "bg-gray-50"
+        highlight ? "bg-primary-50 border border-primary-200" : "bg-raised"
       )}
     >
-      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xs text-ink-muted">{label}</div>
       <div
         dir="ltr"
         className={cn(
           "font-mono",
-          strong ? "text-lg font-bold text-blue-900" : "text-sm font-semibold",
-          muted && "text-gray-500"
+          strong ? "text-lg font-bold text-primary-900" : "text-sm font-semibold",
+          muted && "text-ink-muted"
         )}
       >
         {formatNumber(value)} د.ل
@@ -515,7 +515,7 @@ function ViewBillingModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <FileText size={18} className="text-primary-600" />
@@ -524,7 +524,7 @@ function ViewBillingModal({
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-ink-subtle hover:text-ink-muted"
             type="button"
             aria-label="إغلاق"
           >
@@ -552,30 +552,30 @@ function ViewBillingModal({
             <Row label="الحالة" value={<StatusBadgeBilling status={billing.status} />} />
           </div>
 
-          <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+          <div className="border border-edge rounded-md p-3 bg-raised">
             <h4 className="font-semibold text-sm mb-2">تفاصيل المبالغ</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
               <div>
-                <div className="text-xs text-gray-500">Gross</div>
+                <div className="text-xs text-ink-muted">Gross</div>
                 <div className="font-mono" dir="ltr">
                   {formatNumber(billing.grossAmount)}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-gray-500">خصم مقدمة</div>
+                <div className="text-xs text-ink-muted">خصم مقدمة</div>
                 <div className="font-mono" dir="ltr">
                   {formatNumber(billing.advanceDeducted)}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-gray-500">احتجاز</div>
+                <div className="text-xs text-ink-muted">احتجاز</div>
                 <div className="font-mono" dir="ltr">
                   {formatNumber(billing.retentionDeducted)}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-gray-500">الصافي</div>
-                <div className="font-mono font-bold text-blue-900" dir="ltr">
+                <div className="text-xs text-ink-muted">الصافي</div>
+                <div className="font-mono font-bold text-primary-900" dir="ltr">
                   {formatNumber(billing.netAmount)}
                 </div>
               </div>
@@ -583,13 +583,13 @@ function ViewBillingModal({
           </div>
 
           {billing.invoiceId && (
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-ink-muted">
               الفاتورة المرتبطة:{" "}
               <span className="font-mono">{billing.invoiceId.slice(0, 8)}</span>
             </div>
           )}
           {billing.journalEntryId && (
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-ink-muted">
               القيد المحاسبي:{" "}
               <span className="font-mono">{billing.journalEntryId.slice(0, 8)}</span>
             </div>
@@ -597,14 +597,14 @@ function ViewBillingModal({
 
           {billing.notes && (
             <div>
-              <p className="text-xs text-gray-500 mb-1">ملاحظات</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+              <p className="text-xs text-ink-muted mb-1">ملاحظات</p>
+              <p className="text-sm text-ink-muted whitespace-pre-wrap">
                 {billing.notes}
               </p>
             </div>
           )}
 
-          <div className="text-xs text-gray-500 pt-2 border-t border-gray-100">
+          <div className="text-xs text-ink-muted pt-2 border-t border-edge">
             تاريخ الإنشاء: {formatDate(billing.createdAt)}
             {billing.updatedAt && ` • آخر تحديث: ${formatDate(billing.updatedAt)}`}
           </div>
@@ -631,7 +631,7 @@ function Row({
 }) {
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+      <p className="text-xs text-ink-muted mb-0.5">{label}</p>
       <p className={mono ? "font-mono" : ""} dir="ltr">
         {value}
       </p>

@@ -49,28 +49,28 @@ export default function BalanceSheetPage() {
   }
 
   if (!report) {
-    return <div className="text-center text-gray-500">لا توجد بيانات</div>;
+    return <div className="text-center text-ink-muted">لا توجد بيانات</div>;
   }
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Scale size={24} className="text-primary-600" />
             الميزانية العمومية
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             {report.companyName} •截至 {formatDate(report.asOfDate)}
           </p>
         </div>
         <div>
           {report.balanced ? (
-            <span className="badge badge-success text-base px-3 py-1">
+            <span className="badge badge-success text-canvas px-3 py-1">
               <CheckCircle size={14} className="ml-1" /> متوازنة
             </span>
           ) : (
-            <span className="badge badge-danger text-base px-3 py-1">
+            <span className="badge badge-danger text-canvas px-3 py-1">
               <XCircle size={14} className="ml-1" /> غير متوازنة
             </span>
           )}
@@ -82,7 +82,7 @@ export default function BalanceSheetPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Assets */}
         <div className="card">
-          <h2 className="text-lg font-semibold mb-3 text-blue-700">الأصول</h2>
+          <h2 className="text-lg font-semibold mb-3 text-primary-700">الأصول</h2>
           <table className="table">
             <thead>
               <tr>
@@ -100,13 +100,13 @@ export default function BalanceSheetPage() {
                 </tr>
               ))}
               {report.assets.length === 0 && (
-                <tr><td colSpan={3} className="text-center text-gray-500 py-4">لا توجد أصول</td></tr>
+                <tr><td colSpan={3} className="text-center text-ink-muted py-4">لا توجد أصول</td></tr>
               )}
             </tbody>
             <tfoot>
-              <tr className="font-bold bg-blue-50">
+              <tr className="font-bold bg-primary-50">
                 <td colSpan={2}>إجمالي الأصول</td>
-                <td className="font-mono text-blue-700" dir="ltr">{formatNumber(report.totalAssets)}</td>
+                <td className="font-mono text-primary-700" dir="ltr">{formatNumber(report.totalAssets)}</td>
               </tr>
             </tfoot>
           </table>
@@ -133,7 +133,7 @@ export default function BalanceSheetPage() {
                   </tr>
                 ))}
                 {report.liabilities.length === 0 && (
-                  <tr><td colSpan={3} className="text-center text-gray-500 py-4">لا توجد خصوم</td></tr>
+                  <tr><td colSpan={3} className="text-center text-ink-muted py-4">لا توجد خصوم</td></tr>
                 )}
               </tbody>
               <tfoot>
@@ -164,7 +164,7 @@ export default function BalanceSheetPage() {
                   </tr>
                 ))}
                 {report.equity.length === 0 && (
-                  <tr><td colSpan={3} className="text-center text-gray-500 py-4">لا توجد حقوق ملكية</td></tr>
+                  <tr><td colSpan={3} className="text-center text-ink-muted py-4">لا توجد حقوق ملكية</td></tr>
                 )}
               </tbody>
               <tfoot>
@@ -178,24 +178,24 @@ export default function BalanceSheetPage() {
         </div>
       </div>
 
-      <div className="card mt-4 bg-blue-50 border-blue-200">
+      <div className="card mt-4 bg-primary-50 border-primary-200">
         <div className="grid grid-cols-3 gap-4 text-center">
           <div>
-            <p className="text-sm text-gray-600">إجمالي الأصول</p>
-            <p className="text-xl font-bold text-blue-700" dir="ltr">{formatNumber(report.totalAssets)}</p>
+            <p className="text-sm text-ink-muted">إجمالي الأصول</p>
+            <p className="text-xl font-bold text-primary-700" dir="ltr">{formatNumber(report.totalAssets)}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-600">إجمالي الخصوم + حقوق الملكية</p>
+            <p className="text-sm text-ink-muted">إجمالي الخصوم + حقوق الملكية</p>
             <p className="text-xl font-bold text-purple-700" dir="ltr">{formatNumber(report.totalLiabilities + report.totalEquity)}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-600">الفرق</p>
+            <p className="text-sm text-ink-muted">الفرق</p>
             <p className={`text-xl font-bold ${Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.01 ? "text-green-700" : "text-red-700"}`} dir="ltr">
               {formatNumber(report.totalAssets - (report.totalLiabilities + report.totalEquity))}
             </p>
           </div>
         </div>
-        <p className="text-xs text-gray-600 mt-3 text-center">
+        <p className="text-xs text-ink-muted mt-3 text-center">
           📐 المعادلة: <strong>الأصول = الخصوم + حقوق الملكية</strong> (A = L + E)
         </p>
       </div>

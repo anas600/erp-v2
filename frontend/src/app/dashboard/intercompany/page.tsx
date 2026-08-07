@@ -115,11 +115,11 @@ export default function IntercompanyPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <ArrowRightLeft size={24} className="text-primary-600" />
             المعاملات بين الشركات
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             فواتير بين شركات المجموعة — ينشئ النظام قيداً في كلتا الشركتين
           </p>
         </div>
@@ -190,7 +190,7 @@ export default function IntercompanyPage() {
               ))}
               {pairs.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-gray-500 py-6">
+                  <td colSpan={6} className="text-center text-ink-muted py-6">
                     لا توجد معاملات بين الشركات
                   </td>
                 </tr>
@@ -202,12 +202,12 @@ export default function IntercompanyPage() {
 
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">تفاصيل المعاملة بين الشركات</h2>
               <button
                 onClick={() => setSelected(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-ink-subtle hover:text-ink-muted"
               >
                 <X size={20} />
               </button>
@@ -216,13 +216,13 @@ export default function IntercompanyPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <div className="text-gray-500">المبلغ</div>
+                  <div className="text-ink-muted">المبلغ</div>
                   <div className="font-mono font-semibold text-lg" dir="ltr">
                     {fmt(selected.amount)} {selected.currency}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-500">الحالة</div>
+                  <div className="text-ink-muted">الحالة</div>
                   <div>
                     {selected.status === "posted" && (
                       <span className="badge badge-success">مرحّل</span>
@@ -235,25 +235,25 @@ export default function IntercompanyPage() {
               </div>
 
               {selected.primaryInvoice && (
-                <div className="p-3 bg-blue-50 rounded-md">
+                <div className="p-3 bg-primary-50 rounded-md">
                   <div className="text-sm font-semibold mb-2">الفاتورة الأساسية</div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <span className="text-gray-600">الرقم: </span>
+                      <span className="text-ink-muted">الرقم: </span>
                       <span className="font-mono">{selected.primaryInvoice.invoiceNumber}</span>
                     </div>
                     <div>
-                      <span className="text-gray-600">الطرف: </span>
+                      <span className="text-ink-muted">الطرف: </span>
                       {selected.primaryInvoice.partyName}
                     </div>
                     <div>
-                      <span className="text-gray-600">الإجمالي: </span>
+                      <span className="text-ink-muted">الإجمالي: </span>
                       <span className="font-mono" dir="ltr">
                         {fmt(selected.primaryInvoice.total)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">الحالة: </span>
+                      <span className="text-ink-muted">الحالة: </span>
                       {selected.primaryInvoice.status}
                     </div>
                   </div>
@@ -265,21 +265,21 @@ export default function IntercompanyPage() {
                   <div className="text-sm font-semibold mb-2">الفاتورة المرآة (الشركة الشقيقة)</div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <span className="text-gray-600">الرقم: </span>
+                      <span className="text-ink-muted">الرقم: </span>
                       <span className="font-mono">{selected.mirrorInvoice.invoiceNumber}</span>
                     </div>
                     <div>
-                      <span className="text-gray-600">الطرف: </span>
+                      <span className="text-ink-muted">الطرف: </span>
                       {selected.mirrorInvoice.partyName}
                     </div>
                     <div>
-                      <span className="text-gray-600">الإجمالي: </span>
+                      <span className="text-ink-muted">الإجمالي: </span>
                       <span className="font-mono" dir="ltr">
                         {fmt(selected.mirrorInvoice.total)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">الحالة: </span>
+                      <span className="text-ink-muted">الحالة: </span>
                       {selected.mirrorInvoice.status}
                     </div>
                   </div>

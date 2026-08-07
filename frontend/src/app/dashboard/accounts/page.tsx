@@ -126,14 +126,14 @@ export default function AccountsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Wallet size={24} className="text-primary-600" />
             شجرة الحسابات
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             الحسابات المحاسبية للشركة الحالية — {activeCompany?.nameAr || activeCompany?.name}
             {counts.total > 0 && (
-              <span className="text-gray-400 mr-2">
+              <span className="text-ink-subtle mr-2">
                 ({counts.total} حساب، {counts.postable} قابل للترحيل)
               </span>
             )}
@@ -161,7 +161,7 @@ export default function AccountsPage() {
           <div className="relative flex-1 min-w-[240px]">
             <Search
               size={16}
-              className="absolute top-1/2 -translate-y-1/2 text-gray-400"
+              className="absolute top-1/2 -translate-y-1/2 text-ink-subtle"
               style={{ insetInlineStart: "0.75rem" }}
             />
             <input
@@ -174,7 +174,7 @@ export default function AccountsPage() {
             {search && (
               <button
                 onClick={() => setSearch("")}
-                className="absolute top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute top-1/2 -translate-y-1/2 text-ink-subtle hover:text-ink-muted"
                 style={{ insetInlineEnd: "0.5rem" }}
                 title="مسح البحث"
               >
@@ -184,14 +184,14 @@ export default function AccountsPage() {
           </div>
 
           {/* Hide inactive toggle */}
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+          <label className="flex items-center gap-2 text-sm text-ink-muted cursor-pointer select-none">
             <input
               type="checkbox"
               checked={hideInactive}
               onChange={(e) => setHideInactive(e.target.checked)}
               className="rounded"
             />
-            <Filter size={14} className="text-gray-500" />
+            <Filter size={14} className="text-ink-muted" />
             إخفاء الحسابات غير المفعلة
           </label>
 
@@ -218,8 +218,8 @@ export default function AccountsPage() {
       </div>
 
       {/* Legend */}
-      <div className="mt-4 p-3 bg-gray-50 text-gray-700 rounded-md text-xs flex flex-wrap items-center gap-x-4 gap-y-1">
-        <span className="font-semibold text-gray-900">دلالات:</span>
+      <div className="mt-4 p-3 bg-raised text-ink-muted rounded-md text-xs flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="font-semibold text-ink-strong">دلالات:</span>
         <span>
           <span className="inline-block w-3 h-3 rounded-full bg-green-500 align-middle" />
           {" "}قابل للترحيل
@@ -228,10 +228,10 @@ export default function AccountsPage() {
           <span className="inline-block w-3 h-3 rounded-full bg-gray-400 align-middle" />
           {" "}تجميعي (لا يقبل ترحيل)
         </span>
-        <span className="text-gray-400">|</span>
+        <span className="text-ink-subtle">|</span>
         <span>L1=نوع، L2=فئة، L3=تشغيلي، L4=تفصيلي</span>
-        <span className="text-gray-400">|</span>
-        <span>اضغط <kbd className="px-1 bg-white border border-gray-300 rounded">+</kbd> لإضافة حساب فرعي</span>
+        <span className="text-ink-subtle">|</span>
+        <span>اضغط <kbd className="px-1 bg-canvas dark:bg-neutral-900 border border-edge rounded">+</kbd> لإضافة حساب فرعي</span>
       </div>
 
       {/* Create modal */}

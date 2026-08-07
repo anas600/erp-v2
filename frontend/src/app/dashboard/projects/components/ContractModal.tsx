@@ -122,14 +122,14 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">
             {isEdit ? "تعديل العقد" : "إنشاء عقد"}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-ink-subtle hover:text-ink-muted"
             type="button"
             aria-label="إغلاق"
           >
@@ -142,7 +142,7 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
             <div>
               <label className="block text-sm font-medium mb-1">
                 رقم العقد
-                <span className="text-xs text-gray-500 mr-1">(اختياري - للقطاع الحكومي)</span>
+                <span className="text-xs text-ink-muted mr-1">(اختياري - للقطاع الحكومي)</span>
               </label>
               <input
                 className="input"
@@ -181,7 +181,7 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
                 onChange={(e) => setAdvancePercent(e.target.value)}
                 dir="ltr"
               />
-              <p className="text-xs text-gray-500 mt-1">تُخصم من أول مستخلصات</p>
+              <p className="text-xs text-ink-muted mt-1">تُخصم من أول مستخلصات</p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">نسبة الاحتجاز %</label>
@@ -195,7 +195,7 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
                 onChange={(e) => setRetentionPercent(e.target.value)}
                 dir="ltr"
               />
-              <p className="text-xs text-gray-500 mt-1">تُحتجز من المستخلص</p>
+              <p className="text-xs text-ink-muted mt-1">تُحتجز من المستخلص</p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">الاحتجاز من مستخلص رقم</label>
@@ -208,7 +208,7 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
                 onChange={(e) => setRetentionStartBilling(e.target.value)}
                 dir="ltr"
               />
-              <p className="text-xs text-gray-500 mt-1">يبدأ الاحتجاز من رقم</p>
+              <p className="text-xs text-ink-muted mt-1">يبدأ الاحتجاز من رقم</p>
             </div>
           </div>
 

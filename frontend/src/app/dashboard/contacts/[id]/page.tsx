@@ -37,7 +37,7 @@ const TAB_LABELS: Record<TabKey, string> = {
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   draft:       { label: "مسودة",        cls: "badge-warning" },
-  posted:      { label: "مُرحّلة",       cls: "bg-blue-100 text-blue-800" },
+  posted:      { label: "مُرحّلة",       cls: "bg-primary-100 text-primary-800" },
   partiallypaid: { label: "مدفوع جزئياً", cls: "bg-amber-100 text-amber-800" },
   paid:        { label: "مدفوعة بالكامل", cls: "badge-success" },
   cancelled:   { label: "ملغاة",         cls: "badge-danger" }
@@ -173,7 +173,7 @@ export default function ContactDetailPage() {
       <div className="card">
         <div className="p-6 text-center">
           <AlertCircle size={48} className="mx-auto mb-3 text-red-400" />
-          <p className="text-gray-700">{error || "لم يتم العثور على الجهة"}</p>
+          <p className="text-ink-muted">{error || "لم يتم العثور على الجهة"}</p>
           <button onClick={() => router.push("/dashboard/contacts")} className="btn-secondary mt-4">
             العودة إلى القائمة
           </button>
@@ -185,30 +185,30 @@ export default function ContactDetailPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3 text-sm text-gray-600">
+      <div className="flex items-center gap-2 mb-3 text-sm text-ink-muted">
         <button
           onClick={() => router.push("/dashboard/contacts")}
           className="flex items-center gap-1 hover:text-primary-600"
         >
           <ArrowRight size={14} /> العملاء والموردون
         </button>
-        <span className="text-gray-400">/</span>
-        <span className="font-medium text-gray-900">{contact.nameAr || contact.name}</span>
+        <span className="text-ink-subtle">/</span>
+        <span className="font-medium text-ink-strong">{contact.nameAr || contact.name}</span>
       </div>
 
       <div className="card mb-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className={`w-12 h-12 rounded-md flex items-center justify-center text-white text-lg font-bold ${
-              contact.type === "customer" ? "bg-blue-500" : "bg-amber-500"
+              contact.type === "customer" ? "bg-primary-600" : "bg-amber-500"
             }`}>
               {(contact.nameAr || contact.name).charAt(0)}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
                 {contact.nameAr || contact.name}
               </h1>
-              <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-gray-600">
+              <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-ink-muted">
                 <span className="flex items-center gap-1">
                   <Hash size={12} /> <span className="font-mono">{contact.code}</span>
                 </span>
@@ -234,23 +234,23 @@ export default function ContactDetailPage() {
             </div>
           </div>
           <div className="text-left">
-            <p className="text-xs text-gray-500 mb-1">الرصيد الحالي</p>
+            <p className="text-xs text-ink-muted mb-1">الرصيد الحالي</p>
             <p className={`text-2xl font-bold font-mono ${
               balance && balance.balance > 0.01
                 ? "text-red-600"
                 : balance && balance.balance < -0.01
                 ? "text-green-600"
-                : "text-gray-500"
+                : "text-ink-muted"
             }`} dir="ltr">
               {balance ? formatNumber(Math.abs(balance.balance)) : "—"}
             </p>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-ink-muted mt-0.5">
               {balance && balance.balance > 0.01
                 ? (contact.type === "customer" ? "مستحق لنا" : "مستحق علينا")
                 : balance && balance.balance < -0.01
                 ? (contact.type === "customer" ? "رصيد مدفوع مقدماً" : "رصيد لصالحنا")
                 : "مسوّى"}
-              <span className="text-gray-400 mr-2">د.ل</span>
+              <span className="text-ink-subtle mr-2">د.ل</span>
             </p>
           </div>
         </div>
@@ -260,8 +260,8 @@ export default function ContactDetailPage() {
             linked. If yes, show a clickable badge that jumps to
             the accounts tree filtered by that account. If no,
             show a "Create sub-ledger" button. */}
-        <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
+        <div className="mt-4 pt-3 border-t border-edge flex flex-wrap items-center gap-3">
+          <span className="text-xs text-ink-muted flex items-center gap-1">
             <Link2 size={12} />
             الحساب التفصيلي:
           </span>
@@ -302,14 +302,14 @@ export default function ContactDetailPage() {
               {subLedgerMsg}
             </span>
           )}
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-ink-subtle">
             (مرتبط بحساب 1200 للعملاء أو 2000 للموردين)
           </span>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4 border-b border-gray-200">
+      <div className="flex gap-2 mb-4 border-b border-edge">
         {(Object.keys(TAB_LABELS) as TabKey[]).map((k) => (
           <button
             key={k}
@@ -317,7 +317,7 @@ export default function ContactDetailPage() {
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
               tab === k
                 ? "border-primary-600 text-primary-700"
-                : "border-transparent text-gray-600 hover:text-gray-900"
+                : "border-transparent text-ink-muted hover:text-ink-strong"
             }`}
           >
             {TAB_LABELS[k]}
@@ -421,7 +421,7 @@ function InvoicesTab({ contactId, contactType, companyId }: {
                 className={`px-4 py-2 rounded-md text-sm font-medium ${
                   filter === t.v
                     ? "bg-primary-600 text-white"
-                    : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                    : "bg-canvas dark:bg-neutral-900 text-ink-muted border border-edge hover:bg-raised"
                 }`}
               >
                 {t.l}
@@ -429,7 +429,7 @@ function InvoicesTab({ contactId, contactType, companyId }: {
             ))}
           </div>
           {invoices.length > 0 && (
-            <div className="text-sm text-gray-700 flex gap-4">
+            <div className="text-sm text-ink-muted flex gap-4">
               <span>إجمالي: <span className="font-mono font-semibold" dir="ltr">{formatNumber(totals.total)}</span></span>
               <span>مدفوع: <span className="font-mono font-semibold text-green-700" dir="ltr">{formatNumber(totals.paid)}</span></span>
               <span>متبقي: <span className="font-mono font-semibold text-red-700" dir="ltr">{formatNumber(totals.outstanding)}</span></span>
@@ -444,8 +444,8 @@ function InvoicesTab({ contactId, contactType, companyId }: {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <FileText size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <FileText size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد فواتير</p>
           </div>
         ) : (
@@ -466,10 +466,10 @@ function InvoicesTab({ contactId, contactType, companyId }: {
               </thead>
               <tbody>
                 {filtered.map((inv) => {
-                  const sb = STATUS_BADGE[inv.status] || { label: inv.status, cls: "bg-gray-100 text-gray-800" };
+                  const sb = STATUS_BADGE[inv.status] || { label: inv.status, cls: "bg-raised text-ink-strong" };
                   const isOutstanding = inv.outstanding > 0.01;
                   return (
-                    <tr key={inv.invoiceId} className="hover:bg-gray-50">
+                    <tr key={inv.invoiceId} className="hover:bg-raised">
                       <td className="font-mono font-semibold">{inv.invoiceNumber}</td>
                       <td>
                         {inv.invoiceType === "sales" ? (
@@ -481,11 +481,11 @@ function InvoicesTab({ contactId, contactType, companyId }: {
                       <td>{formatDate(inv.invoiceDate)}</td>
                       <td className="font-mono text-left" dir="ltr">{formatNumber(inv.total)}</td>
                       <td className="font-mono text-left text-green-700" dir="ltr">{formatNumber(inv.amountPaid)}</td>
-                      <td className={`font-mono text-left font-bold ${isOutstanding ? "text-red-600" : "text-gray-400"}`} dir="ltr">
+                      <td className={`font-mono text-left font-bold ${isOutstanding ? "text-red-600" : "text-ink-subtle"}`} dir="ltr">
                         {formatNumber(inv.outstanding)}
                       </td>
                       <td><span className={`badge ${sb.cls}`}>{sb.label}</span></td>
-                      <td className="text-xs text-gray-600" dir="ltr">{inv.ageDays} يوم</td>
+                      <td className="text-xs text-ink-muted" dir="ltr">{inv.ageDays} يوم</td>
                       <td>
                         {isOutstanding && (
                           <button
@@ -611,8 +611,8 @@ function VouchersTab({ contactId, contactType, companyId }: {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : vouchers.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Inbox size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <Inbox size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد سندات لهذه الجهة</p>
           </div>
         ) : (
@@ -643,7 +643,7 @@ function VouchersTab({ contactId, contactType, companyId }: {
                     <td className="font-mono font-semibold">{v.voucherNumber}</td>
                     <td>{formatDate(v.voucherDate)}</td>
                     <td className="font-mono text-sm text-primary-700">
-                      {v.invoiceNumber || <span className="text-gray-400">— على الحساب —</span>}
+                      {v.invoiceNumber || <span className="text-ink-subtle">— على الحساب —</span>}
                     </td>
                     <td className="text-sm">{PAYMENT_METHODS_AR[v.paymentMethod] || v.paymentMethod}</td>
                     <td className="font-mono text-sm" dir="ltr">{v.bankAccountCode || "—"}</td>
@@ -709,7 +709,7 @@ function StatementTab({ contactId, companyId, contactName }: {
       <div className="card mb-4 no-print">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">من تاريخ</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">من تاريخ</label>
             <input
               type="date"
               className="input"
@@ -718,7 +718,7 @@ function StatementTab({ contactId, companyId, contactName }: {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">إلى تاريخ</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">إلى تاريخ</label>
             <input
               type="date"
               className="input"
@@ -753,21 +753,21 @@ function StatementTab({ contactId, companyId, contactName }: {
           an instant snapshot: opening, period totals, closing. */}
       {data && data.lines.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 no-print">
-          <div className="card bg-gray-50 border-gray-200">
-            <div className="text-xs text-gray-600 font-medium">رصيد افتتاحي</div>
-            <div className={`text-xl font-bold font-mono mt-1 ${data.openingBalance > 0 ? "text-red-700" : "text-gray-800"}`} dir="ltr">
+          <div className="card bg-raised border-edge">
+            <div className="text-xs text-ink-muted font-medium">رصيد افتتاحي</div>
+            <div className={`text-xl font-bold font-mono mt-1 ${data.openingBalance > 0 ? "text-red-700" : "text-ink-strong"}`} dir="ltr">
               {formatNumber(data.openingBalance)} د.ل
             </div>
-            <div className="text-xs text-gray-500 mt-1">حتى {formatDate(from)}</div>
+            <div className="text-xs text-ink-muted mt-1">حتى {formatDate(from)}</div>
           </div>
-          <div className="card bg-blue-50 border-blue-200">
-            <div className="text-xs text-blue-700 font-medium">حركات الفترة</div>
+          <div className="card bg-primary-50 border-primary-200">
+            <div className="text-xs text-primary-700 font-medium">حركات الفترة</div>
             <div className="text-sm font-mono mt-1" dir="ltr">
-              <span className="text-blue-800 font-semibold">مدين: {formatNumber(totalDebit)}</span>
-              <span className="mx-2 text-gray-400">|</span>
+              <span className="text-primary-800 font-semibold">مدين: {formatNumber(totalDebit)}</span>
+              <span className="mx-2 text-ink-subtle">|</span>
               <span className="text-amber-800 font-semibold">دائن: {formatNumber(totalCredit)}</span>
             </div>
-            <div className="text-xs text-blue-600 mt-1">{data.lines.length} حركة</div>
+            <div className="text-xs text-primary-700 mt-1">{data.lines.length} حركة</div>
           </div>
           <div className={`card ${data.closingBalance > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
             <div className={`text-xs font-medium ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`}>
@@ -789,14 +789,14 @@ function StatementTab({ contactId, companyId, contactName }: {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : !data || data.lines.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <ScrollText size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <ScrollText size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد حركات في هذه الفترة</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="table">
-              <thead className="bg-gray-100">
+              <thead className="bg-raised">
                 <tr>
                   <th className="text-right">التاريخ</th>
                   <th className="text-right">النوع</th>
@@ -810,12 +810,12 @@ function StatementTab({ contactId, companyId, contactName }: {
               <tbody>
                 {/* Opening balance row — Sprint 29: give it a clearer
                     visual marker (▶) and a soft tinted background. */}
-                <tr className="bg-blue-50/50 font-semibold border-b">
-                  <td colSpan={6} className="text-gray-700">
+                <tr className="bg-primary-50/50 font-semibold border-b">
+                  <td colSpan={6} className="text-ink-muted">
                     <span className="text-primary-600 ml-1">▶</span>
                     رصيد افتتاحي (حتى {formatDate(from)})
                   </td>
-                  <td className={`font-mono text-left font-semibold ${data.openingBalance > 0 ? "text-red-700" : "text-gray-800"}`} dir="ltr">
+                  <td className={`font-mono text-left font-semibold ${data.openingBalance > 0 ? "text-red-700" : "text-ink-strong"}`} dir="ltr">
                     {formatNumber(data.openingBalance)}
                   </td>
                 </tr>
@@ -827,27 +827,27 @@ function StatementTab({ contactId, companyId, contactName }: {
                     opening: "افتتاحي"
                   }[l.type] || l.type;
                   const typeStyle =
-                    l.type === "invoice"  ? "bg-blue-100 text-blue-800 border-blue-200" :
+                    l.type === "invoice"  ? "bg-primary-100 text-primary-800 border-primary-200" :
                     l.type === "receipt"  ? "bg-emerald-100 text-emerald-800 border-emerald-200" :
                     l.type === "payment"  ? "bg-amber-100 text-amber-800 border-amber-200" :
-                                            "bg-gray-100 text-gray-800 border-gray-200";
+                                            "bg-raised text-ink-strong border-edge";
                   return (
-                    <tr key={i} className="hover:bg-gray-50 border-b border-gray-100">
+                    <tr key={i} className="hover:bg-raised border-b border-edge">
                       <td className="text-sm whitespace-nowrap">{formatDate(l.date)}</td>
                       <td>
                         <span className={`inline-block text-xs px-2 py-0.5 rounded border ${typeStyle}`}>
                           {typeLabel}
                         </span>
                       </td>
-                      <td className="font-mono text-sm whitespace-nowrap">{l.number || <span className="text-gray-400">—</span>}</td>
-                      <td className="text-sm text-gray-700">{l.description}</td>
+                      <td className="font-mono text-sm whitespace-nowrap">{l.number || <span className="text-ink-subtle">—</span>}</td>
+                      <td className="text-sm text-ink-muted">{l.description}</td>
                       <td className="font-mono text-left text-sm" dir="ltr">
-                        {l.debit > 0 ? <span className="text-blue-700 font-semibold">{formatNumber(l.debit)}</span> : <span className="text-gray-300">—</span>}
+                        {l.debit > 0 ? <span className="text-primary-700 font-semibold">{formatNumber(l.debit)}</span> : <span className="text-ink-subtle">—</span>}
                       </td>
                       <td className="font-mono text-left text-sm" dir="ltr">
-                        {l.credit > 0 ? <span className="text-amber-700 font-semibold">{formatNumber(l.credit)}</span> : <span className="text-gray-300">—</span>}
+                        {l.credit > 0 ? <span className="text-amber-700 font-semibold">{formatNumber(l.credit)}</span> : <span className="text-ink-subtle">—</span>}
                       </td>
-                      <td className={`font-mono text-left font-semibold ${l.runningBalance > 0 ? "text-red-600" : l.runningBalance < 0 ? "text-green-600" : "text-gray-500"}`} dir="ltr">
+                      <td className={`font-mono text-left font-semibold ${l.runningBalance > 0 ? "text-red-600" : l.runningBalance < 0 ? "text-green-600" : "text-ink-muted"}`} dir="ltr">
                         {formatNumber(l.runningBalance)}
                       </td>
                     </tr>
@@ -855,11 +855,11 @@ function StatementTab({ contactId, companyId, contactName }: {
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 font-bold bg-gray-100">
-                  <td colSpan={4} className="py-3 text-gray-700">إجمالي حركات الفترة</td>
-                  <td className="font-mono text-left py-3 text-blue-700" dir="ltr">{formatNumber(totalDebit)}</td>
+                <tr className="border-t-2 font-bold bg-raised">
+                  <td colSpan={4} className="py-3 text-ink-muted">إجمالي حركات الفترة</td>
+                  <td className="font-mono text-left py-3 text-primary-700" dir="ltr">{formatNumber(totalDebit)}</td>
                   <td className="font-mono text-left py-3 text-amber-700" dir="ltr">{formatNumber(totalCredit)}</td>
-                  <td className="font-mono text-left py-3 text-gray-700" dir="ltr">—</td>
+                  <td className="font-mono text-left py-3 text-ink-muted" dir="ltr">—</td>
                 </tr>
                 <tr className={data.closingBalance > 0 ? "bg-red-50" : "bg-green-50"}>
                   <td colSpan={6} className={`py-3 font-bold ${data.closingBalance > 0 ? "text-red-700" : "text-green-700"}`}>

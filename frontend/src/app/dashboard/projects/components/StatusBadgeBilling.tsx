@@ -22,7 +22,7 @@ export type BillingStatus = "DRAFT" | "INVOICED" | "CANCELLED" | string;
 const META: Record<string, { label: string; cls: string; Icon: any }> = {
   DRAFT: {
     label: "مسودة",
-    cls: "bg-gray-100 text-gray-700 border border-gray-200",
+    cls: "bg-raised text-ink-muted border border-edge",
     Icon: FileEdit,
   },
   INVOICED: {
@@ -47,7 +47,7 @@ export default function StatusBadgeBilling({
   const meta =
     (status && META[status]) || {
       label: status || "—",
-      cls: "bg-gray-100 text-gray-700 border border-gray-200",
+      cls: "bg-raised text-ink-muted border border-edge",
       Icon: FileEdit,
     };
   const Icon = meta.Icon;

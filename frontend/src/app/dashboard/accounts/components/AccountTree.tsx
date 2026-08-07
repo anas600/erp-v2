@@ -41,9 +41,9 @@ const TYPE_LABELS: Record<string, string> = {
 const TYPE_BADGE: Record<string, string> = {
   Asset: "bg-green-100 text-green-700 border-green-200",
   Liability: "bg-red-100 text-red-700 border-red-200",
-  Equity: "bg-blue-100 text-blue-700 border-blue-200",
+  Equity: "bg-primary-100 text-primary-700 border-primary-200",
   Revenue: "bg-purple-100 text-purple-700 border-purple-200",
-  Expense: "bg-orange-100 text-orange-700 border-orange-200"
+  Expense: "bg-amber-100 text-amber-700 border-amber-200"
 };
 
 const NATURE_BADGE: Record<string, string> = {
@@ -208,8 +208,8 @@ export default function AccountTree({ accounts, onAddChild }: AccountTreeProps) 
 
   if (tree.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        <Wallet size={48} className="mx-auto mb-3 text-gray-300" />
+      <div className="text-center py-12 text-ink-muted">
+        <Wallet size={48} className="mx-auto mb-3 text-ink-subtle" />
         <p>لا توجد حسابات</p>
       </div>
     );
@@ -233,7 +233,7 @@ export default function AccountTree({ accounts, onAddChild }: AccountTreeProps) 
           type="button"
           onClick={collapseAll}
           data-testid="btn-collapse-all"
-          className="px-3 py-1.5 text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 rounded border border-gray-200 cursor-pointer font-medium flex items-center gap-1 transition-colors"
+          className="px-3 py-1.5 text-xs bg-raised hover:bg-raised text-ink-muted rounded border border-edge cursor-pointer font-medium flex items-center gap-1 transition-colors"
           title="طي جميع الحسابات وإبقاء L1 فقط"
         >
           <Folder size={14} />
@@ -242,7 +242,7 @@ export default function AccountTree({ accounts, onAddChild }: AccountTreeProps) 
       </div>
 
       {/* The tree itself */}
-      <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
+      <div className="border border-edge rounded-md overflow-hidden bg-canvas dark:bg-neutral-900">
         {tree.map((node) => (
           <TreeNodeView
             key={node.account.id}
@@ -304,7 +304,7 @@ function TreeNodeView({
       {/* The row */}
       <div
         className={cn(
-          "group flex items-center gap-2 py-1.5 px-3 border-b border-gray-100 hover:bg-gray-50 transition-colors",
+          "group flex items-center gap-2 py-1.5 px-3 border-b border-edge hover:bg-raised transition-colors",
           !account.isActive && "opacity-50"
         )}
         style={{ paddingInlineStart: `${0.75 + indentPx / 16}rem` }}
@@ -314,7 +314,7 @@ function TreeNodeView({
           <button
             type="button"
             onClick={handleChevronClick}
-            className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors cursor-pointer"
+            className="w-5 h-5 flex items-center justify-center text-ink-muted hover:text-ink-strong hover:bg-raised rounded transition-colors cursor-pointer"
             aria-label={isExpanded ? "طي هذا الحساب" : "فتح هذا الحساب"}
             title={isExpanded ? "طي هذا الحساب" : "فتح هذا الحساب"}
           >
@@ -342,26 +342,26 @@ function TreeNodeView({
             {isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />}
           </button>
         ) : (
-          <span className="w-6 h-6 inline-flex items-center justify-center text-gray-300">
+          <span className="w-6 h-6 inline-flex items-center justify-center text-ink-subtle">
             <FileText size={14} />
           </span>
         )}
 
         {/* Code */}
-        <span className="font-mono text-sm font-semibold text-gray-700 min-w-[60px]">
+        <span className="font-mono text-sm font-semibold text-ink-muted min-w-[60px]">
           {account.code}
         </span>
 
         {/* Type badge */}
         <span className={cn(
           "text-[10px] px-1.5 py-0.5 rounded border",
-          TYPE_BADGE[account.accountType] || "bg-gray-100 text-gray-700"
+          TYPE_BADGE[account.accountType] || "bg-raised text-ink-muted"
         )}>
           {TYPE_LABELS[account.accountType] || account.accountType}
         </span>
 
         {/* Name (Arabic preferred) */}
-        <span className="text-sm text-gray-900 flex-1 truncate" dir="rtl">
+        <span className="text-sm text-ink-strong flex-1 truncate" dir="rtl">
           {account.nameAr || account.name}
         </span>
 
@@ -381,7 +381,7 @@ function TreeNodeView({
             "text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1",
             account.isPostable
               ? "bg-emerald-100 text-emerald-700"
-              : "bg-gray-100 text-gray-500"
+              : "bg-raised text-ink-muted"
           )}
           title={account.isPostable ? "قابل للترحيل (يمكن إدراج قيود عليه)" : "تجميعي (لا يقبل قيود مباشرة)"}
         >
@@ -395,7 +395,7 @@ function TreeNodeView({
             "font-mono text-sm min-w-[100px] text-left",
             account.balance > 0 ? "text-emerald-700 font-semibold" :
             account.balance < 0 ? "text-red-700 font-semibold" :
-            "text-gray-400"
+            "text-ink-subtle"
           )}
           dir="ltr"
         >
