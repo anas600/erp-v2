@@ -171,6 +171,30 @@ public static class AdminEndpoints
         // Sprint 26 — new endpoints
         // ============================================================
 
+        grp.MapGet("/debug-tb-query", async (HttpContext ctx, [FromQuery] Guid companyId, IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync<dynamic>(@"
+                SELECT id::text AS id, code, level, parent_id::text AS parent_id, balance::text AS balance
+                FROM accounts
+                WHERE company_id = @companyId AND is_active = true
+                ORDER BY code;",
+                new { companyId });
+
+            // Show the subLedgerParentIds set
+            var subLedgerParentIds = rows
+                .Where(r => r.level == 4 && r.parent_id != null)
+                .Select(r => r.parent_id)
+                .ToHashSet();
+
+            return Results.Ok(new {
+                row_count = rows.Count(),
+                sub_ledger_parent_ids = subLedgerParentIds,
+                rows
+            });
+        });
+
         grp.MapGet("/debug-parent-ids", async (HttpContext ctx, [FromQuery] Guid companyId, IDbConnectionFactory db) =>
         {
             if (!ctx.IsSuperAdmin()) return Results.Forbid();
