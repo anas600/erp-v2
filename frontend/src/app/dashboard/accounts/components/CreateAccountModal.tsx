@@ -11,10 +11,10 @@ import type { Account, CreateAccountRequest } from "@/lib/types";
  * The modal knows the 4-level COA rules and auto-derives:
  *   - level      = parent.level + 1 (or 1 if no parent)
  *   - code       = parent.code + "-" + subCode input
- *   - isPostable = per-level rule (L1/L2 forced false, L3 user
- *                  choice, L4 forced true). The checkbox is
- *                  disabled (and labelled) on L1/L2/L4 so the
- *                  user sees the rule but cannot violate it.
+ *   - isPostable = per-level rule (L1/L2/L3 forced false, L4
+ *                  forced true). The checkbox is disabled and
+ *                  labelled on every level — the user sees the
+ *                  rule but cannot violate it.
  *
  * The "parent account" dropdown is filtered to "valid parents":
  *   - Level 1: no parent (it's the logical type — actually, the
@@ -48,11 +48,17 @@ const TYPE_OPTIONS = [
   { v: "Expense",   l: "مصروفات" }
 ];
 
-/** Derive the *forced* isPostable for a level. */
+/**
+ * Derive the *forced* isPostable for a level.
+ *
+ * Sprint 31 — L3 is now also forced to non-postable. Only L4 can
+ * receive direct journal entries. L1/L2/L3 are aggregators only
+ * (the rollup is computed from L4 movements).
+ */
 function forcedIsPostable(level: number): boolean | null {
-  if (level === 1 || level === 2) return false;   // forced false
-  if (level === 4) return true;                   // forced true
-  return null;                                    // L3 = user choice
+  if (level === 1 || level === 2 || level === 3) return false; // forced false (header only)
+  if (level === 4) return true;                                 // forced true (postable)
+  return null;
 }
 
 /** Compute the level of a new account given a parent. */
