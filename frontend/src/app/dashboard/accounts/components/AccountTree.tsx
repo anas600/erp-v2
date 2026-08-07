@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen,
   Plus, Check, X, Wallet, FileText
@@ -57,14 +57,47 @@ interface TreeNode {
 }
 
 function buildTree(flat: Account[]): TreeNode[] {
+  // Defensive: some backend versions don't include parentId in the response.
+  // In that case, derive it from the account code:
+  //   L1: 1 digit                (e.g. "1")
+  //   L2: 2 digits → first 1     (e.g. "11" → "1")
+  //   L3: 4 digits → first 2     (e.g. "1101" → "11")
+  //   L4: {parentCode}-{suffix}  (e.g. "1103-CUST-001" → "1103")
+  const deriveParent = (a: Account): string | null => {
+    if (a.parentId) return a.parentId;
+    const code = a.code;
+    if (a.level === 1 || code.length === 1) return null;
+    if (a.level === 4 || code.includes("-")) {
+      return code.split("-")[0];
+    }
+    if (a.level === 2) return code.substring(0, 1);
+    if (a.level === 3) return code.substring(0, 2);
+    return null;
+  };
+
+  // Decorate each account with a derived parentCode
+  const decorated = flat.map((a) => ({
+    ...a,
+    _derivedParentId: deriveParent(a)
+  }));
+
   const byId = new Map<string, TreeNode>();
-  flat.forEach((a) => byId.set(a.id, { account: a, children: [] }));
+  decorated.forEach((a) => byId.set(a.id, { account: a, children: [] }));
+
+  // Build parentId → accountId lookup using code (for the fallback case)
+  const byCode = new Map<string, string>();
+  decorated.forEach((a) => byCode.set(a.code, a.id));
 
   const roots: TreeNode[] = [];
-  flat.forEach((a) => {
+  decorated.forEach((a) => {
     const node = byId.get(a.id)!;
-    if (a.parentId && byId.has(a.parentId)) {
-      byId.get(a.parentId)!.children.push(node);
+    let parentId: string | null | undefined = a.parentId;
+    if (!parentId && a._derivedParentId) {
+      // Derive from code
+      parentId = byCode.get(a._derivedParentId) ?? null;
+    }
+    if (parentId && byId.has(parentId)) {
+      byId.get(parentId)!.children.push(node);
     } else {
       roots.push(node);
     }
@@ -104,6 +137,32 @@ export default function AccountTree({ accounts, onAddChild }: AccountTreeProps) 
   // Expand state: { [accountId]: true/false }
   // Default: nothing expanded. User clicks the folder (or chevron) to drill down.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Debug: log tree state whenever it changes (helps diagnose "buttons don't work" issues)
+  useEffect(() => {
+    const countParents = (n: TreeNode): number =>
+      n.children.length + n.children.reduce((s, c) => s + countParents(c), 0);
+    const totalNodes = (n: TreeNode): number =>
+      1 + n.children.reduce((s, c) => s + totalNodes(c), 0);
+    const flat = tree.flatMap((n) => [n, ...collectDescendantIds(n).map((id) => ({ account: { id } as any, children: [] }))]);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[AccountTree] tree built: ${tree.length} L1 roots, ${totalNodes(tree[0] || { account: {} as any, children: [] })} total nodes, expanded=${Object.keys(expanded).length} of ${accounts.length}`
+    );
+  }, [tree, expanded, accounts.length]);
+
+  // Sync the count of parents with children
+  const parentCount = useMemo(() => {
+    let n = 0;
+    const walk = (nodes: TreeNode[]) => {
+      nodes.forEach((x) => {
+        if (x.children.length > 0) n += 1;
+        walk(x.children);
+      });
+    };
+    walk(tree);
+    return n;
+  }, [tree]);
 
   // Toggle a single node. Pure local toggle.
   const toggle = useCallback((id: string) => {

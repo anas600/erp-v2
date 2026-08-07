@@ -117,6 +117,16 @@ public record AccountTreeNode(
     string Code,
     string Name,
     string? NameAr,
+    /// <summary>
+    /// Parent account id (null = top-level L1 category).
+    ///
+    /// Sprint 33 hotfix: this field was missing in the original
+    /// record, which meant the frontend's `flatten()`+`buildTree()`
+    /// cycle had no way to rebuild the hierarchy and rendered all
+    /// 86 accounts as a flat list. The frontend can now rebuild
+    /// the parent→children tree from the parentId on each node.
+    /// </summary>
+    Guid? ParentId,
     string AccountType,
     string Nature,
     int Level,
