@@ -36,10 +36,15 @@ public class CoaSeeder
         // 1) Drop existing accounts. CASCADE will clean up journal_lines
         //    and any other rows that reference accounts. We also do an
         //    explicit cleanup of dependent tables that may not have
-        //    ON DELETE CASCADE (e.g. account_contact_links, business_rules).
+        //    ON DELETE CASCADE.
+        //
+        // NOTE: business_rules is GLOBAL (no company_id column), so we
+        // DISABLE all rules instead of deleting them. The seed flow will
+        // re-enable the ones we want via the regular seed endpoint. This
+        // is safer than nuking all rules across all companies.
         await conn.ExecuteAsync(@"
+            UPDATE business_rules SET enabled = false;
             DELETE FROM account_contact_links WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
-            DELETE FROM business_rules WHERE company_id = @companyId;
             UPDATE contacts SET sub_ledger_account_id = NULL WHERE company_id = @companyId;
             DELETE FROM journal_lines WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM accounts WHERE company_id = @companyId;",
