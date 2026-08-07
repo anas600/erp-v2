@@ -171,42 +171,6 @@ public static class AdminEndpoints
         // Sprint 26 — new endpoints
         // ============================================================
 
-        grp.MapGet("/debug-tb-query", async (HttpContext ctx, [FromQuery] Guid companyId, IDbConnectionFactory db) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            using var conn = db.CreateConnection();
-            var rows = await conn.QueryAsync<dynamic>(@"
-                SELECT id::text AS id, code, level, parent_id::text AS parent_id, balance::text AS balance
-                FROM accounts
-                WHERE company_id = @companyId AND is_active = true
-                ORDER BY code;",
-                new { companyId });
-
-            // Show the subLedgerParentIds set
-            var subLedgerParentIds = rows
-                .Where(r => r.level == 4 && r.parent_id != null)
-                .Select(r => r.parent_id)
-                .ToHashSet();
-
-            return Results.Ok(new {
-                row_count = rows.Count(),
-                sub_ledger_parent_ids = subLedgerParentIds,
-                rows
-            });
-        });
-
-        grp.MapGet("/debug-parent-ids", async (HttpContext ctx, [FromQuery] Guid companyId, IDbConnectionFactory db) =>
-        {
-            if (!ctx.IsSuperAdmin()) return Results.Forbid();
-            using var conn = db.CreateConnection();
-            var rows = await conn.QueryAsync(@"
-                SELECT id::text, code, level, parent_id::text AS parent_id
-                FROM accounts
-                WHERE company_id = @companyId AND level IN (3, 4)
-                ORDER BY level, code;", new { companyId });
-            return Results.Ok(new { rows });
-        });
-
         // POST /api/admin/bulk-approve-pending
         // Approves every PENDING journal entry for the given company.
         // Required because the rule engine (Sprint 15) creates entries
