@@ -249,26 +249,15 @@ public class ReportService
             }
         }
 
-        // Then the sub-ledgers (L4) themselves.
-        foreach (var r in rows.Where(r => r.level == 4))
-        {
-            var amount = Math.Abs(r.balance);
-            switch (r.account_type)
-            {
-                case "Asset":
-                    assets.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalAssets += amount;
-                    break;
-                case "Liability":
-                    liabilities.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalLiabilities += amount;
-                    break;
-                case "Equity":
-                    equity.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalEquity += amount;
-                    break;
-            }
-        }
+        // NOTE: L4 sub-ledgers are NOT added to the balance sheet totals.
+        // The control account (L3) above already carries the NET
+        // balance after subtracting the sub-ledgers, so adding the
+        // sub-ledgers separately would double-count. Sub-ledgers
+        // are visible via the contact detail pages and aging
+        // reports (where they ARE the point), but the balance
+        // sheet is a summary view that should reflect "what's on
+        // the books" without sub-ledger noise. The TB and BS now
+        // use the same rule.
 
         if (Math.Abs(netIncome) > 0.01m)
         {
