@@ -44,6 +44,14 @@ public class CoaSeeder
         // is safer than nuking all rules across all companies.
         await conn.ExecuteAsync(@"
             UPDATE business_rules SET enabled = false;
+            -- NULL out FK references that don't have ON DELETE SET NULL/CASCADE
+            -- (so the DELETE on accounts doesn't fail with FK violation).
+            -- bank_account_id on vouchers is a regular FK with no cascade.
+            UPDATE receipt_vouchers SET bank_account_id = NULL
+                WHERE bank_account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
+            UPDATE payment_vouchers SET bank_account_id = NULL
+                WHERE bank_account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
+            -- Now the safe deletes (CASCADE handles journal_lines + account_contact_links)
             DELETE FROM account_contact_links WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM journal_lines WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM accounts WHERE company_id = @companyId;",
