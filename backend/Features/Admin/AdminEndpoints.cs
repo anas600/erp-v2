@@ -225,6 +225,38 @@ public static class AdminEndpoints
             });
         });
 
+        // POST /api/admin/reseed-coa
+        // Sprint 31 — drops ALL accounts (and via CASCADE all journal lines,
+        // account_contact_links, business_rules) for the given company, then
+        // re-inserts the full 4-level standard COA. Use this to start fresh
+        // with the locked L1/L2/L3/L4 architecture. Sub-ledger accounts (L4)
+        // and demo contacts/products are NOT re-created here — use seed-demo
+        // after for that.
+        grp.MapPost("/reseed-coa", async (
+            HttpContext ctx,
+            [FromQuery] Guid companyId,
+            [FromServices] CoaSeeder seeder) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            try
+            {
+                var result = await seeder.ReseedAsync(companyId);
+                return Results.Ok(new
+                {
+                    companyId,
+                    l1Count = result.L1Count,
+                    l2Count = result.L2Count,
+                    l3Count = result.L3Count,
+                    message = $"تم إعادة بناء دليل الحسابات: {result.L1Count} L1 + {result.L2Count} L2 + {result.L3Count} L3"
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         // POST /api/admin/cleanup-data
         // Full demo reset. Compared to /cleanup-transactions this also
         // wipes vouchers, intercompany pairs, sub-ledger accounts, and

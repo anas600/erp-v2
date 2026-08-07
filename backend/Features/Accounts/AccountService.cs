@@ -55,22 +55,36 @@ public class AccountService
         if (req.Level < 1 || req.Level > 4)
             throw new ArgumentException("Level must be 1-4");
 
-        // Validate is_postable vs level (Sprint 26).
+        // Sprint 31 — locked 4-level COA architecture.
+        //
         // The level determines what the account can do:
-        //   L1/L2: pure grouping headers — must NOT be postable.
-        //          (Posting here would double-count; the rollup is
-        //          computed from the children.)
-        //   L4:    detail accounts (sub-ledger) — must be postable
-        //          (the whole point of L4 is to receive journal lines).
-        //   L3:    user choice. The default is true (operational
-        //          account), but a user can demote it to a header
-        //          by setting is_postable=false (e.g. a "Reserve for
-        //          Doubtful Accounts" grouping that has its own
-        //          contra-balances but no direct postings).
-        if (req.Level <= 2 && req.IsPostable)
-            throw new ArgumentException("حسابات المستويين 1 و 2 لا يمكن أن تكون قابلة للترحيل (مجموعات فقط)");
+        //   L1/L2/L3: pure grouping headers — must NOT be postable.
+        //             (Posting here would double-count; the rollup is
+        //             computed from the children.)
+        //   L4:       detail accounts (sub-ledger) — must be postable
+        //             (the whole point of L4 is to receive journal lines).
+        //
+        // Why L3 is also non-postable now:
+        //   The user explicitly required that L3 (control / general
+        //   ledger accounts like "1101 Cash", "1103 AR") are aggregating
+        //   accounts, not direct posting targets. This is the standard
+        //   accounting practice (IFRS) and keeps the GL rollup clean:
+        //   if someone posts to L3, the same movement would also need to
+        //   land in an L4 sub-ledger, which means double-counting.
+        //
+        //   The previous design allowed L3 to be postable as a user
+        //   choice (Sprint 26, Option B). The user has now changed their
+        //   mind: L3 is always non-postable, only L4 is postable.
+        if (req.Level <= 3 && req.IsPostable)
+            throw new ArgumentException("حسابات المستويات 1 و 2 و 3 لا يمكن أن تكون قابلة للترحيل (مجموعات فقط). الترحيل فقط على L4 (الحسابات التفصيلية).");
         if (req.Level == 4 && !req.IsPostable)
             throw new ArgumentException("الحسابات التفصيلية (L4) يجب أن تكون قابلة للترحيل");
+
+        // Force isPostable based on level (ignore what the client sent).
+        // L1/L2/L3 → false, L4 → true. This makes the API forgiving
+        // (clients can still pass isPostable=true for L4 and it works)
+        // and secure (clients can't bypass the rule by setting it to true).
+        var forcedIsPostable = req.Level == 4;
 
         // If parent_id is provided, ensure parent exists and is in same company
         if (req.ParentId.HasValue)
@@ -104,7 +118,7 @@ public class AccountService
                 parentId = req.ParentId, accountType = req.AccountType, nature = req.Nature,
                 level = req.Level, accountClass = req.AccountClass,
                 isControlAccount = req.IsControlAccount, costCenterRequired = req.CostCenterRequired,
-                isPostable = req.IsPostable
+                isPostable = forcedIsPostable
             });
 
         return (await GetByIdAsync(id))!;
