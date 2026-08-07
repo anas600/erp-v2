@@ -245,6 +245,13 @@ builder.Services.AddSingleton<DemoDataSeeder>();             // Sprint 26: seed 
 builder.Services.AddSingleton<ReceiptService>();
 builder.Services.AddSingleton<PaymentService>();
 
+// Sprint 36 — Contracting workflow (contracts + progress billings +
+// WIP + client statement). Both services are additive; no existing
+// service depends on them yet, but ContractService is the source of
+// truth for advance/retention terms that BillingService reads.
+builder.Services.AddSingleton<ContractService>();
+builder.Services.AddSingleton<BillingService>();
+
 // Web
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -323,6 +330,14 @@ IntercompanyEliminationEndpoints.Map(app);
 
 // Sprint 35 — Project P&L company-wide report (lives in /api/reports).
 ProjectPnLReportEndpoints.Map(app);
+
+// Sprint 36 — Contracting workflow. ContractEndpoints owns
+// /api/contracts/* and /api/projects/{id}/contract. BillingEndpoints
+// owns /api/billings/* and /api/projects/{id}/billings, /wip,
+// /statement. The grouping is by URL prefix; both call
+// RequireAuthorization via their own Map().
+ContractEndpoints.Map(app);
+BillingEndpoints.Map(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);
