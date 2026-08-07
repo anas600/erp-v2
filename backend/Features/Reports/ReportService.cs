@@ -79,11 +79,13 @@ public class ReportService
             AddLine(r.code, name, r.account_type, r.nature, bal);
         }
 
-        // L4 sub-ledgers — full balance
-        foreach (var r in rows.Where(r => r.level == 4))
-        {
-            AddLine(r.code, r.name, r.account_type, r.nature, r.balance);
-        }
+        // NOTE: L4 sub-ledgers are NOT added to the trial balance totals.
+        // The control account (L3) above already carries the NET
+        // balance after subtracting the sub-ledgers, so adding the
+        // sub-ledgers separately would double-count. Sub-ledgers
+        // are shown as detail in the Balance Sheet and the contact
+        // statement, not in the TB. The TB is the "summary" view
+        // for accountants to verify A=L+E.
 
         return new TrialBalanceReport(
             companyId, company, asOfDate, lines, totalDebit, totalCredit,
