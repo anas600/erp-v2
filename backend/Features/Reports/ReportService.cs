@@ -93,17 +93,50 @@ public class ReportService
             AddLine(r.code, name, r.account_type, r.nature, bal);
         }
 
-        // L4 sub-ledgers (Sprint 33 fix — add as separate lines so
-        // Cash/Bank L4 sub-ledgers show up). The previous code omitted
-        // them assuming the L3 NET already included them; for Cash/Bank
-        // that's false (L3 = 0, L4 = 4800).
+        // L4 sub-ledgers (Sprint 33 fix — display only, do NOT add to totals)
+        //
+        // For accounts that have sub-ledgers, the L3 NET line above
+        // already carries the correct group total (L3 + ΣL4 in natural
+        // signs). If we added the L4 amounts separately we'd double-
+        // count for AR/AP and STILL be wrong for Cash/Bank.
+        //
+        // Example: AR with 10550 in L3 control and 5800 in 5 L4 sub-
+        // ledgers (all negative because receipts are credits):
+        //   L3 NET = 10550 + (-5800) = 4750
+        //   L4 sum = -5800
+        //   L3 NET + L4 sum = 10550 (the gross, not the net)
+        //
+        // So the right approach: L3 NET contributes to total, L4 is
+        // for display only. (Same as the BalanceSheet treatment.)
+        //
+        // For sub-ledgers that DON'T belong to a control (orphan
+        // sub-ledgers from old data) we add them to totals. Detect
+        // this by checking if the L4's parent is in subLedgerParentIds.
         foreach (var r in rows.Where(r => r.level == 4))
         {
+            // Skip L4 sub-ledgers whose parent is in the L3 NET group
+            // (their balance is already represented in the parent L3 NET line).
+            if (r.parent_id.HasValue && subLedgerParentIds.Contains(r.parent_id.Value))
+            {
+                // Display-only: render the line but don't add to totals
+                if (Math.Abs(r.balance) < 0.01m) continue;
+                decimal d = 0, c = 0;
+                if (r.nature == "Debit")
+                {
+                    if (r.balance >= 0) d = r.balance;
+                    else c = -r.balance;
+                }
+                else
+                {
+                    if (r.balance >= 0) c = r.balance;
+                    else d = -r.balance;
+                }
+                lines.Add(new TrialBalanceLine(r.code, r.name, r.account_type, r.nature, d, c));
+                continue;
+            }
+            // Orphan sub-ledger (parent not in our results) — add to totals
             AddLine(r.code, r.name, r.account_type, r.nature, r.balance);
         }
-
-        // (The old "don't add L4" comment is no longer accurate. The
-        // TB is the summary view; sub-ledgers are part of the books.)
 
         return new TrialBalanceReport(
             companyId, company, asOfDate, lines, totalDebit, totalCredit,
@@ -289,6 +322,15 @@ public class ReportService
         // control carries no activity). Now we always list each L4
         // sub-ledger separately so the contact-level detail and the
         // cash/bank L4s are both visible on the balance sheet.
+        //
+        // IMPORTANT: L4 sub-ledgers are DISPLAY-ONLY. They do NOT
+        // contribute to the total. The L3 NET line above already
+        // carries the correct group total (L3 + ΣL4 in natural signs):
+        //   AR:  10550 (L3) + (-5800) (L4) = 4750 → shown as 4750
+        //   Cash: 0 (L3) + 4800 (L4) = 4800 → shown as 4800
+        // If we added L4 amounts to the total separately we'd
+        // double-count for AR (4750 + 5800 = 10550) and would
+        // STILL be wrong for Cash (4800 + 4800 = 9600).
         foreach (var r in rows.Where(r => r.level == 4))
         {
             if (Math.Abs(r.balance) < 0.01m) continue; // skip zero rows
@@ -297,15 +339,13 @@ public class ReportService
             {
                 case "Asset":
                     assets.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalAssets += amount;
+                    // No total addition — L3 NET already covers it
                     break;
                 case "Liability":
                     liabilities.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalLiabilities += amount;
                     break;
                 case "Equity":
                     equity.Add(new BalanceSheetLine(r.code, r.name, amount));
-                    totalEquity += amount;
                     break;
             }
         }
