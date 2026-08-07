@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { Building2, LogIn, AlertCircle, Loader2, Server } from "lucide-react";
+import { Building2, LogIn, AlertCircle, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -12,33 +12,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("admin123");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Tracks whether the backend is currently waking up (Render cold start).
-  // Set by the api.ts interceptor via the global erp:wakeup-start event.
-  const [wakeup, setWakeup] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     if (!loading && user) router.push("/dashboard");
   }, [user, loading, router]);
-
-  // Listen for global wakeup events
-  useEffect(() => {
-    const onStart = () => { setWakeup(true); setElapsed(0); };
-    const onEnd = () => { setWakeup(false); setElapsed(0); };
-    document.addEventListener("erp:wakeup-start", onStart);
-    document.addEventListener("erp:wakeup-end", onEnd);
-    return () => {
-      document.removeEventListener("erp:wakeup-start", onStart);
-      document.removeEventListener("erp:wakeup-end", onEnd);
-    };
-  }, []);
-
-  // Tick the elapsed timer once a second while wakeup is showing
-  useEffect(() => {
-    if (!wakeup) return;
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(t);
-  }, [wakeup]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,21 +46,6 @@ export default function LoginPage() {
 
         <div className="card">
           <h2 className="text-xl font-semibold mb-4 text-center">تسجيل الدخول</h2>
-
-          {/* Cold-start banner — shown inside the login form so the
-              user gets explicit feedback during a 30-60s wake-up */}
-          {wakeup && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md flex items-start gap-2">
-              <Server size={18} className="text-amber-700 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-amber-900 flex-1">
-                <p className="font-semibold">جاري إيقاظ الخادم...</p>
-                <p className="text-xs text-amber-800 mt-1">
-                  الخدمة في وضع السكون — يستيقظ خلال 30-60 ثانية. يرجى الانتظار وعدم تحديث الصفحة.
-                  ({elapsed} ثانية)
-                </p>
-              </div>
-            </div>
-          )}
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
@@ -123,7 +85,7 @@ export default function LoginPage() {
               {submitting ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  {wakeup ? "جاري إيقاظ الخادم..." : "جاري الدخول..."}
+                  جاري الدخول...
                 </>
               ) : (
                 <>
