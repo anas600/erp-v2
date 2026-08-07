@@ -26,6 +26,10 @@ public record ReceiptVoucherDto(
     /// </summary>
     Guid? InvoiceId,
     string? InvoiceNumber,
+    // Sprint 35: optional project tag. P&L uses this to
+    // attribute the voucher's net cash movement to a project.
+    // Default null so existing callers keep working.
+    Guid? ProjectId,
     DateTime CreatedAt,
     Guid? CreatedBy,
     string? CreatedByName
@@ -37,6 +41,8 @@ public record ReceiptVoucherDto(
 /// effectively pays the invoice (partially or fully). When null, the
 /// receipt is an advance payment that just credits the contact's
 /// sub-ledger without affecting any invoice.
+///
+/// Sprint 35 — added <see cref="ProjectId"/> for the project tag.
 /// </summary>
 public record CreateReceiptVoucherRequest(
     Guid CompanyId,
@@ -49,5 +55,6 @@ public record CreateReceiptVoucherRequest(
     DateTime? CheckDate,
     string? Reference,
     string? Narration,
-    Guid? InvoiceId = null
+    Guid? InvoiceId = null,
+    Guid? ProjectId = null
 );

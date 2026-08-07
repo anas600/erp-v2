@@ -36,6 +36,12 @@ public record InvoiceDto(
     Guid? IntercompanyCompanyId,     // Sprint 24: sister-company target for the mirror invoice. NULL for intra-company invoices.
     decimal AmountPaid,              // Sprint 25: cumulative paid amount; drives the status transitions.
     DateTime? FullyPaidAt,           // Sprint 25: stamped when status flips to 'paid'. NULL otherwise.
+    // Sprint 35: optional FK to the project this invoice is tagged
+    // with. NULL = unallocated. Backed by the new invoices.project_id
+    // column (migration 020). Used by project P&L and the bulk
+    // allocation endpoints. P&L reports use this column to pick
+    // which invoices to sum per project.
+    Guid? ProjectId,
     List<InvoiceLineDto> Lines
 );
 
@@ -67,6 +73,12 @@ public record CreateInvoiceRequest(
     string? Notes,
     decimal TaxRate,            // global tax rate, e.g. 0 or 0.15
     Guid? IntercompanyCompanyId = null,  // Sprint 24: optional sister-company id. When set, posting the invoice also creates a mirror in that company.
+    // Sprint 35: optional project tag. NULL by default so existing
+    // callers keep working. When set, the invoice is tagged with
+    // the project for P&L reporting. Cross-company tags are not
+    // validated here (the tag is just a label) — the bulk
+    // allocation endpoint is the strict path.
+    Guid? ProjectId = null,
     List<CreateInvoiceLineRequest> Lines = null!
 );
 

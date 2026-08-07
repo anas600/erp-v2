@@ -25,6 +25,10 @@ public record PaymentVoucherDto(
     /// </summary>
     Guid? InvoiceId,
     string? InvoiceNumber,
+    // Sprint 35: optional project tag. P&L uses this to
+    // attribute the voucher's net cash movement to a project.
+    // Default null so existing callers keep working.
+    Guid? ProjectId,
     DateTime CreatedAt,
     Guid? CreatedBy,
     string? CreatedByName
@@ -41,5 +45,7 @@ public record CreatePaymentVoucherRequest(
     DateTime? CheckDate,
     string? Reference,
     string? Narration,
-    Guid? InvoiceId = null
+    Guid? InvoiceId = null,
+    // Sprint 35: optional project tag.
+    Guid? ProjectId = null
 );

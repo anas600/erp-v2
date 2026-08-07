@@ -66,7 +66,8 @@ public class InvoiceService
             SELECT id, company_id, invoice_number, invoice_type, invoice_date,
                    party_name, party_name_ar, party_tax_id, notes,
                    subtotal, tax_amount, total, status, created_at, posted_at,
-                   intercompany_company_id, amount_paid, fully_paid_at
+                   intercompany_company_id, amount_paid, fully_paid_at,
+                   project_id
             FROM invoices WHERE id = @id;",
             new { id });
         if (inv is null) return null;
@@ -90,6 +91,7 @@ public class InvoiceService
             inv.subtotal, inv.tax_amount, inv.total, inv.status, inv.created_at, inv.posted_at,
             inv.intercompany_company_id,
             inv.amount_paid, inv.fully_paid_at,
+            inv.project_id,
             lines.Select(l => new InvoiceLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
                 l.product_id, l.product_code, l.product_name, l.product_name_ar,
@@ -180,10 +182,12 @@ public class InvoiceService
             await conn.ExecuteAsync(@"
                 INSERT INTO invoices (id, company_id, invoice_number, invoice_type, invoice_date,
                     party_name, party_name_ar, party_tax_id, notes,
-                    subtotal, tax_amount, total, status, created_by, intercompany_company_id)
+                    subtotal, tax_amount, total, status, created_by, intercompany_company_id,
+                    project_id)
                 VALUES (@id, @companyId, @invoiceNumber, @invoiceType, @invoiceDate,
                     @partyName, @partyNameAr, @partyTaxId, @notes,
-                    @subtotal, @taxAmount, @total, 'draft', @createdBy, @intercompanyCompanyId);",
+                    @subtotal, @taxAmount, @total, 'draft', @createdBy, @intercompanyCompanyId,
+                    @projectId);",
                 new
                 {
                     id,
@@ -199,7 +203,12 @@ public class InvoiceService
                     taxAmount = totalTax,
                     total,
                     createdBy,
-                    intercompanyCompanyId = req.IntercompanyCompanyId
+                    intercompanyCompanyId = req.IntercompanyCompanyId,
+                    // Sprint 35: tag the invoice with a project if the
+                    // caller provided one. Cross-company validation is
+                    // the caller's job — the bulk allocation endpoint
+                    // is the strict path.
+                    projectId = req.ProjectId
                 }, tx);
 
             int lineNum = 1;
@@ -332,7 +341,8 @@ public class InvoiceService
                     subtotal = @subtotal,
                     tax_amount = @taxAmount,
                     total = @total,
-                    intercompany_company_id = @intercompanyCompanyId
+                    intercompany_company_id = @intercompanyCompanyId,
+                    project_id = @projectId
                 WHERE id = @id;",
                 new
                 {
@@ -345,7 +355,9 @@ public class InvoiceService
                     subtotal,
                     taxAmount = totalTax,
                     total,
-                    intercompanyCompanyId = req.IntercompanyCompanyId
+                    intercompanyCompanyId = req.IntercompanyCompanyId,
+                    // Sprint 35: allow re-tagging on draft update.
+                    projectId = req.ProjectId
                 }, tx);
 
             // Delete old lines
@@ -1183,7 +1195,9 @@ public class InvoiceService
         Guid id, Guid company_id, string invoice_number, string invoice_type, DateTime invoice_date,
         string party_name, string? party_name_ar, string? party_tax_id, string? notes,
         decimal subtotal, decimal tax_amount, decimal total, string status, DateTime created_at, DateTime? posted_at,
-        Guid? intercompany_company_id, decimal amount_paid, DateTime? fully_paid_at);
+        Guid? intercompany_company_id, decimal amount_paid, DateTime? fully_paid_at,
+        // Sprint 35: project tag (Sprint 35 cost-center foundation).
+        Guid? project_id);
 
     private record InvoiceLineRow(
         Guid id, Guid invoice_id, Guid? account_id, Guid? product_id,

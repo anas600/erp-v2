@@ -321,6 +321,9 @@ CostCenterEndpoints.Map(app);
 IntercompanyEndpoints.Map(app);
 IntercompanyEliminationEndpoints.Map(app);
 
+// Sprint 35 — Project P&L company-wide report (lives in /api/reports).
+ProjectPnLReportEndpoints.Map(app);
+
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);
 FiscalYearEndpoints.Map(app);

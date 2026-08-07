@@ -173,7 +173,7 @@ public class PostingEngine
     {
         using var conn = _db.CreateConnection();
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries WHERE id = @id;",
             new { id });
         if (entry is null) return null;
@@ -202,6 +202,7 @@ public class PostingEngine
             entry.id, entry.company_id, entry.entry_number, entry.entry_date, entry.narration,
             entry.status, entry.source, entry.rule_id, entry.reverses_entry_id, reversesEntryNumber,
             entry.created_by, entry.created_at, entry.posted_at,
+            entry.project_id,
             lines.Select(l => new JournalLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
                 l.debit, l.credit, l.description, l.line_number)).ToList()
@@ -211,7 +212,9 @@ public class PostingEngine
     private record JournalEntryRow(
         Guid id, Guid company_id, string entry_number, DateTime entry_date, string? narration,
         string status, string? source, Guid? rule_id, Guid? reverses_entry_id,
-        Guid? created_by, DateTime created_at, DateTime? posted_at);
+        Guid? created_by, DateTime created_at, DateTime? posted_at,
+        // Sprint 35: project tag.
+        Guid? project_id);
 
     private record JournalLineRow(
         Guid id, Guid journal_entry_id, Guid account_id, decimal debit, decimal credit,
