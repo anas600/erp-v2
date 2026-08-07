@@ -64,7 +64,7 @@ public class DemoDataSeeder
         var result = new SeedResult { CompanyId = companyId };
 
         // ============================================================
-        // 0) Pre-flight: the control accounts 1200 (AR) and 2000 (AP)
+        // 0) Pre-flight: the control accounts 1103 (AR) and 2101 (AP)
         //    must exist. The seed migration creates them; we just
         //    double-check so the seeder fails fast with a clear
         //    Arabic error instead of throwing a Postgres FK violation
@@ -72,7 +72,7 @@ public class DemoDataSeeder
         // ============================================================
         using (var conn = _db.CreateConnection())
         {
-            var controlCodes = new[] { "1200", "2000" };
+            var controlCodes = new[] { "1103", "2101" };
             foreach (var code in controlCodes)
             {
                 var exists = await conn.ExecuteScalarAsync<bool>(@"
@@ -166,7 +166,7 @@ public class DemoDataSeeder
         // ============================================================
         // 3) Auto-create sub-ledgers for every contact
         // ============================================================
-        // EnsureSubLedgerAsync creates a 1200-CUST-001 / 2000-SUPP-001
+        // EnsureSubLedgerAsync creates a 1103-CUST-001 / 2101-SUPP-001
         // style account + account_contact_links row if missing.
         foreach (var (_, id) in customerIds)
         {
