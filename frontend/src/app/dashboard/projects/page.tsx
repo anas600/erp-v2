@@ -1,10 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Folder, Plus, Loader2, X, CheckCircle, Trash2 } from "lucide-react";
+import { FolderKanban, Plus, Loader2, X, CheckCircle, Search } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
+import ProjectTypeBadge from "./components/ProjectTypeBadge";
+import StatusBadge from "./components/StatusBadge";
+
+/**
+ * Sprint 35 — Projects list.
+ *
+ * Now serves as the central hub for project tracking, with
+ * filters (type, status, customer), search (code + name), and
+ * click-through to the detail page.
+ *
+ * Layout:
+ *   - Desktop: table with 6 columns + actions
+ *   - Mobile: card list (one project per card, stacked)
+ *
+ * Why both? The supervisor uses a phone; the accountant uses
+ * a laptop. We render both with the same data but different
+ * markup. The TAILWIND pattern `hidden md:block` / `md:hidden`
+ * keeps the desktop / mobile code paths clearly separate.
+ */
 
 interface Milestone {
   id: string;
@@ -18,56 +38,91 @@ interface Milestone {
   orderIndex: number;
 }
 
+/**
+ * Sprint 35 — Project DTO has been extended with new fields.
+ * Original Sprint 11 only had status (active/completed/on_hold/cancelled)
+ * + budget + actualCost. The migration adds type, customerId, contract,
+ * manager, location, expectedEndDate, etc.
+ *
+ * We mark the new fields optional so the same frontend still works
+ * against an older backend (graceful degradation).
+ */
 interface Project {
   id: string;
   code: string;
   name: string;
   nameAr?: string;
   description?: string;
-  status: "active" | "completed" | "on_hold" | "cancelled";
+  /** Sprint 11 statuses: active/completed/on_hold/cancelled. */
+  /** Sprint 35 statuses: draft/active/on_hold/completed/closed. */
+  status: string;
+  type?: string | null;
+  customerId?: string | null;
+  customerName?: string | null;
+  contractValue?: number;
   startDate?: string;
   endDate?: string;
+  expectedEndDate?: string;
   budget: number;
   actualCost: number;
+  projectManager?: string | null;
+  location?: string | null;
   notes?: string;
   milestones: Milestone[];
+  createdAt?: string;
 }
+
+interface Customer {
+  id: string;
+  code: string;
+  name: string;
+  nameAr?: string;
+}
+
+const TYPE_OPTIONS = [
+  { value: "",            label: "كل الأنواع" },
+  { value: "construction",label: "مقاولات" },
+  { value: "supply",      label: "توريد" },
+  { value: "service",     label: "خدمات" },
+  { value: "maintenance", label: "صيانة" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "",          label: "كل الحالات" },
+  { value: "draft",     label: "مسودة" },
+  { value: "active",    label: "نشط" },
+  { value: "on_hold",   label: "متوقف" },
+  { value: "completed", label: "مكتمل" },
+  { value: "closed",    label: "مغلق" },
+];
 
 export default function ProjectsPage() {
   const { activeCompany } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    code: "",
-    name: "",
-    nameAr: "",
-    description: "",
-    startDate: "",
-    endDate: "",
-    budget: 0
-  });
-
-  const [milestoneForm, setMilestoneForm] = useState({
-    projectId: "",
-    name: "",
-    nameAr: "",
-    amount: 0,
-    targetDate: ""
-  });
-
-  const [showMilestoneForm, setShowMilestoneForm] = useState(false);
+  // Filters
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
+  const [search, setSearch] = useState("");
 
   const load = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const res = await api.get(`/projects?companyId=${activeCompany.id}`);
-      setProjects(res.data);
+      setError(null);
+      const [projectsRes, customersRes] = await Promise.all([
+        api.get(`/projects?companyId=${activeCompany.id}&limit=200`),
+        // For the customer filter dropdown. Don't fail the whole
+        // page if contacts can't load — just leave the filter empty.
+        api.get(`/contacts?companyId=${activeCompany.id}&type=customer&limit=200`).catch(() => ({ data: [] })),
+      ]);
+      setProjects(projectsRes.data || []);
+      setCustomers(customersRes.data || []);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -75,275 +130,209 @@ export default function ProjectsPage() {
     }
   };
 
-  useEffect(() => { load(); }, [activeCompany]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [activeCompany]);
 
-  const submitProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCompany) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.post("/projects", {
-        companyId: activeCompany.id,
-        code: form.code,
-        name: form.name,
-        nameAr: form.nameAr || null,
-        description: form.description || null,
-        startDate: form.startDate || null,
-        endDate: form.endDate || null,
-        budget: form.budget,
-        notes: null
-      });
-      setForm({ code: "", name: "", nameAr: "", description: "", startDate: "", endDate: "", budget: 0 });
-      setShowForm(false);
-      await load();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSubmitting(false);
+  // Apply filters in-memory. The backend already does a
+  // company-scoped filter, so the dataset is small enough to
+  // filter client-side. Saves an API roundtrip on every
+  // dropdown change.
+  const filtered = useMemo(() => {
+    let out = projects;
+    if (typeFilter) out = out.filter((p) => p.type === typeFilter);
+    if (statusFilter) out = out.filter((p) => p.status === statusFilter);
+    if (customerFilter) out = out.filter((p) => p.customerId === customerFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      out = out.filter(
+        (p) =>
+          p.code.toLowerCase().includes(q) ||
+          p.name.toLowerCase().includes(q) ||
+          (p.nameAr || "").toLowerCase().includes(q)
+      );
     }
-  };
-
-  const addMilestone = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const orderIndex = projects.find(p => p.id === milestoneForm.projectId)?.milestones.length ?? 0;
-      await api.post(`/projects/${milestoneForm.projectId}/milestones`, {
-        name: milestoneForm.name,
-        nameAr: milestoneForm.nameAr || null,
-        amount: milestoneForm.amount,
-        targetDate: milestoneForm.targetDate || null,
-        orderIndex
-      });
-      setMilestoneForm({ projectId: "", name: "", nameAr: "", amount: 0, targetDate: "" });
-      setShowMilestoneForm(false);
-      await load();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const completeMilestone = async (projectId: string, milestoneId: string) => {
-    if (!confirm("هل تريد إكمال هذه المرحلة؟ سيتم إنشاء قيد يومية تلقائياً عبر محرك القواعد.")) return;
-    try {
-      const res = await api.post(`/projects/${projectId}/milestones/${milestoneId}/complete`);
-      alert(`تم إكمال المرحلة! تم إنشاء ${res.data.journalEntriesCreated} قيد يومية.`);
-      await load();
-    } catch (err) {
-      alert(getErrorMessage(err));
-    }
-  };
+    return out;
+  }, [projects, typeFilter, statusFilter, customerFilter, search]);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 gap-2">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Folder size={24} className="text-primary-600" />
+            <FolderKanban size={24} className="text-primary-600" />
             المشاريع
           </h1>
-          <p className="text-sm text-gray-600 mt-1">إدارة المشاريع والمراحل</p>
+          <p className="text-sm text-gray-600 mt-1">إدارة المشاريع، التكاليف، والربحية</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowMilestoneForm(true)} className="btn-secondary">
-            + مرحلة
-          </button>
-          <button onClick={() => setShowForm(true)} className="btn-primary">
-            <Plus size={18} />
-            مشروع جديد
-          </button>
-        </div>
+        <Link href="/dashboard/projects/new" className="btn-primary">
+          <Plus size={18} />
+          مشروع جديد
+        </Link>
       </div>
 
-      {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {loading ? (
-          <div className="col-span-2 flex justify-center py-8">
-            <Loader2 className="animate-spin text-primary-500" size={32} />
-          </div>
-        ) : projects.length === 0 ? (
-          <div className="col-span-2 text-center text-gray-500 py-8 card">
-            لا توجد مشاريع. أنشئ مشروعك الأول للبدء.
-          </div>
-        ) : (
-          projects.map((p) => (
-            <div key={p.id} className="card">
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h3 className="font-semibold text-lg">{p.nameAr || p.name}</h3>
-                  <p className="text-xs text-gray-500 font-mono">{p.code}</p>
-                </div>
-                <span className={
-                  p.status === "active" ? "badge badge-success" :
-                  p.status === "completed" ? "badge badge-info" :
-                  p.status === "on_hold" ? "badge badge-warning" :
-                  "badge badge-danger"
-                }>
-                  {p.status === "active" ? "نشط" :
-                   p.status === "completed" ? "مكتمل" :
-                   p.status === "on_hold" ? "متوقف" : "ملغي"}
-                </span>
-              </div>
-
-              {p.description && <p className="text-sm text-gray-600 mb-2">{p.description}</p>}
-
-              <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                <div>
-                  <span className="text-gray-500">الميزانية:</span>{" "}
-                  <span className="font-mono font-semibold" dir="ltr">{formatNumber(p.budget)}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">التكلفة الفعلية:</span>{" "}
-                  <span className="font-mono font-semibold" dir="ltr">{formatNumber(p.actualCost)}</span>
-                </div>
-              </div>
-
-              {p.milestones.length > 0 && (
-                <div className="border-t pt-2 mt-2">
-                  <p className="text-xs text-gray-500 mb-1 font-semibold">المراحل ({p.milestones.filter(m => m.status === "completed").length}/{p.milestones.length}):</p>
-                  <ul className="space-y-1">
-                    {p.milestones.map((m) => (
-                      <li key={m.id} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          {m.status === "completed" ? (
-                            <CheckCircle size={14} className="text-green-600" />
-                          ) : (
-                            <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300" />
-                          )}
-                          <span className={m.status === "completed" ? "line-through text-gray-500" : ""}>
-                            {m.nameAr || m.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-gray-600" dir="ltr">
-                            {formatNumber(m.amount)}
-                          </span>
-                          {m.status === "pending" && (
-                            <button
-                              onClick={() => completeMilestone(p.id, m.id)}
-                              className="text-xs text-primary-600 hover:bg-primary-50 px-2 py-0.5 rounded"
-                            >
-                              إكمال
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+      {/* Filters bar */}
+      <div className="card mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Search */}
+          <div className="lg:col-span-1">
+            <label className="block text-xs font-medium text-gray-600 mb-1">بحث</label>
+            <div className="flex items-center gap-1 px-2 py-1.5 border border-gray-300 rounded-md bg-white">
+              <Search size={14} className="text-gray-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="كود أو اسم..."
+                className="flex-1 text-sm outline-none bg-transparent"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch("")} className="text-gray-400 hover:text-red-600">
+                  <X size={14} />
+                </button>
               )}
             </div>
-          ))
+          </div>
+          {/* Type */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">النوع</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="input"
+            >
+              {TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Status */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">الحالة</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="input"
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Customer */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">العميل</label>
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              className="input"
+              disabled={customers.length === 0}
+            >
+              <option value="">كل العملاء</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.nameAr || c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {(typeFilter || statusFilter || customerFilter || search) && (
+          <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+            <span>النتائج: {filtered.length} من {projects.length}</span>
+            <button
+              type="button"
+              onClick={() => { setTypeFilter(""); setStatusFilter(""); setCustomerFilter(""); setSearch(""); }}
+              className="text-primary-600 hover:underline"
+            >
+              مسح الفلاتر
+            </button>
+          </div>
         )}
       </div>
 
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">مشروع جديد</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={submitProject} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">الكود *</label>
-                  <input className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">الميزانية</label>
-                  <input type="number" className="input" value={form.budget} onChange={(e) => setForm({ ...form, budget: Number(e.target.value) })} dir="ltr" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">الاسم (English) *</label>
-                <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">الاسم (عربي)</label>
-                <input className="input" value={form.nameAr} onChange={(e) => setForm({ ...form, nameAr: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">الوصف</label>
-                <textarea className="input" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">تاريخ البداية</label>
-                  <input type="date" className="input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">تاريخ النهاية</label>
-                  <input type="date" className="input" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
-                </div>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button type="submit" disabled={submitting} className="btn-primary flex-1">
-                  {submitting ? "جاري الحفظ..." : "حفظ"}
-                </button>
-                <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">إلغاء</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm border border-red-200">{error}</div>}
 
-      {showMilestoneForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">مرحلة جديدة</h2>
-              <button onClick={() => setShowMilestoneForm(false)} className="text-gray-400 hover:text-gray-600">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={addMilestone} className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">المشروع *</label>
-                <select
-                  className="input"
-                  value={milestoneForm.projectId}
-                  onChange={(e) => setMilestoneForm({ ...milestoneForm, projectId: e.target.value })}
-                  required
-                >
-                  <option value="">- اختر مشروع -</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nameAr || p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">اسم المرحلة (English) *</label>
-                <input className="input" value={milestoneForm.name} onChange={(e) => setMilestoneForm({ ...milestoneForm, name: e.target.value })} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">الاسم (عربي)</label>
-                <input className="input" value={milestoneForm.nameAr} onChange={(e) => setMilestoneForm({ ...milestoneForm, nameAr: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">المبلغ *</label>
-                <input type="number" className="input" value={milestoneForm.amount} onChange={(e) => setMilestoneForm({ ...milestoneForm, amount: Number(e.target.value) })} dir="ltr" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">تاريخ مستهدف</label>
-                <input type="date" className="input" value={milestoneForm.targetDate} onChange={(e) => setMilestoneForm({ ...milestoneForm, targetDate: e.target.value })} />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button type="submit" disabled={submitting} className="btn-primary flex-1">
-                  {submitting ? "جاري الحفظ..." : "حفظ"}
-                </button>
-                <button type="button" onClick={() => setShowMilestoneForm(false)} className="btn-secondary">إلغاء</button>
-              </div>
-            </form>
-          </div>
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="animate-spin text-primary-500" size={32} />
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center text-gray-500 py-8 card">
+          {projects.length === 0
+            ? "لا توجد مشاريع. أنشئ مشروعك الأول للبدء."
+            : "لا توجد نتائج تطابق الفلاتر"}
+        </div>
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block card overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الكود</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الاسم</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">النوع</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">الحالة</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-600">العميل</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600">قيمة العقد</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600">التاريخ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => (window.location.href = `/dashboard/projects/${p.id}`)}
+                  >
+                    <td className="py-2 px-3 font-mono text-xs">{p.code}</td>
+                    <td className="py-2 px-3 font-medium">{p.nameAr || p.name}</td>
+                    <td className="py-2 px-3"><ProjectTypeBadge type={p.type} /></td>
+                    <td className="py-2 px-3"><StatusBadge status={p.status} /></td>
+                    <td className="py-2 px-3 text-gray-600">{p.customerName || "—"}</td>
+                    <td className="py-2 px-3 text-left font-mono" dir="ltr">
+                      {formatNumber(p.contractValue ?? p.budget)}
+                    </td>
+                    <td className="py-2 px-3 text-gray-500 text-xs">
+                      {formatDate(p.startDate)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {filtered.map((p) => (
+              <Link
+                key={p.id}
+                href={`/dashboard/projects/${p.id}`}
+                className="block card hover:border-primary-300 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-xs text-gray-500">{p.code}</span>
+                    </div>
+                    <div className="font-semibold truncate">{p.nameAr || p.name}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <ProjectTypeBadge type={p.type} />
+                    <StatusBadge status={p.status} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-2">
+                  <div>
+                    <span className="text-gray-500">العميل:</span> {p.customerName || "—"}
+                  </div>
+                  <div className="text-left" dir="ltr">
+                    <span className="text-gray-500">القيمة:</span>{" "}
+                    <span className="font-mono font-semibold">{formatNumber(p.contractValue ?? p.budget)}</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
