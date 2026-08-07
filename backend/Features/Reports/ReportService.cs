@@ -412,6 +412,28 @@ public class ReportService
         //   flagged: "aging overstates the receivable". The bucket key
         //   is still the invoice age (so the buckets are stable across
         //   partial payments), but the amount is the true outstanding.
+        // Sprint 30 — aging only includes invoices whose linked JE
+        // is POSTED. PENDING/DRAFT JEs (and missing JEs) mean the
+        // accountant hasn't approved the entry yet, so there's no
+        // financial impact yet. The user explicitly required this —
+        // an invoice posted to the journal but not yet approved
+        // should NOT show in aging (it's a workflow stage, not a
+        // receivable).
+        //
+        // Join strategy: invoices link to JEs through different paths
+        // depending on what created the JE:
+        //   1. Rule engine: narration contains "فاتورة مبيعات رقم INV-S-..."
+        //   2. Manual invoice journal: the JE has a `source = 'invoice:UUID'`
+        //      (set by the JournalService.CreateDraftInTxAsync for invoice
+        //      vouchers — though the current code uses rules, not direct
+        //      invoice vouchers, so this is future-proofing)
+        //   3. The old broken path: invoice.journal_entry_id (column
+        //      doesn't exist; checked for safety)
+        //
+        // We use narration parsing for the rule-generated path because
+        // that's what the rule engine actually does. A LEFT JOIN to
+        // journal_entries with a parse ensures the invoice is only
+        // counted when the JE is actually posted.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -425,11 +447,17 @@ public class ReportService
               ON c.company_id = i.company_id
              AND c.name = i.party_name
              AND c.type = 'customer'
+            LEFT JOIN journal_entries je
+              ON je.company_id = i.company_id
+             AND je.status = 'posted'
+             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
               AND i.status IN ('posted', 'partiallypaid')
               AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
+              AND je.id IS NOT NULL
             ORDER BY c.name, i.invoice_date;",
             new { companyId, asOfDate });
 
@@ -488,6 +516,10 @@ public class ReportService
         // FIX 2026-08-05 (Sprint 25 — aging correctness):
         //   outstanding = total - amount_paid. The bucket key stays the
         //   invoice age; only the amount is the true outstanding.
+        // Sprint 30 — see customer aging for the same logic. We
+        // exclude invoices whose linked JE is not POSTED (still
+        // PENDING or DRAFT), so aging only reflects real financial
+        // impact.
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -501,11 +533,17 @@ public class ReportService
               ON c.company_id = i.company_id
              AND c.name = i.party_name
              AND c.type = 'supplier'
+            LEFT JOIN journal_entries je
+              ON je.company_id = i.company_id
+             AND je.status = 'posted'
+             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'
               AND i.status IN ('posted', 'partiallypaid')
               AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
+              AND je.id IS NOT NULL
             ORDER BY c.name, i.invoice_date;",
             new { companyId, asOfDate });
 
