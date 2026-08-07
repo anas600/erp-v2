@@ -407,6 +407,23 @@ public class JournalService
     ///   - Empty entries (no lines).
     ///   - Unbalanced entries (debits != credits).
     /// </summary>
+    /// <summary>
+    /// Sprint 30 — ApproveAsync now does PENDING → DRAFT (not POSTED).
+    ///
+    /// The user explicitly wants the accountant to be able to review a
+    /// rule-generated entry, approve it as a "draft for review", and
+    /// then post it (DRAFT → POSTED) as a separate explicit step. This
+    /// matches the natural accounting workflow where the reviewer signs
+    /// off before the entry hits the General Ledger.
+    ///
+    /// Flow:
+    ///   PENDING (rule generated) ── approve ──▶ DRAFT (approved, ready to post)
+    ///   DRAFT (any source)       ── post    ──▶ POSTED (hits the GL, affects reports)
+    ///   POSTED                   ── reverse ──▶ REVERSED (reversing entry created)
+    ///
+    /// Note: this method does NOT touch `accounts.balance`. Balance
+    /// updates happen in PostingEngine.PostAsync (DRAFT → POSTED).
+    /// </summary>
     public async Task<JournalEntryDto?> ApproveAsync(Guid entryId, Guid? userId)
     {
         try
@@ -422,15 +439,31 @@ public class JournalService
                 new { id = entryId });
 
             if (entry is null) return null;
-            if (entry.status == "posted") return await GetByIdAsync(entryId); // idempotent
+            if (entry.status == "draft") return await GetByIdAsync(entryId); // idempotent
             if (entry.status != "pending")
                 throw new InvalidOperationException(
                     $"لا يمكن اعتماد قيد بحالة '{entry.status}'. المتوقع: 'pending'");
 
-            // Delegate the actual transition to PostingEngine — it handles
-            // balance validation, account-balance updates, and the
-            // UPDATE journal_entries SET status = 'posted'.
-            return await _posting.PostAsync(entryId);
+            // Sprint 30: PENDING → DRAFT only (no balance update).
+            // The accountant must then click "post" to actually push
+            // the entry into the General Ledger.
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE journal_entries
+                    SET status = 'draft'
+                    WHERE id = @id AND status = 'pending';",
+                    new { id = entryId }, tx);
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+
+            return await GetByIdAsync(entryId);
         }
         catch (Exception ex)
         {
@@ -502,19 +535,39 @@ public class JournalService
     /// <summary>
     /// Deletes a draft journal entry and its lines. Drafts are the only
     /// entries that can be removed — once an entry is posted (or pending,
-    /// or reversed) it becomes part of the permanent accounting record.
+    /// Sprint 30 — full lifecycle of journal entries:
     ///
-    /// Why only drafts?
-    ///   - Posted entries must never be deleted (GAAP/IFRS — reversible,
-    ///     never erasable).
-    ///   - Pending entries are awaiting review; the accountant should
-    ///     Approve or Reject, not delete.
-    ///   - Reversed entries are already cancelled by a reversing entry;
-    ///     deleting them would break the audit trail.
+    /// ┌──────────┐ approve ┌────────┐ post ┌─────────┐ reverse ┌────────────┐
+    /// │ PENDING  │────────▶│ DRAFT  │─────▶│ POSTED  │────────▶│ REVERSED   │
+    /// └──────────┘         └────────┘      └─────────┘         └────────────┘
+    ///      │ delete            │ delete        │ cannot delete
+    ///      ▼                   ▼               (use reverse)
+    ///   (cascades)         (cascades)
+    ///      │                   │
+    ///      └──── restore source document to draft ───┘
     ///
-    /// Returns true if the entry was deleted, false if it didn't exist.
-    /// Throws InvalidOperationException if the entry exists but is not
-    /// in draft state.
+    /// Deletable states: PENDING (rule-generated, awaiting review) and
+    /// DRAFT (manually created or approved from pending, awaiting post).
+    /// Both are pre-accounting — they don't touch `accounts.balance` so
+    /// we can safely roll the source back to draft without disturbing
+    /// the general ledger.
+    ///
+    /// Why PENDING is now deletable:
+    ///   - The user may want to discard a rule-generated entry (e.g.
+    ///     they posted the wrong invoice and want to re-post it).
+    ///   - The previous behavior forced a Reject, but Reject required
+    ///     a reason; Delete is faster for "just throw it away" cases.
+    ///   - Source rollback ensures the source invoice/voucher can be
+    ///     re-edited and re-posted.
+    ///
+    /// Why POSTED is NOT deletable:
+    ///   - Posted entries are part of the permanent accounting record.
+    ///     They can only be cancelled by a REVERSING entry (per
+    ///     GAAP/IFRS — reversible, never erasable).
+    ///
+    /// Returns true if the entry was deleted (and source rolled back),
+    /// false if it didn't exist. Throws InvalidOperationException if
+    /// the entry is in 'posted' or 'reversed' state.
     /// </summary>
     public async Task<bool> DeleteAsync(Guid entryId)
     {
@@ -522,23 +575,30 @@ public class JournalService
         using var tx = conn.BeginTransaction();
         try
         {
-            // 1) Status check first — fail fast before doing any DELETE.
-            var status = await conn.QuerySingleOrDefaultAsync<string?>(@"
-                SELECT status FROM journal_entries WHERE id = @id;",
+            // 1) Load the entry — we need status + source for cascade.
+            var entry = await conn.QuerySingleOrDefaultAsync<(Guid id, string status, string? source, string entry_number)?>(@"
+                SELECT id, status, source, entry_number FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
-            if (status is null) return false;
-            if (status != "draft")
+            if (entry is null) return false;
+            if (entry.Value.status != "pending" && entry.Value.status != "draft")
                 throw new InvalidOperationException(
-                    $"لا يمكن حذف قيد بحالة '{status}'. الحذف مسموح فقط للمسودات.");
+                    $"لا يمكن حذف قيد بحالة '{entry.Value.status}'. " +
+                    "القيد المرحّل يجب عكسه بقيد عكسي، أو احذفه قبل الترحيل.");
 
-            // 2) Delete the lines first (defensive — there's no ON DELETE
+            // 2) Cascade: restore the source document so the user can
+            //    re-edit and re-post. PENDING/DRAFT entries never
+            //    touched `accounts.balance`, so this is safe — no
+            //    financial-report impact.
+            await RestoreSourceForDeletedEntryAsync(conn, tx, entryId, entry.Value.source);
+
+            // 3) Delete the lines first (defensive — there's no ON DELETE
             //    CASCADE on the FK, so this would orphan the lines if we
             //    only deleted the header).
             await conn.ExecuteAsync(
                 "DELETE FROM journal_lines WHERE journal_entry_id = @id;",
                 new { id = entryId }, tx);
 
-            // 3) Delete the header.
+            // 4) Delete the header.
             await conn.ExecuteAsync(
                 "DELETE FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
@@ -550,6 +610,77 @@ public class JournalService
         {
             tx.Rollback();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Sprint 30 — when a PENDING/DRAFT journal entry is deleted, walk
+    /// back to the source document (invoice / receipt / payment) and
+    /// restore it to "draft" status, clearing the link. The source
+    /// document was just in the "posted" intermediate state (it sent
+    /// the JE to the journal but no one has yet approved/posted the
+    /// JE to the GL), so rolling it back to draft lets the data-entry
+    /// accountant re-edit and re-post it.
+    /// </summary>
+    private async Task RestoreSourceForDeletedEntryAsync(
+        System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
+        Guid entryId, string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return; // manual entry — no source
+
+        if (source == "payment")
+        {
+            // Payment voucher that created this JE — roll it back to draft
+            var pv = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid? invoice_id, decimal amount)?>(@"
+                SELECT id, invoice_id, amount FROM payment_vouchers
+                WHERE journal_entry_id = @entryId LIMIT 1;",
+                new { entryId }, tx);
+            if (pv is null) return;
+
+            await conn.ExecuteAsync(@"
+                UPDATE payment_vouchers
+                SET status = 'draft', posted_at = NULL, journal_entry_id = NULL
+                WHERE id = @id;",
+                new { id = pv.Value.id }, tx);
+
+            // If it was applied to an invoice, restore the invoice's
+            // amount_paid by subtracting the payment (the payment is
+            // being thrown away, so the invoice should be un-paid).
+            if (pv.Value.invoice_id.HasValue)
+            {
+                await RestoreInvoiceAmountPaidAsync(
+                    conn, tx, pv.Value.invoice_id.Value, -pv.Value.amount);
+            }
+        }
+        else if (source == "receipt")
+        {
+            // Same pattern as payment but for receipts.
+            var rv = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid? invoice_id, decimal amount)?>(@"
+                SELECT id, invoice_id, amount FROM receipt_vouchers
+                WHERE journal_entry_id = @entryId LIMIT 1;",
+                new { entryId }, tx);
+            if (rv is null) return;
+
+            await conn.ExecuteAsync(@"
+                UPDATE receipt_vouchers
+                SET status = 'draft', posted_at = NULL, journal_entry_id = NULL
+                WHERE id = @id;",
+                new { id = rv.Value.id }, tx);
+
+            if (rv.Value.invoice_id.HasValue)
+            {
+                await RestoreInvoiceAmountPaidAsync(
+                    conn, tx, rv.Value.invoice_id.Value, -rv.Value.amount);
+            }
+        }
+        else if (source.StartsWith("invoice:"))
+        {
+            // Standalone invoice posting (no voucher). Roll the invoice
+            // back to draft so it can be re-edited or re-posted.
+            var invoiceIdStr = source.Substring("invoice:".Length);
+            if (!Guid.TryParse(invoiceIdStr, out var invoiceId)) return;
+
+            await ReverseInvoicePostingAsync(conn, tx, invoiceId);
         }
     }
 
