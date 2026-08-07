@@ -171,6 +171,18 @@ public static class AdminEndpoints
         // Sprint 26 — new endpoints
         // ============================================================
 
+        grp.MapGet("/debug-parent-ids", async (HttpContext ctx, [FromQuery] Guid companyId, IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin()) return Results.Forbid();
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync(@"
+                SELECT id::text, code, level, parent_id::text AS parent_id
+                FROM accounts
+                WHERE company_id = @companyId AND level IN (3, 4)
+                ORDER BY level, code;", new { companyId });
+            return Results.Ok(new { rows });
+        });
+
         // POST /api/admin/bulk-approve-pending
         // Approves every PENDING journal entry for the given company.
         // Required because the rule engine (Sprint 15) creates entries
