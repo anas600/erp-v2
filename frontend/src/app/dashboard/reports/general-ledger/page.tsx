@@ -168,11 +168,11 @@ export default function GeneralLedgerPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <BookOpen size={24} className="text-primary-600" />
             دفتر الأستاذ
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             كل الحركات على حساب معين في فترة محددة، مع رصيد جاري
           </p>
         </div>
@@ -244,9 +244,9 @@ export default function GeneralLedgerPage() {
 
       {/* Report */}
       {!selectedAccountId ? (
-        <div className="card text-center py-12 text-gray-500">
-          <BookOpen size={48} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-base font-medium">اختر حساب لعرض حركاته</p>
+        <div className="card text-center py-12 text-ink-muted">
+          <BookOpen size={48} className="mx-auto mb-3 text-ink-subtle" />
+          <p className="text-canvas font-medium">اختر حساب لعرض حركاته</p>
         </div>
       ) : loadingReport ? (
         <div className="card flex justify-center py-8">
@@ -255,13 +255,13 @@ export default function GeneralLedgerPage() {
       ) : report ? (
         <div className="card">
           {/* Account header */}
-          <div className="border-b border-gray-200 pb-3 mb-3">
+          <div className="border-b border-edge pb-3 mb-3">
             <div className="flex items-baseline justify-between">
               <div>
                 <h2 className="text-lg font-semibold">
                   حساب: {report.accountCode} — {report.accountName}
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ink-muted">
                   {report.companyName} • الفترة: {formatDate(report.fromDate)} → {formatDate(report.toDate)} •
                   الطبيعة: <span className="font-mono">{report.accountNature}</span>
                 </p>
@@ -279,7 +279,7 @@ export default function GeneralLedgerPage() {
 
           {/* Transactions table */}
           {report.entries.length === 0 ? (
-            <p className="text-center text-gray-500 py-6">لا توجد حركات في هذه الفترة</p>
+            <p className="text-center text-ink-muted py-6">لا توجد حركات في هذه الفترة</p>
           ) : (
             <table className="table">
               <thead>
@@ -318,7 +318,7 @@ export default function GeneralLedgerPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 font-bold bg-gray-50">
+                <tr className="border-t-2 font-bold bg-raised">
                   <td colSpan={4} className="py-2">الإجماليات</td>
                   <td className="font-mono py-2" dir="ltr">{formatNumber(report.totalDebit)}</td>
                   <td className="font-mono py-2" dir="ltr">{formatNumber(report.totalCredit)}</td>
@@ -337,8 +337,8 @@ export default function GeneralLedgerPage() {
 
 function Summary({ label, value, bold }: { label: string; value: number; bold?: boolean }) {
   return (
-    <div className={`p-2 rounded ${bold ? "bg-primary-50" : "bg-gray-50"}`}>
-      <p className="text-xs text-gray-600">{label}</p>
+    <div className={`p-2 rounded ${bold ? "bg-primary-50" : "bg-raised"}`}>
+      <p className="text-xs text-ink-muted">{label}</p>
       <p className={`font-mono ${bold ? "text-lg font-bold text-primary-700" : "text-sm"}`} dir="ltr">
         {formatNumber(value)}
       </p>
@@ -347,7 +347,7 @@ function Summary({ label, value, bold }: { label: string; value: number; bold?: 
 }
 
 function SourceBadge({ source }: { source?: string }) {
-  if (!source) return <span className="text-gray-400">—</span>;
+  if (!source) return <span className="text-ink-subtle">—</span>;
   if (source.startsWith("rule:"))
     return <span className="badge badge-info text-xs">قاعدة</span>;
   if (source.startsWith("reverse:"))

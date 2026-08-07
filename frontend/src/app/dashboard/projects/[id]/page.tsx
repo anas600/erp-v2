@@ -192,7 +192,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   if (error || !project) {
     return (
       <div>
-        <Link href="/dashboard/projects" className="flex items-center gap-1 text-gray-500 hover:text-gray-700 mb-4">
+        <Link href="/dashboard/projects" className="flex items-center gap-1 text-ink-muted hover:text-ink-muted mb-4">
           <ArrowRight size={16} />
           العودة إلى المشاريع
         </Link>
@@ -208,21 +208,21 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       {/* Header */}
       <div className="flex items-start justify-between mb-4 gap-2 flex-wrap">
         <div>
-          <Link href="/dashboard/projects" className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm mb-2">
+          <Link href="/dashboard/projects" className="flex items-center gap-1 text-ink-muted hover:text-ink-muted text-sm mb-2">
             <ArrowRight size={14} />
             المشاريع
           </Link>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900">{project.nameAr || project.name}</h1>
+            <h1 className="text-2xl font-bold text-ink-strong">{project.nameAr || project.name}</h1>
             <ProjectTypeBadge type={project.type} />
             <StatusBadge status={project.status} />
           </div>
-          <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 flex-wrap">
+          <div className="flex items-center gap-3 mt-1 text-sm text-ink-muted flex-wrap">
             <span className="font-mono">{project.code}</span>
             {project.customerName && (
               <span className="flex items-center gap-1">
-                <span className="text-gray-400">•</span>
-                العميل: <span className="text-gray-700">{project.customerName}</span>
+                <span className="text-ink-subtle">•</span>
+                العميل: <span className="text-ink-muted">{project.customerName}</span>
               </span>
             )}
           </div>
@@ -241,7 +241,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       {/* Tab bar */}
-      <div className="border-b border-gray-200 mb-4 -mx-1 px-1 overflow-x-auto">
+      <div className="border-b border-edge mb-4 -mx-1 px-1 overflow-x-auto">
         <div className="flex gap-1 min-w-max">
           {TABS.map((t) => {
             const Icon = t.icon;
@@ -255,7 +255,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   "flex items-center gap-1 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
                   active
                     ? "border-primary-600 text-primary-700"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                    : "border-transparent text-ink-muted hover:text-ink-muted"
                 )}
                 aria-current={active ? "page" : undefined}
               >
@@ -475,15 +475,15 @@ function OverviewTab({
           {project.location && <InfoRow icon={MapPin} label="الموقع" value={project.location} />}
         </div>
         {project.description && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-1">الوصف</p>
+          <div className="mt-3 pt-3 border-t border-edge">
+            <p className="text-xs text-ink-muted mb-1">الوصف</p>
             <p className="text-sm">{project.description}</p>
           </div>
         )}
         {project.notes && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-1">ملاحظات</p>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{project.notes}</p>
+          <div className="mt-3 pt-3 border-t border-edge">
+            <p className="text-xs text-ink-muted mb-1">ملاحظات</p>
+            <p className="text-sm text-ink-muted whitespace-pre-wrap">{project.notes}</p>
           </div>
         )}
       </div>
@@ -494,29 +494,29 @@ function OverviewTab({
           <CheckCircle2 size={16} className="text-primary-600" />
           المراحل
           {project.milestones.length > 0 && (
-            <span className="text-xs text-gray-500 font-normal">
+            <span className="text-xs text-ink-muted font-normal">
               ({project.milestones.filter((m) => m.status === "completed").length}/{project.milestones.length} مكتملة)
             </span>
           )}
         </h3>
         {project.milestones.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4 text-center">لا توجد مراحل</p>
+          <p className="text-sm text-ink-muted py-4 text-center">لا توجد مراحل</p>
         ) : (
           <ul className="space-y-2">
             {project.milestones.map((m) => (
-              <li key={m.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+              <li key={m.id} className="flex items-center justify-between p-2 hover:bg-raised rounded">
                 <div className="flex items-center gap-2">
                   {m.status === "completed" ? (
                     <CheckCircle2 size={16} className="text-green-600" />
                   ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                    <div className="w-4 h-4 rounded-full border-2 border-edge" />
                   )}
-                  <span className={m.status === "completed" ? "line-through text-gray-500" : ""}>
+                  <span className={m.status === "completed" ? "line-through text-ink-muted" : ""}>
                     {m.nameAr || m.name}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                  {m.targetDate && <span className="text-xs text-gray-500">{formatDate(m.targetDate)}</span>}
+                  {m.targetDate && <span className="text-xs text-ink-muted">{formatDate(m.targetDate)}</span>}
                   <span className="font-mono" dir="ltr">{formatNumber(m.amount)}</span>
                 </div>
               </li>
@@ -531,9 +531,9 @@ function OverviewTab({
 function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <div className="flex items-start gap-2">
-      <Icon size={14} className="text-gray-400 mt-0.5 shrink-0" />
+      <Icon size={14} className="text-ink-subtle mt-0.5 shrink-0" />
       <div className="min-w-0">
-        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-xs text-ink-muted">{label}</p>
         <p className="font-medium truncate" dir="ltr">{value}</p>
       </div>
     </div>
@@ -550,35 +550,35 @@ function CostsTab({ rows }: { rows: CostRow[] }) {
   const total = rows.reduce((s, r) => s + r.amount, 0);
   return (
     <div className="card p-0 overflow-x-auto">
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+      <div className="px-4 py-2 border-b border-edge flex items-center justify-between bg-raised">
         <span className="text-sm font-semibold">عدد الحركات: {rows.length}</span>
         <span className="text-sm font-mono font-semibold" dir="ltr">الإجمالي: {formatNumber(total)}</span>
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">المصدر</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">الرقم</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">التاريخ</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">الحساب</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">الطرف</th>
-            <th className="text-left py-2 px-3 font-semibold text-gray-600">المبلغ</th>
+          <tr className="border-b border-edge">
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">المصدر</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">الرقم</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">التاريخ</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">الحساب</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">الطرف</th>
+            <th className="text-left py-2 px-3 font-semibold text-ink-muted">المبلغ</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-gray-100">
+            <tr key={r.id} className="border-b border-edge">
               <td className="py-2 px-3">
                 <span className={cn(
                   "inline-flex px-2 py-0.5 rounded text-xs",
-                  r.source === "invoice" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"
+                  r.source === "invoice" ? "bg-primary-100 text-primary-800" : "bg-purple-100 text-purple-800"
                 )}>
                   {r.source === "invoice" ? "فاتورة" : "قيد"}
                 </span>
               </td>
               <td className="py-2 px-3 font-mono text-xs">{r.invoiceNumber || r.entryNumber || r.id.slice(0, 8)}</td>
               <td className="py-2 px-3">{formatDate(r.date)}</td>
-              <td className="py-2 px-3 font-mono text-xs text-gray-600">{r.accountCode || "—"}</td>
+              <td className="py-2 px-3 font-mono text-xs text-ink-muted">{r.accountCode || "—"}</td>
               <td className="py-2 px-3">{r.partyName || "—"}</td>
               <td className="py-2 px-3 text-left font-mono" dir="ltr">{formatNumber(r.amount)}</td>
             </tr>
@@ -599,27 +599,27 @@ function RevenueTab({ rows }: { rows: RevenueRow[] }) {
   const total = rows.reduce((s, r) => s + r.total, 0);
   return (
     <div className="card p-0 overflow-x-auto">
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+      <div className="px-4 py-2 border-b border-edge flex items-center justify-between bg-raised">
         <span className="text-sm font-semibold">عدد الفواتير: {rows.length}</span>
         <span className="text-sm font-mono font-semibold" dir="ltr">الإجمالي: {formatNumber(total)}</span>
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">رقم الفاتورة</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">التاريخ</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">العميل</th>
-            <th className="text-right py-2 px-3 font-semibold text-gray-600">الحالة</th>
-            <th className="text-left py-2 px-3 font-semibold text-gray-600">المبلغ</th>
+          <tr className="border-b border-edge">
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">رقم الفاتورة</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">التاريخ</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">العميل</th>
+            <th className="text-right py-2 px-3 font-semibold text-ink-muted">الحالة</th>
+            <th className="text-left py-2 px-3 font-semibold text-ink-muted">المبلغ</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-gray-100">
+            <tr key={r.id} className="border-b border-edge">
               <td className="py-2 px-3 font-mono text-xs">{r.invoiceNumber}</td>
               <td className="py-2 px-3">{formatDate(r.invoiceDate)}</td>
               <td className="py-2 px-3">{r.partyNameAr || r.partyName}</td>
-              <td className="py-2 px-3 text-xs text-gray-600">{r.status}</td>
+              <td className="py-2 px-3 text-xs text-ink-muted">{r.status}</td>
               <td className="py-2 px-3 text-left font-mono" dir="ltr">{formatNumber(r.total)}</td>
             </tr>
           ))}
@@ -631,7 +631,7 @@ function RevenueTab({ rows }: { rows: RevenueRow[] }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="card text-center text-gray-500 py-12 text-sm">
+    <div className="card text-center text-ink-muted py-12 text-sm">
       {message}
     </div>
   );

@@ -104,18 +104,18 @@ export default function TrialBalancePage() {
   }
 
   if (!report) {
-    return <div className="text-center text-gray-500">لا توجد بيانات</div>;
+    return <div className="text-center text-ink-muted">لا توجد بيانات</div>;
   }
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <BarChart3 size={24} className="text-primary-600" />
             ميزان المراجعة
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             {report.companyName} •截至 {new Date(report.asOfDate).toLocaleDateString("en-GB")}
           </p>
         </div>
@@ -130,11 +130,11 @@ export default function TrialBalancePage() {
             {refreshing ? "جاري التحديث..." : "تحديث"}
           </button>
           {report.balanced ? (
-            <span className="badge badge-success text-base px-3 py-1">
+            <span className="badge badge-success text-canvas px-3 py-1">
               <CheckCircle size={14} className="ml-1" /> متوازن
             </span>
           ) : (
-            <span className="badge badge-danger text-base px-3 py-1">
+            <span className="badge badge-danger text-canvas px-3 py-1">
               <XCircle size={14} className="ml-1" /> غير متوازن
             </span>
           )}
@@ -177,7 +177,7 @@ export default function TrialBalancePage() {
                   </td>
                   <td>{l.name}</td>
                   <td>
-                    <span className="text-xs text-gray-600">
+                    <span className="text-xs text-ink-muted">
                       {l.accountType === "Asset" ? "أصول" :
                        l.accountType === "Liability" ? "خصوم" :
                        l.accountType === "Equity" ? "حقوق ملكية" :
@@ -186,9 +186,9 @@ export default function TrialBalancePage() {
                   </td>
                   <td>
                     {l.nature === "Debit" ? (
-                      <span className="text-xs text-blue-700">مدين</span>
+                      <span className="text-xs text-primary-700">مدين</span>
                     ) : (
-                      <span className="text-xs text-orange-700">دائن</span>
+                      <span className="text-xs text-amber-700">دائن</span>
                     )}
                   </td>
                   <td className="font-mono" dir="ltr">{formatNumber(l.debitBalance)}</td>
@@ -198,7 +198,7 @@ export default function TrialBalancePage() {
             })}
           </tbody>
           <tfoot>
-            <tr className="font-bold bg-gray-100">
+            <tr className="font-bold bg-raised">
               <td colSpan={4} className="text-left py-3">الإجمالي</td>
               <td className="font-mono py-3" dir="ltr">{formatNumber(report.totalDebit)}</td>
               <td className="font-mono py-3" dir="ltr">{formatNumber(report.totalCredit)}</td>
@@ -207,7 +207,7 @@ export default function TrialBalancePage() {
         </table>
       </div>
 
-      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900 space-y-1">
+      <div className="mt-4 p-4 bg-primary-50 border border-primary-200 rounded-md text-sm text-primary-900 space-y-1">
         <p>
           💡 <strong>قاعدة محاسبية:</strong> في كل ميزان مراجعة، إجمالي المدين يجب أن يساوي إجمالي الدائن
           (A = L + E). هذا يتحقق تلقائياً من Posting Engine عند ترحيل أي قيد.

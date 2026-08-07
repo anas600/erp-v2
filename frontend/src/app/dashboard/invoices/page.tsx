@@ -309,11 +309,11 @@ export default function InvoicesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <FileText size={24} className="text-primary-600" />
             الفواتير
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             فواتير المشتريات والمبيعات — مبنية على المنتجات
           </p>
         </div>
@@ -338,7 +338,7 @@ export default function InvoicesPage() {
             className={`px-4 py-2 rounded-md text-sm font-medium ${
               filter === t.v
                 ? "bg-primary-600 text-white"
-                : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                : "bg-canvas dark:bg-neutral-900 text-ink-muted border border-edge hover:bg-raised"
             }`}
           >
             {t.l}
@@ -378,7 +378,7 @@ export default function InvoicesPage() {
               ))}
               {filteredInvoices.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center text-gray-500 py-6">لا توجد فواتير</td>
+                  <td colSpan={7} className="text-center text-ink-muted py-6">لا توجد فواتير</td>
                 </tr>
               )}
             </tbody>
@@ -424,7 +424,7 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel, onEdit }: any) 
       case "posted":
         // Outstanding amount in red.
         return (
-          <span className="badge bg-blue-100 text-blue-800 inline-flex items-center gap-1">
+          <span className="badge bg-primary-100 text-primary-800 inline-flex items-center gap-1">
             مرحّلة
             {inv.amountPaid !== undefined && outstanding > 0.01 && (
               <span className="text-red-600 font-mono text-xs">
@@ -450,13 +450,13 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel, onEdit }: any) 
       case "cancelled":
         return <span className="badge badge-danger">ملغاة</span>;
       default:
-        return <span className="badge bg-gray-100 text-gray-800">{inv.status}</span>;
+        return <span className="badge bg-raised text-ink-strong">{inv.status}</span>;
     }
   })();
 
   return (
     <>
-      <tr className="cursor-pointer hover:bg-gray-50" onClick={onToggle}>
+      <tr className="cursor-pointer hover:bg-raised" onClick={onToggle}>
         <td className="font-mono font-semibold">{inv.invoiceNumber}</td>
         <td>
           {inv.invoiceType === "purchase" ? (
@@ -499,10 +499,10 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel, onEdit }: any) 
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={7} className="bg-gray-50 p-4">
+          <td colSpan={7} className="bg-raised p-4">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-600">
+                <tr className="text-xs text-ink-muted">
                   <th className="text-right py-1">المنتج</th>
                   <th className="text-right py-1">البيان</th>
                   <th className="text-right py-1">الكمية</th>
@@ -518,11 +518,11 @@ function InvoiceRow({ inv, expanded, onToggle, onPost, onCancel, onEdit }: any) 
                     <td className="py-1">
                       {l.productCode ? (
                         <>
-                          <span className="font-mono text-xs text-gray-500">{l.productCode}</span>{" "}
+                          <span className="font-mono text-xs text-ink-muted">{l.productCode}</span>{" "}
                           {l.productNameAr || l.productName}
                         </>
                       ) : (
-                        <span className="text-gray-400 text-xs">بدون منتج</span>
+                        <span className="text-ink-subtle text-xs">بدون منتج</span>
                       )}
                     </td>
                     <td className="py-1">{l.description}</td>
@@ -566,13 +566,13 @@ function InvoiceForm({
   const isEdit = !!editing;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl p-6 my-8">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-5xl p-6 my-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             {isEdit && <Pencil size={18} className="text-amber-600" />}
             {isEdit ? `تعديل فاتورة مسودة — ${editing.invoiceNumber}` : "فاتورة جديدة"}
           </h2>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onCancel} className="text-ink-subtle hover:text-ink-muted">
             <X size={20} />
           </button>
         </div>
@@ -616,7 +616,7 @@ function InvoiceForm({
             <div>
               <label className="block text-sm font-medium mb-1">
                 شركة شقيقة
-                <span className="text-xs text-gray-500 mr-2">(اختياري - للمعاملات بين الشركات)</span>
+                <span className="text-xs text-ink-muted mr-2">(اختياري - للمعاملات بين الشركات)</span>
               </label>
               <select
                 className="input"
@@ -632,7 +632,7 @@ function InvoiceForm({
                     </option>
                   ))}
               </select>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-ink-muted mt-1">
                 عند الترحيل، ينشئ النظام قيداً في الشركة الحالية وفي الشركة الشقيقة
               </p>
             </div>
@@ -644,7 +644,7 @@ function InvoiceForm({
               <label className="block text-sm font-medium mb-1 flex items-center gap-1">
                 <FolderKanban size={12} />
                 المشروع
-                <span className="text-xs text-gray-500 mr-1">(اختياري — لتحميل التكلفة على مركز التكلفة)</span>
+                <span className="text-xs text-ink-muted mr-1">(اختياري — لتحميل التكلفة على مركز التكلفة)</span>
               </label>
               <ProjectPicker
                 companyId={activeCompany?.id}
@@ -728,7 +728,7 @@ function InvoiceForm({
             </div>
             <div className="space-y-2">
               {form.lines.map((line: any, idx: number) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded">
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-raised p-2 rounded">
                   <select
                     className="input col-span-4"
                     value={line.productId}
@@ -794,17 +794,17 @@ function InvoiceForm({
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-md">
+          <div className="grid grid-cols-3 gap-3 p-3 bg-raised rounded-md">
             <div>
-              <p className="text-xs text-gray-600">الإجمالي الفرعي</p>
+              <p className="text-xs text-ink-muted">الإجمالي الفرعي</p>
               <p className="text-lg font-bold" dir="ltr">{formatNumber(subtotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-600">الضريبة</p>
+              <p className="text-xs text-ink-muted">الضريبة</p>
               <p className="text-lg font-bold" dir="ltr">{formatNumber(taxAmount)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-600">الإجمالي (شامل الضريبة)</p>
+              <p className="text-xs text-ink-muted">الإجمالي (شامل الضريبة)</p>
               <p className="text-xl font-bold text-primary-600" dir="ltr">{formatNumber(total)}</p>
             </div>
           </div>

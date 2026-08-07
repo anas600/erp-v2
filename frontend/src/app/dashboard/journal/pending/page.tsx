@@ -147,21 +147,21 @@ export default function PendingJournalPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Inbox size={24} className="text-amber-600" />
             القيود المعلقة
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             قيود أنشأها محرك قواعد العمل بانتظار مراجعتك واعتمادك
           </p>
         </div>
-        <div className="text-sm text-gray-500">
+        <div className="text-sm text-ink-muted">
           {entries.length > 0 ? (
-            <span className="badge badge-info text-base px-3 py-1">
+            <span className="badge badge-info text-canvas px-3 py-1">
               {entries.length} قيد بانتظار الاعتماد
             </span>
           ) : (
-            <span className="badge badge-success text-base px-3 py-1">
+            <span className="badge badge-success text-canvas px-3 py-1">
               <CheckCircle size={14} className="ml-1" /> لا توجد قيود معلقة
             </span>
           )}
@@ -178,9 +178,9 @@ export default function PendingJournalPage() {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : entries.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Inbox size={48} className="mx-auto mb-3 text-gray-300" />
-            <p className="text-base font-medium">لا توجد قيود معلقة</p>
+          <div className="text-center py-12 text-ink-muted">
+            <Inbox size={48} className="mx-auto mb-3 text-ink-subtle" />
+            <p className="text-canvas font-medium">لا توجد قيود معلقة</p>
             <p className="text-sm mt-1">جميع القيود المولّدة من القواعد تم اعتمادها أو رفضها</p>
           </div>
         ) : (
@@ -227,9 +227,9 @@ export default function PendingJournalPage() {
 
       {rejectReason && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-3">رفض القيد</h3>
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-ink-muted mb-3">
               سيتحول القيد إلى "مسودة" (للتعديل) ولن يدخل التقارير. أضف سبب الرفض (اختياري):
             </p>
             <textarea
@@ -241,7 +241,7 @@ export default function PendingJournalPage() {
               maxLength={500}
             />
             <div className="flex items-center justify-between mt-1">
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-ink-subtle">
                 {rejectReason.reason.length} / 500 حرف
               </span>
               {rejectReason.reason.length > 450 && (
@@ -291,7 +291,7 @@ function PendingRow({
 
   return (
     <>
-      <tr className="cursor-pointer hover:bg-gray-50" onClick={onToggle}>
+      <tr className="cursor-pointer hover:bg-raised" onClick={onToggle}>
         <td className="font-mono font-semibold">{entry.entryNumber}</td>
         <td>{formatDateTime(entry.entryDate)}</td>
         <td className="max-w-md truncate">{entry.narration || "—"}</td>
@@ -299,7 +299,7 @@ function PendingRow({
           <span className="badge badge-info text-xs">{sourceLabel}</span>
         </td>
         <td className="font-mono" dir="ltr">{total.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-        <td className="text-xs text-gray-500">{formatDateTime(entry.createdAt)}</td>
+        <td className="text-xs text-ink-muted">{formatDateTime(entry.createdAt)}</td>
         <td>
           <div className="flex items-center gap-1">
             <button
@@ -321,14 +321,14 @@ function PendingRow({
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
               disabled={isProcessing}
-              className="text-gray-500 hover:bg-gray-100 p-1.5 rounded disabled:opacity-50"
+              className="text-ink-muted hover:bg-raised p-1.5 rounded disabled:opacity-50"
               title="حذف (محو القيد وإعادة المصدر لمسودة)"
             >
               <Trash2 size={16} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onToggle(); }}
-              className="text-gray-400 hover:bg-gray-50 p-1 rounded"
+              className="text-ink-subtle hover:bg-raised p-1 rounded"
             >
               {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
@@ -337,10 +337,10 @@ function PendingRow({
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={7} className="bg-gray-50 p-4">
+          <td colSpan={7} className="bg-raised p-4">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-600">
+                <tr className="text-xs text-ink-muted">
                   <th className="text-right py-1">الحساب</th>
                   <th className="text-right py-1">البيان</th>
                   <th className="text-left py-1">مدين</th>
@@ -351,7 +351,7 @@ function PendingRow({
                 {entry.lines.map((l) => (
                   <tr key={l.id}>
                     <td className="py-1">
-                      <span className="font-mono text-xs text-gray-500">{l.accountCode}</span>{" "}
+                      <span className="font-mono text-xs text-ink-muted">{l.accountCode}</span>{" "}
                       {l.accountName}
                     </td>
                     <td className="py-1">{l.description || "—"}</td>

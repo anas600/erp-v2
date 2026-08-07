@@ -152,11 +152,11 @@ export default function RulesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Zap size={24} className="text-yellow-500" />
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
+            <Zap size={24} className="text-amber-500" />
             محرك قواعد العمل
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             قوالب جاهزة للترحيل التلقائي — يمكن تعديلها أو إضافة قواعد جديدة
           </p>
         </div>
@@ -192,9 +192,9 @@ export default function RulesPage() {
                 <tr key={r.id}>
                   <td>
                     <div className="font-semibold">{r.name}</div>
-                    <div className="text-xs text-gray-500">{r.description}</div>
+                    <div className="text-xs text-ink-muted">{r.description}</div>
                   </td>
-                  <td><code className="text-xs bg-gray-100 px-2 py-1 rounded">{r.eventName}</code></td>
+                  <td><code className="text-xs bg-raised px-2 py-1 rounded">{r.eventName}</code></td>
                   <td>{r.priority}</td>
                   <td>
                     {r.enabled ? (
@@ -211,10 +211,10 @@ export default function RulesPage() {
                       <button onClick={() => { setTestModal(r); setTestResult(null); }} className="text-green-600 hover:bg-green-50 p-1 rounded" title="اختبر">
                         <Play size={14} />
                       </button>
-                      <button onClick={() => openEdit(r)} className="text-blue-600 hover:bg-blue-50 p-1 rounded" title="تعديل">
+                      <button onClick={() => openEdit(r)} className="text-primary-700 hover:bg-primary-50 p-1 rounded" title="تعديل">
                         <Edit2 size={14} />
                       </button>
-                      <button onClick={() => toggleEnabled(r)} className="text-yellow-600 hover:bg-yellow-50 p-1 rounded text-xs">
+                      <button onClick={() => toggleEnabled(r)} className="text-amber-600 hover:bg-amber-50 p-1 rounded text-xs">
                         {r.enabled ? "إيقاف" : "تفعيل"}
                       </button>
                       {!r.isTemplate && (
@@ -233,10 +233,10 @@ export default function RulesPage() {
 
       {showForm && editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6 my-8">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-3xl p-6 my-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">{editing.id ? "تعديل قاعدة" : "قاعدة جديدة"}</h2>
-              <button onClick={() => { setShowForm(false); setEditing(null); }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setShowForm(false); setEditing(null); }} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -287,17 +287,17 @@ export default function RulesPage() {
                   <summary className="cursor-pointer text-primary-600 hover:text-primary-800">
                     💡 مرجع سريع للتوجيهات الديناميكية (accountFrom)
                   </summary>
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-gray-800" dir="rtl">
+                  <div className="mt-2 p-2 bg-primary-50 border border-primary-200 rounded text-ink-strong" dir="rtl">
                     <p className="font-semibold mb-1">قائمة accountFrom المدعومة:</p>
                     <ul className="space-y-1 mr-4">
-                      <li><code className="bg-white px-1 rounded">"voucher.bankAccount"</code> — حساب الصندوق/البنك من السند (bankAccountId)</li>
-                      <li><code className="bg-white px-1 rounded">"contact.subLedger"</code> — حساب العميل/المورّد التفصيلي (sub-ledger)</li>
-                      <li><code className="bg-white px-1 rounded">"control.ar"</code> — حساب المدينون الرئيسي (1103)</li>
-                      <li><code className="bg-white px-1 rounded">"control.ap"</code> — حساب الدائنون الرئيسي (2101)</li>
-                      <li><code className="bg-white px-1 rounded">"control.cash"</code> — حساب الصندوق الافتراضي (1101-CASH-001)</li>
+                      <li><code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"voucher.bankAccount"</code> — حساب الصندوق/البنك من السند (bankAccountId)</li>
+                      <li><code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"contact.subLedger"</code> — حساب العميل/المورّد التفصيلي (sub-ledger)</li>
+                      <li><code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"control.ar"</code> — حساب المدينون الرئيسي (1103)</li>
+                      <li><code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"control.ap"</code> — حساب الدائنون الرئيسي (2101)</li>
+                      <li><code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"control.cash"</code> — حساب الصندوق الافتراضي (1101-CASH-001)</li>
                     </ul>
-                    <p className="mt-2 text-gray-600">
-                      أو استخدم <code className="bg-white px-1 rounded">"accountCode": "1103"</code> لرمز ثابت.
+                    <p className="mt-2 text-ink-muted">
+                      أو استخدم <code className="bg-canvas dark:bg-neutral-900 px-1 rounded">"accountCode": "1103"</code> لرمز ثابت.
                     </p>
                   </div>
                 </details>
@@ -313,10 +313,10 @@ export default function RulesPage() {
 
       {testModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">اختبار: {testModal.name}</h2>
-              <button onClick={() => setTestModal(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setTestModal(null)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -338,7 +338,7 @@ export default function RulesPage() {
               {testResult && (
                 <div>
                   <label className="block text-sm font-medium mb-1">النتيجة</label>
-                  <pre className="bg-gray-50 p-3 rounded text-xs font-mono overflow-auto max-h-60" dir="ltr">
+                  <pre className="bg-raised p-3 rounded text-xs font-mono overflow-auto max-h-60" dir="ltr">
                     {testResult}
                   </pre>
                 </div>

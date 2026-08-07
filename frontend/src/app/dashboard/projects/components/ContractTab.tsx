@@ -104,7 +104,7 @@ export default function ContractTab({ projectId, initialContract, onContractChan
 
   if (loading) {
     return (
-      <div className="card flex items-center justify-center py-12 text-gray-500 gap-2">
+      <div className="card flex items-center justify-center py-12 text-ink-muted gap-2">
         <Loader2 className="animate-spin" size={20} />
         جاري التحميل...
       </div>
@@ -125,9 +125,9 @@ export default function ContractTab({ projectId, initialContract, onContractChan
     return (
       <>
         <div className="card text-center py-12">
-          <FileSignature size={40} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-600 mb-1">لا يوجد عقد مسجّل لهذا المشروع</p>
-          <p className="text-xs text-gray-500 mb-4">
+          <FileSignature size={40} className="mx-auto text-ink-subtle mb-3" />
+          <p className="text-ink-muted mb-1">لا يوجد عقد مسجّل لهذا المشروع</p>
+          <p className="text-xs text-ink-muted mb-4">
             أضف عقداً لتفعيل المستخلصات وكشف حساب العميل
           </p>
           <button type="button" onClick={() => setEditing(true)} className="btn-primary">
@@ -159,7 +159,7 @@ export default function ContractTab({ projectId, initialContract, onContractChan
                 العقد
               </h3>
               {contract.contractNumber && (
-                <p className="text-xs text-gray-500 mt-0.5" dir="ltr">
+                <p className="text-xs text-ink-muted mt-0.5" dir="ltr">
                   رقم العقد: {contract.contractNumber}
                 </p>
               )}
@@ -225,15 +225,15 @@ export default function ContractTab({ projectId, initialContract, onContractChan
           </div>
 
           {contract.notes && (
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-1">ملاحظات</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+            <div className="mt-4 pt-3 border-t border-edge">
+              <p className="text-xs text-ink-muted mb-1">ملاحظات</p>
+              <p className="text-sm text-ink-muted whitespace-pre-wrap">
                 {contract.notes}
               </p>
             </div>
           )}
 
-          <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500 flex items-center gap-3 flex-wrap">
+          <div className="mt-4 pt-3 border-t border-edge text-xs text-ink-muted flex items-center gap-3 flex-wrap">
             <span>تاريخ الإنشاء: {formatDate(contract.createdAt)}</span>
             {contract.updatedAt && (
               <span>آخر تحديث: {formatDate(contract.updatedAt)}</span>
@@ -263,9 +263,9 @@ function Field({
 }) {
   return (
     <div className="flex items-start gap-2">
-      <Icon size={14} className="text-gray-400 mt-0.5 shrink-0" />
+      <Icon size={14} className="text-ink-subtle mt-0.5 shrink-0" />
       <div className="min-w-0">
-        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-xs text-ink-muted">{label}</p>
         <p className="font-medium truncate" dir="ltr">
           {value}
         </p>

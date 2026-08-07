@@ -152,11 +152,11 @@ export default function FiscalYearsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <CalendarRange size={24} className="text-primary-600" />
             السنوات والفترات المالية
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             إدارة السنوات المحاسبية — الفترات المقفلة تمنع إنشاء قيود جديدة
           </p>
         </div>
@@ -181,12 +181,12 @@ export default function FiscalYearsPage() {
               <Calendar size={24} />
             </div>
             <div>
-              <p className="text-xs text-gray-600">الفترة الحالية</p>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-xs text-ink-muted">الفترة الحالية</p>
+              <p className="text-lg font-bold text-ink-strong">
                 السنة المالية {currentYear.code}
                 {currentPeriod && ` — الفترة ${currentPeriod.periodNumber}`}
               </p>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-ink-muted">
                 {formatDate(currentYear.startDate)} → {formatDate(currentYear.endDate)}
                 {currentPeriod?.isClosed && (
                   <span className="badge badge-danger mr-2">الفترة مقفلة</span>
@@ -203,8 +203,8 @@ export default function FiscalYearsPage() {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : years.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <CalendarRange size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <CalendarRange size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد سنوات مالية</p>
             <p className="text-sm mt-1">أنشئ سنة جديدة للبدء</p>
           </div>
@@ -214,8 +214,8 @@ export default function FiscalYearsPage() {
               const expanded = expandedYear === y.id;
               const yearPeriods = periodsByYear(y.id);
               return (
-                <div key={y.id} className="border border-gray-200 rounded-md">
-                  <div className="flex items-center justify-between p-3 hover:bg-gray-50">
+                <div key={y.id} className="border border-edge rounded-md">
+                  <div className="flex items-center justify-between p-3 hover:bg-raised">
                     <button
                       onClick={() => setExpandedYear(expanded ? null : y.id)}
                       className="flex items-center gap-3 flex-1 text-right"
@@ -226,7 +226,7 @@ export default function FiscalYearsPage() {
                         <CalendarRange size={18} />
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900">
+                        <div className="font-semibold text-ink-strong">
                           {y.code}
                           {currentYear?.id === y.id && (
                             <span className="badge badge-info mr-2">الحالية</span>
@@ -235,11 +235,11 @@ export default function FiscalYearsPage() {
                             <span className="badge badge-danger mr-2">مقفلة</span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500" dir="ltr">
+                        <div className="text-xs text-ink-muted" dir="ltr">
                           {formatDate(y.startDate)} → {formatDate(y.endDate)}
-                          <span className="mx-2 text-gray-300">|</span>
+                          <span className="mx-2 text-ink-subtle">|</span>
                           {yearPeriods.length} فترة
-                          <span className="mx-2 text-gray-300">|</span>
+                          <span className="mx-2 text-ink-subtle">|</span>
                           {yearPeriods.filter((p) => p.isClosed).length} مقفلة
                         </div>
                       </div>
@@ -256,9 +256,9 @@ export default function FiscalYearsPage() {
                     </div>
                   </div>
                   {expanded && (
-                    <div className="border-t border-gray-200 p-3 bg-gray-50">
+                    <div className="border-t border-edge p-3 bg-raised">
                       {yearPeriods.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-4">
+                        <p className="text-sm text-ink-muted text-center py-4">
                           لا توجد فترات لهذه السنة — أنشئها من الـ Backend (auto-gen عند الإنشاء عادةً)
                         </p>
                       ) : (
@@ -271,7 +271,7 @@ export default function FiscalYearsPage() {
                                   ? "bg-red-50 border-red-200"
                                   : p.id === currentPeriod?.id
                                   ? "bg-primary-50 border-primary-300"
-                                  : "bg-white border-gray-200"
+                                  : "bg-canvas dark:bg-neutral-900 border-edge"
                               }`}
                             >
                               <div className="flex items-center justify-between mb-1">
@@ -281,7 +281,7 @@ export default function FiscalYearsPage() {
                                   <span className="badge badge-info text-xs">الآن</span>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-600 mb-2" dir="ltr">
+                              <div className="text-xs text-ink-muted mb-2" dir="ltr">
                                 {formatDate(p.startDate)} → {formatDate(p.endDate)}
                               </div>
                               <button
@@ -313,7 +313,7 @@ export default function FiscalYearsPage() {
         )}
       </div>
 
-      <div className="mt-4 p-3 bg-blue-50 text-blue-800 rounded-md text-sm flex items-start gap-2">
+      <div className="mt-4 p-3 bg-primary-50 text-primary-800 rounded-md text-sm flex items-start gap-2">
         <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
         <div>
           <strong>ملاحظة:</strong> قفل فترة أو سنة مالية يمنع إنشاء أي قيود يومية في هذه الفترة.
@@ -323,12 +323,12 @@ export default function FiscalYearsPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <CalendarRange size={20} className="text-primary-600" /> سنة مالية جديدة
               </h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -366,7 +366,7 @@ export default function FiscalYearsPage() {
                   />
                 </div>
               </div>
-              <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+              <div className="text-xs text-ink-muted bg-raised p-2 rounded">
                 💡 بعد الإنشاء، يمكنك توسيع السنة لإدارة الفترات (12 فترة افتراضية).
               </div>
 

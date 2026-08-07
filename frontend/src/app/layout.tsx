@@ -8,9 +8,27 @@ export const metadata: Metadata = {
   description: "نظام ERP متعدد الشركات مع محرك قواعد عمل قابل للتخصيص"
 };
 
+// Inline script: applied before first paint so dark-mode users
+// don't see a flash of light. Reads localStorage("erp-theme")
+// and applies the .dark class on <html> synchronously. The
+// `system` branch uses matchMedia.
+const themeInitScript = `
+(function() {
+  try {
+    var t = localStorage.getItem('erp-theme');
+    if (!t) t = 'system';
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (dark) document.documentElement.classList.add('dark');
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
         <AuthProvider>
           <CompanyProvider>

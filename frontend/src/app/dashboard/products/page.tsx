@@ -142,11 +142,11 @@ export default function ProductsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Package size={24} className="text-primary-600" />
             المنتجات
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             كتالوج المنتجات والخدمات — تُستخدم لتعبئة بنود الفاتورة تلقائياً
           </p>
         </div>
@@ -183,7 +183,7 @@ export default function ProductsPage() {
                 <tr key={p.id} className={!p.isActive ? "opacity-60" : ""}>
                   <td className="font-mono font-semibold">{p.code}</td>
                   <td>{p.name}</td>
-                  <td>{p.nameAr || <span className="text-gray-400">—</span>}</td>
+                  <td>{p.nameAr || <span className="text-ink-subtle">—</span>}</td>
                   <td className="font-mono" dir="ltr">{formatNumber(p.unitPrice)}</td>
                   <td className="font-mono" dir="ltr">{(p.defaultTaxRate * 100).toFixed(1)}%</td>
                   <td>
@@ -204,7 +204,7 @@ export default function ProductsPage() {
                       </button>
                       <button
                         onClick={() => toggleActive(p)}
-                        className="text-gray-600 hover:bg-gray-50 p-1 rounded"
+                        className="text-ink-muted hover:bg-raised p-1 rounded"
                         title={p.isActive ? "إيقاف" : "تفعيل"}
                       >
                         <Power size={14} />
@@ -215,7 +215,7 @@ export default function ProductsPage() {
               ))}
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center text-gray-500 py-6">
+                  <td colSpan={7} className="text-center text-ink-muted py-6">
                     لا توجد منتجات — أضف أول منتج للبدء
                   </td>
                 </tr>
@@ -227,14 +227,14 @@ export default function ProductsPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">
                 {editing ? "تعديل منتج" : "منتج جديد"}
               </h2>
               <button
                 onClick={() => setShowForm(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-ink-subtle hover:text-ink-muted"
               >
                 <X size={20} />
               </button>

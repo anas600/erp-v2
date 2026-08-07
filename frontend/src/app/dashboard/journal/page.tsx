@@ -242,8 +242,8 @@ export default function JournalPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">القيود اليومية</h1>
-          <p className="text-sm text-gray-600 mt-1">إنشاء وإدارة و ترحيل القيود المحاسبية</p>
+          <h1 className="text-2xl font-bold text-ink-strong">القيود اليومية</h1>
+          <p className="text-sm text-ink-muted mt-1">إنشاء وإدارة و ترحيل القيود المحاسبية</p>
         </div>
         <button onClick={() => setShowForm(true)} className="btn-primary">
           <Plus size={18} />
@@ -284,7 +284,7 @@ export default function JournalPage() {
                 const total = e.lines.reduce((s, l) => s + Number(l.debit), 0);
                 return (
                   <>
-                    <tr key={e.id} className="cursor-pointer hover:bg-gray-50" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>
+                    <tr key={e.id} className="cursor-pointer hover:bg-raised" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>
                       <td className="font-mono font-semibold">{e.entryNumber}</td>
                       <td>{formatDate(e.entryDate)}</td>
                       <td>{e.narration || "-"}</td>
@@ -295,7 +295,7 @@ export default function JournalPage() {
                         {e.status === "draft" && <span className="badge badge-warning">مسودة</span>}
                         {e.status === "reversed" && <span className="badge badge-danger">معكوس</span>}
                       </td>
-                      <td className="text-xs text-gray-500">{e.source || "يدوي"}</td>
+                      <td className="text-xs text-ink-muted">{e.source || "يدوي"}</td>
                       <td className="text-xs">
                         {e.reversesEntryNumber ? (
                           // "يعكس JV-2026-0001" — links the reversing
@@ -304,11 +304,11 @@ export default function JournalPage() {
                             ↩ يعكس {e.reversesEntryNumber}
                           </span>
                         ) : e.status === "reversed" ? (
-                          <span className="text-xs text-gray-400 italic" title="تم عكس هذا القيد بقيد لاحق">
+                          <span className="text-xs text-ink-subtle italic" title="تم عكس هذا القيد بقيد لاحق">
                             تم عكسه
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-ink-subtle">—</span>
                         )}
                       </td>
                       <td>
@@ -339,7 +339,7 @@ export default function JournalPage() {
                               >
                                 من صفحة المعلقة
                               </a>
-                              <span className="text-gray-300">|</span>
+                              <span className="text-ink-subtle">|</span>
                               <button
                                 onClick={(ev) => { ev.stopPropagation(); deleteEntry(e.id); }}
                                 className="text-red-500 hover:bg-red-50 p-1 rounded text-sm"
@@ -352,7 +352,7 @@ export default function JournalPage() {
                           {e.status === "posted" && (
                             <button
                               onClick={(ev) => { ev.stopPropagation(); reverseEntry(e.id); }}
-                              className="text-orange-600 hover:bg-orange-50 p-1 rounded text-sm"
+                              className="text-amber-600 hover:bg-amber-50 p-1 rounded text-sm"
                               title="عكس (قيد عكسي)"
                             >
                               <RotateCcw size={14} />
@@ -363,10 +363,10 @@ export default function JournalPage() {
                     </tr>
                     {expanded === e.id && (
                       <tr key={e.id + "-detail"}>
-                        <td colSpan={8} className="bg-gray-50 p-4">
+                        <td colSpan={8} className="bg-raised p-4">
                           <table className="w-full text-sm">
                             <thead>
-                              <tr className="text-xs text-gray-600">
+                              <tr className="text-xs text-ink-muted">
                                 <th className="text-right py-1">الحساب</th>
                                 <th className="text-right py-1">البيان</th>
                                 <th className="text-left py-1">مدين</th>
@@ -377,10 +377,10 @@ export default function JournalPage() {
                               {e.lines.map((l) => (
                                 <tr key={l.id}>
                                   <td className="py-1">
-                                    <span className="font-mono text-xs text-gray-500">{l.accountCode}</span>{" "}
+                                    <span className="font-mono text-xs text-ink-muted">{l.accountCode}</span>{" "}
                                     {l.accountName}
                                   </td>
-                                  <td className="py-1 text-gray-600">{l.description || "-"}</td>
+                                  <td className="py-1 text-ink-muted">{l.description || "-"}</td>
                                   <td className="py-1 font-mono" dir="ltr">{formatNumber(l.debit)}</td>
                                   <td className="py-1 font-mono" dir="ltr">{formatNumber(l.credit)}</td>
                                 </tr>
@@ -400,7 +400,7 @@ export default function JournalPage() {
               })}
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center text-gray-500 py-6">لا توجد قيود</td>
+                  <td colSpan={7} className="text-center text-ink-muted py-6">لا توجد قيود</td>
                 </tr>
               )}
             </tbody>
@@ -410,10 +410,10 @@ export default function JournalPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 my-8">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-4xl p-6 my-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">قيد يومية جديد</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -437,7 +437,7 @@ export default function JournalPage() {
                 <label className="block text-sm font-medium mb-1 flex items-center gap-1">
                   <FolderKanban size={12} />
                   المشروع
-                  <span className="text-xs text-gray-500 mr-1">(اختياري — لتحميل التكلفة على مركز تكلفة المشروع)</span>
+                  <span className="text-xs text-ink-muted mr-1">(اختياري — لتحميل التكلفة على مركز تكلفة المشروع)</span>
                 </label>
                 <ProjectPicker
                   companyId={activeCompany?.id}
@@ -515,14 +515,14 @@ export default function JournalPage() {
                   ))}
                 </div>
 
-                <div className="mt-3 p-3 bg-gray-50 rounded-md flex items-center justify-between text-sm">
+                <div className="mt-3 p-3 bg-raised rounded-md flex items-center justify-between text-sm">
                   <div className="flex gap-6">
                     <div>
-                      <span className="text-gray-600 ml-2">إجمالي المدين:</span>
+                      <span className="text-ink-muted ml-2">إجمالي المدين:</span>
                       <span className="font-mono font-semibold" dir="ltr">{formatNumber(totalDebit)}</span>
                     </div>
                     <div>
-                      <span className="text-gray-600 ml-2">إجمالي الدائن:</span>
+                      <span className="text-ink-muted ml-2">إجمالي الدائن:</span>
                       <span className="font-mono font-semibold" dir="ltr">{formatNumber(totalCredit)}</span>
                     </div>
                   </div>

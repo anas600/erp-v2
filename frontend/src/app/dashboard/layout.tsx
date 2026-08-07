@@ -6,12 +6,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, ScrollText as ScrollTextIcon
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench
 } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
+
 // Sprint 34 hotfix v4: removed the pre-warm call that was firing
 // an extra GET to /api/health on every dashboard mount. The user
 // reported Render free tier usage concerns — every extra request
 // counts against the monthly limit. Clean error → manual refresh.
+//
+// Sprint 37: design system refresh — switched primary blue to
+// brand teal, added dark mode classes throughout, and dropped
+// the ThemeToggle into the topbar.
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, companies, activeCompany, loading, logout, switchCompany } = useAuth();
@@ -150,10 +156,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-canvas">
         <div className="text-center">
-          <div className="inline-block w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="mt-3 text-gray-600">جاري التحميل...</p>
+          <div className="inline-block w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-3 text-ink-muted">جاري التحميل...</p>
         </div>
       </div>
     );
@@ -181,17 +187,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     group.items.some((it) => isItemActive(it));
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-raised dark:bg-neutral-950">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-l border-gray-200 fixed right-0 top-0 h-full overflow-y-auto">
-        <div className="p-4 border-b border-gray-200">
+      <aside className="w-64 bg-canvas dark:bg-neutral-950 border-l border-edge fixed right-0 top-0 h-full overflow-y-auto">
+        <div className="p-4 border-b border-edge">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-primary-600 text-white rounded-md flex items-center justify-center">
+            <div className="w-9 h-9 bg-primary-700 text-white rounded-md flex items-center justify-center">
               <Building2 size={20} />
             </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">ERP-V2</h1>
-              <p className="text-xs text-gray-500">Multi-Company</p>
+              <h1 className="text-canvas font-bold text-ink-strong">ERP-V2</h1>
+              <p className="text-xs text-ink-subtle">Multi-Company</p>
             </div>
           </Link>
         </div>
@@ -210,8 +216,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     onClick={() => toggleGroup(group.label)}
                     className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
                       groupActive
-                        ? "text-primary-700"
-                        : "text-gray-500 hover:text-gray-700"
+                        ? "text-primary-700 dark:text-primary-300"
+                        : "text-ink-subtle hover:text-ink-muted"
                     }`}
                     aria-expanded={isOpen}
                   >
@@ -227,7 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 ) : (
                   <div
                     className={`px-2 py-1.5 text-xs font-semibold uppercase tracking-wider ${
-                      groupActive ? "text-primary-700" : "text-gray-500"
+                      groupActive ? "text-primary-700 dark:text-primary-300" : "text-ink-subtle"
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -249,8 +255,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           href={item.href}
                           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                             active
-                              ? "bg-primary-50 text-primary-700"
-                              : "text-gray-700 hover:bg-gray-100"
+                              ? "bg-brand-light text-primary-700 dark:bg-brand-900/30 dark:text-primary-300"
+                              : "text-ink-muted hover:bg-raised hover:text-ink-strong"
                           }`}
                         >
                           <Icon size={16} />
@@ -269,24 +275,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main */}
       <div className="flex-1 mr-64">
         {/* Top bar */}
-        <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+        <header className="bg-canvas dark:bg-neutral-950 border-b border-edge px-6 py-3 flex items-center justify-between sticky top-0 z-10">
           {/* Company Switcher */}
           <div className="relative">
             <button
               onClick={() => setShowCompanyMenu(!showCompanyMenu)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-100"
+              className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-raised"
             >
-              <Building2 size={16} className="text-gray-500" />
+              <Building2 size={16} className="text-ink-subtle" />
               <div className="text-right">
-                <p className="text-sm font-semibold">{activeCompany?.nameAr || activeCompany?.name || "اختر شركة"}</p>
-                <p className="text-xs text-gray-500">{activeCompany?.roleName}</p>
+                <p className="text-sm font-semibold text-ink-strong">{activeCompany?.nameAr || activeCompany?.name || "اختر شركة"}</p>
+                <p className="text-xs text-ink-subtle">{activeCompany?.roleName}</p>
               </div>
-              <ChevronDown size={14} className="text-gray-400" />
+              <ChevronDown size={14} className="text-ink-subtle" />
             </button>
             {showCompanyMenu && (
-              <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-20">
+              <div className="absolute right-0 mt-1 w-72 bg-canvas dark:bg-neutral-900 border border-edge rounded-md shadow-lg z-20">
                 <div className="p-2">
-                  <p className="text-xs text-gray-500 px-2 py-1">شركاتي</p>
+                  <p className="text-xs text-ink-subtle px-2 py-1">شركاتي</p>
                   {companies.map((c) => (
                     <button
                       key={c.id}
@@ -294,12 +300,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         setShowCompanyMenu(false);
                         if (c.id !== activeCompany?.id) await switchCompany(c.id);
                       }}
-                      className={`w-full text-right px-3 py-2 rounded-md text-sm hover:bg-gray-100 ${
-                        c.id === activeCompany?.id ? "bg-primary-50" : ""
+                      className={`w-full text-right px-3 py-2 rounded-md text-sm hover:bg-raised text-ink-strong ${
+                        c.id === activeCompany?.id ? "bg-brand-light dark:bg-brand-900/30" : ""
                       }`}
                     >
                       <div className="font-medium">{c.nameAr || c.name}</div>
-                      <div className="text-xs text-gray-500">{c.code} • {c.roleName}</div>
+                      <div className="text-xs text-ink-subtle">{c.code} • {c.roleName}</div>
                     </button>
                   ))}
                 </div>
@@ -307,41 +313,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
 
-          {/* User menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-100"
-            >
-              <div className="w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center">
-                <User size={16} />
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold">{user.fullNameAr || user.fullName || user.email}</p>
-                <p className="text-xs text-gray-500">
-                  {user.isSuperAdmin ? "مدير عام" : "مستخدم"}
-                </p>
-              </div>
-              <ChevronDown size={14} className="text-gray-400" />
-            </button>
-            {showUserMenu && (
-              <div className="absolute left-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-20">
-                <div className="p-2">
-                  <div className="px-2 py-1 text-xs text-gray-500">{user.email}</div>
-                  <button
-                    onClick={logout}
-                    className="w-full text-right px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                  >
-                    <LogOut size={14} />
-                    تسجيل الخروج
-                  </button>
+          {/* Right cluster: theme + user menu */}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-raised"
+              >
+                <div className="w-8 h-8 bg-brand-light text-primary-700 dark:bg-brand-900/40 dark:text-primary-300 rounded-full flex items-center justify-center">
+                  <User size={16} />
                 </div>
-              </div>
-            )}
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-ink-strong">{user.fullNameAr || user.fullName || user.email}</p>
+                  <p className="text-xs text-ink-subtle">
+                    {user.isSuperAdmin ? "مدير عام" : "مستخدم"}
+                  </p>
+                </div>
+                <ChevronDown size={14} className="text-ink-subtle" />
+              </button>
+              {showUserMenu && (
+                <div className="absolute left-0 mt-1 w-48 bg-canvas dark:bg-neutral-900 border border-edge rounded-md shadow-lg z-20">
+                  <div className="p-2">
+                    <div className="px-2 py-1 text-xs text-ink-subtle">{user.email}</div>
+                    <button
+                      onClick={logout}
+                      className="w-full text-right px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+                    >
+                      <LogOut size={14} />
+                      تسجيل الخروج
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        <main className="p-6">{children}</main>
+        <main className="p-6 bg-raised dark:bg-neutral-950 min-h-[calc(100vh-64px)]">{children}</main>
       </div>
     </div>
   );

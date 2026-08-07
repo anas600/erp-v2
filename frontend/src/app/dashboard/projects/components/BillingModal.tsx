@@ -170,12 +170,12 @@ export default function BillingModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">مستخلص جديد</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-ink-subtle hover:text-ink-muted"
             type="button"
             aria-label="إغلاق"
           >
@@ -195,7 +195,7 @@ export default function BillingModal({
                 placeholder={suggestedNextNumber}
                 dir="ltr"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-ink-muted mt-1">
                 المقترح: <span className="font-mono">{suggestedNextNumber}</span>
               </p>
             </div>
@@ -249,7 +249,7 @@ export default function BillingModal({
               placeholder="30"
             />
             {previousMaxPercent > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-ink-muted mt-1">
                 أعلى نسبة سابقة: <span className="font-mono">{previousMaxPercent}%</span>
                 {" "}(يجب أن تكون أكبر أو تساويها)
               </p>
@@ -267,8 +267,8 @@ export default function BillingModal({
           </div>
 
           {/* Live preview of computed amounts */}
-          <div className="border border-blue-200 bg-blue-50 rounded-md p-3">
-            <div className="flex items-center gap-1 text-sm font-semibold text-blue-800 mb-2">
+          <div className="border border-primary-200 bg-primary-50 rounded-md p-3">
+            <div className="flex items-center gap-1 text-sm font-semibold text-primary-800 mb-2">
               <Info size={14} />
               معاينة المبالغ (تحسب تلقائياً)
             </div>
@@ -310,7 +310,7 @@ export default function BillingModal({
                 mono
               />
             </div>
-            <p className="text-xs text-blue-700 mt-2">
+            <p className="text-xs text-primary-700 mt-2">
               الأرقام النهائية تُحسب في الخادم. هذه معاينة فقط.
             </p>
           </div>
@@ -366,17 +366,17 @@ function PreviewRow({
   return (
     <div
       className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${
-        highlight ? "bg-white border border-blue-100" : ""
+        highlight ? "bg-canvas border border-primary-100 dark:border-primary-900" : ""
       }`}
     >
-      <span className={`text-xs ${muted ? "text-gray-500" : "text-gray-700"}`}>
+      <span className={`text-xs ${muted ? "text-ink-muted" : "text-ink-muted"}`}>
         {label}
       </span>
       <span
         dir="ltr"
         className={`${mono ? "font-mono" : ""} ${
-          strong ? "font-bold text-blue-900" : ""
-        } ${muted ? "text-gray-500" : ""}`}
+          strong ? "font-bold text-primary-900" : ""
+        } ${muted ? "text-ink-muted" : ""}`}
       >
         {formatNumber(value)} د.ل
       </span>

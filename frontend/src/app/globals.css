@@ -4,13 +4,53 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
 
+/*
+ * Sprint 37 — UI redesign.
+ * Brand: deep teal (#0F766E). The tokens below are exposed as
+ * `rgb(var(--token) / <alpha>)` so Tailwind's alpha modifiers
+ * (e.g. `bg-brand-700/50`) just work. Light is the default, dark
+ * activates when the .dark class is present on <html>.
+ */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  --primary: 199 89% 48%;
-  --border: 214 32% 91%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
+  --bg-primary: 255 255 255;            /* white */
+  --bg-surface: 249 250 251;             /* gray-50 */
+  --border-default: 229 231 235;         /* gray-200 */
+  --text-primary: 10 10 10;              /* near-black */
+  --text-secondary: 107 114 128;         /* gray-500 */
+  --text-muted: 156 163 175;             /* gray-400 */
+  --text-brand: 15 118 110;              /* teal-700 */
+  --bg-brand: 15 118 110;
+  --bg-brand-light: 240 253 250;         /* teal-50 */
+  --text-danger: 220 38 38;              /* red-600 */
+  --bg-danger: 220 38 38;
+  --bg-danger-light: 254 242 242;        /* red-50 */
+  --text-success: 22 163 74;             /* green-600 */
+  --bg-success: 22 163 74;
+  --bg-success-light: 240 253 244;       /* green-50 */
+  --text-warning: 217 119 6;             /* amber-600 */
+  --bg-warning: 217 119 6;
+  --bg-warning-light: 255 251 235;       /* amber-50 */
+}
+
+.dark {
+  --bg-primary: 10 10 10;                 /* near-black */
+  --bg-surface: 23 23 23;                 /* neutral-900 */
+  --border-default: 64 64 64;             /* neutral-700 */
+  --text-primary: 250 250 250;            /* near-white */
+  --text-secondary: 163 163 163;          /* neutral-400 */
+  --text-muted: 115 115 115;
+  --text-brand: 94 234 212;               /* teal-300 */
+  --bg-brand: 94 234 212;
+  --bg-brand-light: 19 78 74;             /* teal-900 */
+  --text-danger: 248 113 113;             /* red-400 */
+  --bg-danger: 248 113 113;
+  --bg-danger-light: 127 29 29;           /* red-900 */
+  --text-success: 74 222 128;             /* green-400 */
+  --bg-success: 74 222 128;
+  --bg-success-light: 20 83 45;           /* green-900 */
+  --text-warning: 251 191 36;             /* amber-400 */
+  --bg-warning: 251 191 36;
+  --bg-warning-light: 120 53 15;          /* amber-900 */
 }
 
 * {
@@ -22,10 +62,15 @@ html {
 }
 
 body {
-  background: rgb(var(--background));
-  color: rgb(var(--foreground));
+  background: rgb(var(--bg-primary));
+  color: rgb(var(--text-primary));
   margin: 0;
   direction: rtl;
+}
+
+/* Smooth theme transition (optional, kept subtle) */
+html {
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 /* RTL utility */
@@ -37,42 +82,48 @@ input, select, textarea, button {
   font-family: inherit;
 }
 
-/* Common components */
+/*
+ * Legacy component classes — kept for backward compat but use the
+ * new semantic tokens. Anything new should import the shared
+ * `<Button>`, `<Card>`, `<Badge>`, `<Input>` components from
+ * `src/components/ui/`.
+ */
 .btn {
   @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 .btn-primary {
-  @apply btn bg-primary-600 text-white hover:bg-primary-700;
+  @apply btn bg-primary-700 text-white hover:bg-primary-800;
 }
 .btn-secondary {
-  @apply btn bg-gray-200 text-gray-900 hover:bg-gray-300;
+  @apply btn bg-raised text-ink-strong border border-edge hover:bg-canvas;
 }
 .btn-danger {
   @apply btn bg-red-600 text-white hover:bg-red-700;
 }
 
 .input {
-  @apply w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500;
+  @apply w-full px-3 py-2 border border-edge rounded-md text-sm bg-canvas text-ink-strong focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500;
 }
 
 .card {
-  @apply bg-white rounded-lg border border-gray-200 shadow-sm p-4;
+  @apply bg-raised rounded-card border border-edge p-4 dark:bg-neutral-900;
 }
 
 .table {
   @apply w-full text-sm;
 }
 .table th {
-  @apply px-4 py-2 text-right font-semibold bg-gray-50 border-b border-gray-200;
+  @apply px-4 py-2 text-right font-semibold bg-raised border-b border-edge text-ink-muted;
 }
 .table td {
-  @apply px-4 py-2 border-b border-gray-100;
+  @apply px-4 py-2 border-b border-edge text-ink-strong;
 }
 
 .badge {
-  @apply inline-flex px-2 py-1 rounded-full text-xs font-medium;
+  @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
 }
-.badge-success { @apply bg-green-100 text-green-800; }
-.badge-warning { @apply bg-yellow-100 text-yellow-800; }
-.badge-info    { @apply bg-blue-100 text-blue-800; }
-.badge-danger  { @apply bg-red-100 text-red-800; }
+.badge-success { @apply bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300; }
+.badge-warning { @apply bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300; }
+.badge-info    { @apply bg-primary-50 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300; }
+.badge-danger  { @apply bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300; }
+.badge-neutral { @apply bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200; }

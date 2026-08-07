@@ -285,11 +285,11 @@ function PaymentsPageInner() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Inbox size={24} className="text-red-600" />
             سندات الصرف
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             تسجيل دفعات الموردين — تحويلها إلى قيود محاسبية
           </p>
         </div>
@@ -312,8 +312,8 @@ function PaymentsPageInner() {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : vouchers.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Inbox size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <Inbox size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد سندات صرف</p>
           </div>
         ) : (
@@ -337,13 +337,13 @@ function PaymentsPageInner() {
                 <tr key={v.id}>
                   <td className="font-mono font-semibold">{v.voucherNumber}</td>
                   <td>{formatDate(v.voucherDate)}</td>
-                  <td>{v.contactName} <span className="text-xs text-gray-500">({v.contactCode})</span></td>
+                  <td>{v.contactName} <span className="text-xs text-ink-muted">({v.contactCode})</span></td>
                   <td className="font-mono text-sm text-primary-700">
-                    {v.invoiceNumber || <span className="text-gray-400">— على الحساب —</span>}
+                    {v.invoiceNumber || <span className="text-ink-subtle">— على الحساب —</span>}
                   </td>
                   <td className="text-sm">{PAYMENT_METHODS[v.paymentMethod] || v.paymentMethod}</td>
                   <td className="font-mono text-sm" dir="ltr">{v.bankAccountCode || "—"}</td>
-                  <td className="text-sm text-gray-600">{v.reference || "—"}</td>
+                  <td className="text-sm text-ink-muted">{v.reference || "—"}</td>
                   <td className="font-mono" dir="ltr">{formatNumber(v.amount)}</td>
                   <td>
                     {v.status === "posted" && <span className="badge badge-success">مرحّل</span>}
@@ -375,12 +375,12 @@ function PaymentsPageInner() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 my-8 max-h-[90vh] overflow-y-auto">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-6 my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <FileText size={20} className="text-red-600" /> سند صرف جديد
               </h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -407,7 +407,7 @@ function PaymentsPageInner() {
               <div>
                 <label className="block text-sm font-medium mb-1 flex items-center gap-1">
                   <FileCheck size={12} /> الفاتورة
-                  <span className="text-xs text-gray-500 mr-1">(اختياري — للدفعات على الحساب اتركها فارغة)</span>
+                  <span className="text-xs text-ink-muted mr-1">(اختياري — للدفعات على الحساب اتركها فارغة)</span>
                 </label>
                 <select
                   className="input"
@@ -423,7 +423,7 @@ function PaymentsPageInner() {
                   ))}
                 </select>
                 {form.contactId && outstandingInvoices.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">لا توجد فواتير مستحقة لهذا المورّد</p>
+                  <p className="text-xs text-ink-muted mt-1">لا توجد فواتير مستحقة لهذا المورّد</p>
                 )}
               </div>
 
@@ -486,7 +486,7 @@ function PaymentsPageInner() {
                 <label className="block text-sm font-medium mb-1 flex items-center gap-1">
                   <FolderKanban size={12} />
                   المشروع
-                  <span className="text-xs text-gray-500 mr-1">(اختياري)</span>
+                  <span className="text-xs text-ink-muted mr-1">(اختياري)</span>
                 </label>
                 <ProjectPicker
                   companyId={activeCompany?.id}

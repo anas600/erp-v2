@@ -118,10 +118,10 @@ export default function NewProjectPage() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <Link href="/dashboard/projects" className="text-gray-500 hover:text-gray-700">
+        <Link href="/dashboard/projects" className="text-ink-muted hover:text-ink-muted">
           <ArrowRight size={20} />
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
           <FolderKanban size={24} className="text-primary-600" />
           مشروع جديد
         </h1>
@@ -144,7 +144,7 @@ export default function NewProjectPage() {
               placeholder="PRJ-2026-001"
               required
             />
-            <p className="text-xs text-gray-500 mt-1">يجب أن يكون فريداً داخل الشركة</p>
+            <p className="text-xs text-ink-muted mt-1">يجب أن يكون فريداً داخل الشركة</p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">الحالة *</label>

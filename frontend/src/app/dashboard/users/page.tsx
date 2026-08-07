@@ -144,8 +144,8 @@ export default function UsersPage() {
   if (currentUser && !currentUser.isSuperAdmin) {
     return (
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">المستخدمون</h1>
-        <div className="card text-center text-gray-500">
+        <h1 className="text-2xl font-bold text-ink-strong mb-4">المستخدمون</h1>
+        <div className="card text-center text-ink-muted">
           ليس لديك صلاحية لعرض هذه الصفحة (تحتاج إلى صلاحية مدير عام)
         </div>
       </div>
@@ -156,11 +156,11 @@ export default function UsersPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Users size={24} className="text-primary-600" />
             المستخدمون والصلاحيات
           </h1>
-          <p className="text-sm text-gray-600 mt-1">إدارة المستخدمين والأدوار والشركات</p>
+          <p className="text-sm text-ink-muted mt-1">إدارة المستخدمين والأدوار والشركات</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowPasswordForm(true)} className="btn-secondary">
@@ -213,7 +213,7 @@ export default function UsersPage() {
                         <div key={i}>
                           <span className="font-semibold">{c.companyNameAr || c.companyName}</span>
                           {" · "}
-                          <span className="text-gray-600">{c.roleNameAr || c.roleName}</span>
+                          <span className="text-ink-muted">{c.roleNameAr || c.roleName}</span>
                           {c.isPrimary && <span className="badge badge-info mr-1">رئيسية</span>}
                         </div>
                       ))}
@@ -243,10 +243,10 @@ export default function UsersPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 my-8">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-6 my-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">مستخدم جديد</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -318,7 +318,7 @@ export default function UsersPage() {
                     </div>
                   ))}
                   {form.companies.length === 0 && (
-                    <p className="text-xs text-gray-500 text-center py-2">لم تتم إضافة شركات بعد</p>
+                    <p className="text-xs text-ink-muted text-center py-2">لم تتم إضافة شركات بعد</p>
                   )}
                 </div>
               </div>
@@ -336,10 +336,10 @@ export default function UsersPage() {
 
       {showPasswordForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">تغيير كلمة المرور</h2>
-              <button onClick={() => setShowPasswordForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowPasswordForm(false)} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>

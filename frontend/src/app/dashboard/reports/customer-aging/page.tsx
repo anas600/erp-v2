@@ -33,7 +33,7 @@ interface AgingReport {
 }
 
 const BUCKET_LABELS = ["0-30 يوم", "31-60 يوم", "61-90 يوم", "+90 يوم"];
-const BUCKET_CLASSES = ["text-green-700", "text-yellow-700", "text-orange-700", "text-red-700"];
+const BUCKET_CLASSES = ["text-green-700", "text-amber-700", "text-amber-700", "text-red-700"];
 
 export default function CustomerAgingPage() {
   const router = useRouter();
@@ -68,16 +68,16 @@ export default function CustomerAgingPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
             <Users size={24} className="text-amber-600" />
             أعمار المدينين
           </h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             أرصدة العملاء موزعة حسب مدة التأخر في السداد
           </p>
         </div>
         {report && (
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-ink-muted">
             حتى تاريخ: <span className="font-mono font-semibold">{formatDate(report.asOfDate)}</span>
           </div>
         )}
@@ -91,8 +91,8 @@ export default function CustomerAgingPage() {
             <Loader2 className="animate-spin text-primary-500" size={32} />
           </div>
         ) : !report || report.lines.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Users size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="text-center py-12 text-ink-muted">
+            <Users size={48} className="mx-auto mb-3 text-ink-subtle" />
             <p>لا توجد أرصدة مدينة مستحقة</p>
             <p className="text-sm mt-1">جميع الفواتير المُرحّلة تم سدادها</p>
           </div>
@@ -115,7 +115,7 @@ export default function CustomerAgingPage() {
               </thead>
               <tbody>
                 {report.lines.map((line) => (
-                  <tr key={line.contactId} className="hover:bg-gray-50">
+                  <tr key={line.contactId} className="hover:bg-raised">
                     <td>
                       <button
                         onClick={() => router.push(`/dashboard/contacts/${line.contactId}`)}
@@ -123,18 +123,18 @@ export default function CustomerAgingPage() {
                       >
                         <div className="font-semibold flex items-center gap-1">
                           {line.contactName}
-                          <ArrowRight size={12} className="text-gray-400" />
+                          <ArrowRight size={12} className="text-ink-subtle" />
                         </div>
-                        <div className="text-xs text-gray-500">{line.contactCode}</div>
+                        <div className="text-xs text-ink-muted">{line.contactCode}</div>
                       </button>
                     </td>
                     {line.buckets.map((amt, i) => (
-                      <td key={i} className={`font-mono text-left ${amt > 0 ? BUCKET_CLASSES[i] : 'text-gray-300'}`} dir="ltr">
+                      <td key={i} className={`font-mono text-left ${amt > 0 ? BUCKET_CLASSES[i] : 'text-ink-subtle'}`} dir="ltr">
                         {amt > 0 ? formatNumber(amt) : '—'}
                       </td>
                     ))}
                     <td className="font-mono text-left text-green-700" dir="ltr">
-                      {line.paid != null ? formatNumber(line.paid) : <span className="text-gray-400">—</span>}
+                      {line.paid != null ? formatNumber(line.paid) : <span className="text-ink-subtle">—</span>}
                     </td>
                     <td className="font-mono text-left font-bold" dir="ltr">
                       {formatNumber(line.total)}
@@ -143,7 +143,7 @@ export default function CustomerAgingPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 font-bold bg-gray-50">
+                <tr className="border-t-2 font-bold bg-raised">
                   <td className="py-2">الإجمالي</td>
                   {report.totals.map((t, i) => (
                     <td key={i} className={`font-mono text-left py-2 ${BUCKET_CLASSES[i]}`} dir="ltr">
