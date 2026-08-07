@@ -9,7 +9,13 @@ public class ReportService
 
     public ReportService(IDbConnectionFactory db) => _db = db;
 
-    public async Task<TrialBalanceReport> GetTrialBalanceAsync(Guid companyId, DateTime? asOf = null)
+    /// <summary>
+    /// Trial balance. `level` filter:
+    ///   3 = L3 only (control / general accounts) — DEFAULT for the
+    ///       classic trial balance view
+    ///   4 = L3 + L4 sub-ledgers (expanded view for sub-ledger rollup)
+    /// </summary>
+    public async Task<TrialBalanceReport> GetTrialBalanceAsync(Guid companyId, DateTime? asOf = null, int level = 3)
     {
         var asOfDate = asOf ?? DateTime.UtcNow;
         using var conn = _db.CreateConnection();
@@ -22,8 +28,9 @@ public class ReportService
             SELECT id, code, name, account_type, nature, balance, level, parent_id
             FROM accounts
             WHERE company_id = @companyId AND is_active = true
+              AND level <= @level
             ORDER BY code;",
-            new { companyId });
+            new { companyId, level });
 
         // Sprint 26 hotfix — same NET-control logic as GetBalanceSheetAsync.
         // A control account (L3) like 1200 carries the GROSS AR
