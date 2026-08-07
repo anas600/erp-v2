@@ -178,23 +178,31 @@ public class ReceiptService
             throw new InvalidOperationException("لا يمكن ترحيل سند في هذه الحالة");
 
         // Find or auto-create the customer's AR sub-ledger.
-        // EnsureSubLedgerAsync picks 1200 as the parent for customers
-        // and creates the detail account + link on the fly.
+        // EnsureSubLedgerAsync picks 1103 as the parent for customers
+        // (Sprint 32 — updated to the standard 4-level COA).
         var subLedger = await _accounts.EnsureSubLedgerAsync(receipt.CompanyId, receipt.ContactId);
 
         // Determine the cash/bank account
         var cashAccountId = receipt.BankAccountId;
         if (cashAccountId is null)
         {
-            // Default: use 1000 (Cash) if it exists, else 1100 (Bank)
+            // Default: use 1101 (Cash) if it exists, else 1102 (Bank).
+            // Sprint 33 hotfix — Sprint 31 refactored the COA from
+            // 1000/1100 to 1101/1102. The default lookup was never
+            // updated, so receipts defaulted to "no account found" and
+            // the user saw "لا يوجد حساب صندوق أو بنك" even when both
+            // accounts existed in the chart of accounts.
             using var conn = _db.CreateConnection();
             cashAccountId = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
                 SELECT id FROM accounts
-                WHERE company_id = @companyId AND code IN ('1000', '1100') AND is_active = true
+                WHERE company_id = @companyId
+                  AND code IN ('1101', '1102')
+                  AND is_active = true
+                  AND is_postable = true
                 ORDER BY code LIMIT 1;",
                 new { companyId = receipt.CompanyId });
             if (cashAccountId is null)
-                throw new InvalidOperationException("لا يوجد حساب صندوق أو بنك. الرجاء إعداد دليل الحسابات.");
+                throw new InvalidOperationException("لا يوجد حساب صندوق أو بنك قابل للترحيل. الرجاء إعداد دليل الحسابات.");
         }
 
         // Build the journal entry
