@@ -164,10 +164,17 @@ public class DemoDataSeeder
         }
 
         // ============================================================
-        // 3) Auto-create sub-ledgers for every contact
+        // 3) Auto-create sub-ledgers for every contact + Cash/Bank
         // ============================================================
         // EnsureSubLedgerAsync creates a 1103-CUST-001 / 2101-SUPP-001
         // style account + account_contact_links row if missing.
+        //
+        // Sprint 33 — also create one L4 sub-ledger for Cash (under 1101)
+        // and one for Bank (under 1102). Without these, receipts/payments
+        // that default to "use any cash/bank account" can't find a
+        // postable L4 account and fail with "لا يوجد حساب صندوق أو بنك".
+        // Real accounting systems have multiple cash drawers + bank
+        // accounts; for demo purposes one of each is enough.
         foreach (var (_, id) in customerIds)
         {
             try
@@ -185,6 +192,58 @@ public class DemoDataSeeder
                 result.SubLedgersCreated++;
             }
             catch (Exception ex) { result.Errors.Add($"Sub-ledger supp {id}: {ex.Message}"); }
+        }
+        // Cash + Bank L4 sub-ledgers (no contact link — these are
+        // "house" accounts). Idempotent: if they already exist, we
+        // skip silently.
+        await EnsureCashBankL4Async(companyId, result);
+
+        // ============================================================
+        // 3b) Helper: create one L4 sub-ledger for Cash + Bank if missing
+        // ============================================================
+        async Task EnsureCashBankL4Async(Guid cid, SeedResult res)
+        {
+            using var conn = _db.CreateConnection();
+            foreach (var (parentCode, code) in new[] { ("1101", "1101-CASH-001"), ("1102", "1102-BANK-001") })
+            {
+                var existing = await conn.ExecuteScalarAsync<Guid?>(@"
+                    SELECT id FROM accounts
+                    WHERE company_id = @cid AND code = @code
+                    LIMIT 1;",
+                    new { cid, code });
+                if (existing is not null) continue;
+
+                // Look up the parent L3 control account
+                var parent = await conn.QuerySingleOrDefaultAsync<(Guid id, string name, string name_ar, string nature)?>(@"
+                    SELECT id, name, name_ar, nature
+                    FROM accounts
+                    WHERE company_id = @cid AND code = @parentCode
+                    LIMIT 1;",
+                    new { cid, parentCode });
+                if (parent is null) continue; // L3 missing — skip silently
+
+                await conn.ExecuteAsync(@"
+                    INSERT INTO accounts
+                        (id, company_id, code, name, name_ar, parent_id,
+                         account_type, nature, level, account_class,
+                         is_control_account, cost_center_required,
+                         is_postable, is_active, balance)
+                    VALUES
+                        (@id, @cid, @code, @name, @nameAr, @parentId,
+                         'Asset', 'Debit', 4, 'detail',
+                         false, false,
+                         true, true, 0);",
+                    new
+                    {
+                        id = Guid.NewGuid(),
+                        cid,
+                        code,
+                        name = parent.Value.name + " - Main",
+                        nameAr = (parent.Value.name_ar ?? parent.Value.name) + " - الرئيسي",
+                        parentId = parent.Value.id
+                    });
+                res.SubLedgersCreated++;
+            }
         }
 
         // ============================================================

@@ -174,14 +174,22 @@ public class PaymentService
         var cashAccountId = payment.BankAccountId;
         if (cashAccountId is null)
         {
+            // Sprint 33 hotfix — same Sprint 31 refactor as ReceiptService.
+            // Old COA used 1000/1100; new standard COA uses 1101/1102.
+            // Added `is_postable = true` so we never accidentally pick
+            // the L3 control account (which is not postable per the
+            // Sprint 31 architecture decision).
             using var conn = _db.CreateConnection();
             cashAccountId = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
                 SELECT id FROM accounts
-                WHERE company_id = @companyId AND code IN ('1000', '1100') AND is_active = true
+                WHERE company_id = @companyId
+                  AND code IN ('1101', '1102')
+                  AND is_active = true
+                  AND is_postable = true
                 ORDER BY code LIMIT 1;",
                 new { companyId = payment.CompanyId });
             if (cashAccountId is null)
-                throw new InvalidOperationException("لا يوجد حساب صندوق أو بنك.");
+                throw new InvalidOperationException("لا يوجد حساب صندوق أو بنك قابل للترحيل. الرجاء إعداد دليل الحسابات.");
         }
 
         // Build journal entry (DR AP sub-ledger, CR Cash/Bank)
