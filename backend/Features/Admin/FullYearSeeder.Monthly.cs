@@ -304,13 +304,12 @@ public partial class FullYearSeeder
                     var draft = await _invoices.CreateDraftAsync(req, userId);
                     await _invoices.MarkAsPostedAsync(draft.Id);
 
-                    // Build the proper JE with sub-ledger accounts.
-                    // The invoice has 1-2 lines — compute the totals
-                    // exactly the way InvoiceService does so the JE
-                    // matches the invoice header.
-                    decimal subtotal = mainLines.Sum(l => l.Quantity * l.UnitPrice);
-                    decimal taxAmount = Math.Round(subtotal * taxRate, 3);
-                    decimal total = subtotal + taxAmount;
+                    // Use the exact subtotal / taxAmount / total that
+                    // InvoiceService already computed (it does per-line
+                    // rounding to 2dp that we must mirror exactly, or
+                    // the JE will be off-pence and PostingEngine will
+                    // reject it as "القيد غير متوازن").
+                    var (subtotal, taxAmount, total) = (draft.SubTotal, draft.TaxAmount, draft.Total);
 
                     await PostSalesInvoiceAsync(
                         companyId, invoiceDate, draft.InvoiceNumber,
@@ -384,9 +383,10 @@ public partial class FullYearSeeder
                     var draft = await _invoices.CreateDraftAsync(req, userId);
                     await _invoices.MarkAsPostedAsync(draft.Id);
 
-                    decimal subtotal = lines.Sum(l => l.Quantity * l.UnitPrice);
-                    decimal taxAmount = Math.Round(subtotal * taxRate, 3);
-                    decimal total = subtotal + taxAmount;
+                    // Use the invoice's own rounded totals (see
+                    // sales-invoice comment for why we can't compute
+                    // them ourselves).
+                    var (subtotal, taxAmount, total) = (draft.SubTotal, draft.TaxAmount, draft.Total);
 
                     // Pick the cost center that matches the supplier
                     // category — services go to "ACT-PROF", admin to
