@@ -6,8 +6,13 @@ namespace ErpV2.Features.Reports;
 public class ReportService
 {
     private readonly IDbConnectionFactory _db;
+    private readonly ILogger<ReportService> _log;
 
-    public ReportService(IDbConnectionFactory db) => _db = db;
+    public ReportService(IDbConnectionFactory db, ILogger<ReportService> log)
+    {
+        _db = db;
+        _log = log;
+    }
 
     /// <summary>
     /// Trial balance. `level` filter:
@@ -152,6 +157,8 @@ public class ReportService
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
+        _log.LogInformation("IS: company={CompanyId} from={From} to={To}", companyId, fromDate, toDate);
+
         // Sum movements (debit - credit) for each account over the period.
         // We deliberately EXCLUDE year-end closing entries
         // (Source = 'year-end-closing') because those would net out the
@@ -173,6 +180,9 @@ public class ReportService
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code;",
             new { companyId, from = fromDate, to = toDate });
+
+        foreach (var m in movements)
+            _log.LogInformation("IS movement: {Code} {Type} {Net}", m.code, m.account_type, m.net);
 
         var revenues = new List<IncomeStatementLine>();
         var expenses = new List<IncomeStatementLine>();
