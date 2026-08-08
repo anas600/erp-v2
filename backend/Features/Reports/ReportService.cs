@@ -389,7 +389,24 @@ public class ReportService
             }
         }
 
-        if (Math.Abs(netIncome) > 0.01m)
+        // Sprint 40 — only add the year-to-date NET line if the
+        // books have NOT been year-end-closed. Once the closing
+        // entry posts, the net income lives in 3201 (Retained
+        // Earnings) and 3202 (Current Year P&L) is cleared — the
+        // "صافي الدخل" line would then double-count. We detect the
+        // close by checking whether 3202 carries a non-zero balance
+        // (the closing credits it; the next period starts at 0).
+        var isYearEndClosed = false;
+        foreach (var r in rows.Where(r => r.level == 3))
+        {
+            if (r.code == "3202" && Math.Abs(r.balance) > 0.01m)
+            {
+                isYearEndClosed = true;
+                break;
+            }
+        }
+
+        if (Math.Abs(netIncome) > 0.01m && !isYearEndClosed)
         {
             equity.Add(new BalanceSheetLine("NET", "صافي الدخل (السنة الحالية)", netIncome));
             totalEquity += netIncome;

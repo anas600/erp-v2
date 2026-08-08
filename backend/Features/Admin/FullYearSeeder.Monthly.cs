@@ -598,22 +598,23 @@ public partial class FullYearSeeder
                   AND (code LIKE '51%' OR code LIKE '52%' OR code LIKE '53%' OR code LIKE '54%')
                   AND balance != 0;",
                 new { cid = companyId })).ToList();
-            // Closing destination: 3201 (Retained Earnings — Prior
-            // Years). We deliberately do NOT use 3202 (Current Year
-            // P&L) because the balance sheet already includes a
-            // "صافي الدخل (السنة الحالية)" line for the year-to-date
-            // net income — writing to 3202 would double-count.
+            // Closing destination: 3202 (Current Year P&L). The
+            // balance sheet detects a year-end-closed period by
+            // checking whether 3202 carries a non-zero balance; in
+            // that case it suppresses the auto-generated "صافي
+            // الدخل" line to avoid double-counting.
             //
             // The previous version wrote to 3301 (Statutory Reserve)
-            // which inflated equity incorrectly.
-            var retainedEarnings = _accountIds.GetValueOrDefault("3201");
-            if (retainedEarnings == Guid.Empty)
+            // which inflated equity incorrectly, and 3201 (Retained
+            // Earnings) which left 3202 stranded.
+            var currentYearPL = _accountIds.GetValueOrDefault("3202");
+            if (currentYearPL == Guid.Empty)
             {
-                // Fall back to 3202 if 3201 is missing
-                retainedEarnings = _accountIds.GetValueOrDefault("3202");
+                // Fall back to 3201 if 3202 is missing
+                currentYearPL = _accountIds.GetValueOrDefault("3201");
             }
 
-            if (retainedEarnings == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
+            if (currentYearPL == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
             {
                 _logger.LogInformation("FullYearSeeder: no closing entries needed");
                 return;
@@ -632,14 +633,14 @@ public partial class FullYearSeeder
                 if (e.balance > 0)
                     lines.Add(new CreateJournalLineRequest(e.id, 0, e.balance, "إقفال مصروفات", null));
             }
-            // Net to retained earnings
+            // Net to current year P&L
             var totalRevenue = revenueAccounts.Sum(r => Math.Abs(Math.Min(r.balance, 0)));
             var totalExpense = expenseAccounts.Sum(e => Math.Max(e.balance, 0));
             var netIncome = totalRevenue - totalExpense;
             if (netIncome > 0)
-                lines.Add(new CreateJournalLineRequest(retainedEarnings, 0, netIncome, "صافي الدخل", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, 0, netIncome, "صافي الدخل", null));
             else if (netIncome < 0)
-                lines.Add(new CreateJournalLineRequest(retainedEarnings, Math.Abs(netIncome), 0, "صافي خسارة", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, Math.Abs(netIncome), 0, "صافي خسارة", null));
 
             if (lines.Count < 2) return;
 
