@@ -395,6 +395,9 @@ public partial class FullYearSeeder
             try
             {
                 // Get unpaid invoices for this customer up to this month
+                // Note: invoices table uses party_name (free text), not contact_id
+                var contact = await _contacts.GetByIdAsync(contactId);
+                if (contact is null) continue;
                 using var conn = _db.CreateConnection();
                 var openInvoices = (await conn.QueryAsync<(Guid id, decimal total, decimal paid, DateTime date)>(@"
                     SELECT i.id, i.total, COALESCE((SELECT SUM(amount) FROM receipt_vouchers
@@ -402,14 +405,14 @@ public partial class FullYearSeeder
                         i.invoice_date
                     FROM invoices i
                     WHERE i.company_id = @cid AND i.invoice_type = 'sales'
-                      AND i.contact_id = @contactId
+                      AND (i.party_name = @partyName OR i.party_name_ar = @partyName)
                       AND i.status = 'posted'
                       AND i.invoice_date < @asOf
                       AND (i.total - COALESCE((SELECT SUM(amount) FROM receipt_vouchers
                           WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0)) > 0
                     ORDER BY i.invoice_date
                     LIMIT 5;",
-                    new { cid = companyId, contactId, asOf = month.AddDays(15) })).ToList();
+                    new { cid = companyId, partyName = contact.Name, asOf = month.AddDays(15) })).ToList();
 
                 if (openInvoices.Count == 0) continue;
 
@@ -468,20 +471,22 @@ public partial class FullYearSeeder
             try
             {
                 using var conn = _db.CreateConnection();
+                var supContact = await _contacts.GetByIdAsync(contactId);
+                if (supContact is null) continue;
                 var openInvoices = (await conn.QueryAsync<(Guid id, decimal total, decimal paid, DateTime date)>(@"
                     SELECT i.id, i.total, COALESCE((SELECT SUM(amount) FROM payment_vouchers
                         WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0) as paid,
                         i.invoice_date
                     FROM invoices i
                     WHERE i.company_id = @cid AND i.invoice_type = 'purchase'
-                      AND i.contact_id = @contactId
+                      AND (i.party_name = @partyName OR i.party_name_ar = @partyName)
                       AND i.status = 'posted'
                       AND i.invoice_date < @asOf
                       AND (i.total - COALESCE((SELECT SUM(amount) FROM payment_vouchers
                           WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0)) > 0
                     ORDER BY i.invoice_date
                     LIMIT 5;",
-                    new { cid = companyId, contactId, asOf = month.AddDays(15) })).ToList();
+                    new { cid = companyId, partyName = supContact.Name, asOf = month.AddDays(15) })).ToList();
 
                 if (openInvoices.Count == 0) continue;
 
