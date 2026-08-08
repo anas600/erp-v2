@@ -497,8 +497,10 @@ public partial class FullYearSeeder
         //                         and project billings)
         //   Prepaid 1106:          9,600 LYD (insurance prepaid for
         //                         the year, amortizes to 0 by Aug)
+        //   Loan 2201:           84,000 LYD (initial 12-month loan
+        //                         at 4,000/month installment)
         //   Capital 3101:      1,009,600 LYD (owner's equity, the
-        //                         sum of the above three debits)
+        //                         sum of the above debits)
         var lines = new List<CreateJournalLineRequest>();
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash))
             lines.Add(new CreateJournalLineRequest(cash, 600_000m, 0, "رصيد افتتاحي - صندوق", null));
@@ -506,8 +508,10 @@ public partial class FullYearSeeder
             lines.Add(new CreateJournalLineRequest(bank, 400_000m, 0, "رصيد افتتاحي - بنك", null));
         if (_accountIds.TryGetValue("1106", out var prepaid))
             lines.Add(new CreateJournalLineRequest(prepaid, 9_600m, 0, "تأمين مسبق - رصيد افتتاحي", null));
+        if (_accountIds.TryGetValue("2201", out var loan))
+            lines.Add(new CreateJournalLineRequest(loan, 0, 84_000m, "قرض بنكي - رصيد افتتاحي", null));
         if (_accountIds.TryGetValue("3101", out var capital))
-            lines.Add(new CreateJournalLineRequest(capital, 0, 1_009_600m, "رأس المال الافتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(capital, 0, 925_600m, "رأس المال الافتتاحي", null));
 
         if (lines.Count == 0) return;
 
