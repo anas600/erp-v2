@@ -812,7 +812,9 @@ public class JournalService
     private record JournalEntryRow(
         Guid id, Guid company_id, string entry_number, DateTime entry_date, string? narration,
         string status, string? source, Guid? rule_id, Guid? reverses_entry_id,
-        Guid? created_by, DateTime created_at, DateTime? posted_at);
+        Guid? created_by, DateTime created_at, DateTime? posted_at,
+        // Sprint 35: project tag.
+        Guid? project_id);
 
     private record JournalLineRow(
         Guid id, Guid journal_entry_id, Guid account_id, decimal debit, decimal credit,
