@@ -252,6 +252,14 @@ builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<ContractService>();
 builder.Services.AddSingleton<BillingService>();
 
+// Sprint 38 — BOQ (Bill of Quantities) + Variations. Order matters
+// for readability: LineItemService has no deps; VariationService
+// depends on LineItemService (for the shared unit validator);
+// BillingService now depends on VariationService (for the effective
+// contract value used in work_completed_percent computation).
+builder.Services.AddSingleton<LineItemService>();
+builder.Services.AddSingleton<VariationService>();
+
 // Web
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -338,6 +346,14 @@ ProjectPnLReportEndpoints.Map(app);
 // RequireAuthorization via their own Map().
 ContractEndpoints.Map(app);
 BillingEndpoints.Map(app);
+
+// Sprint 38 — BOQ (line items) + variations. These extend the
+// Sprint 36 contracting surface without touching any existing
+// routes. /api/contracts/{id}/line-items/* owns the BOQ CRUD +
+// reorder + Excel/clipboard import. /api/contracts/{id}/variations
+// + /api/variations/{id}/* own the variation lifecycle.
+LineItemEndpoints.Map(app);
+VariationEndpoints.Map(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);

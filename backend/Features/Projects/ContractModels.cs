@@ -125,6 +125,21 @@ public record ProgressBillingDto(
 /// Body for POST /api/projects/{id}/billings. The projectId comes
 /// from the URL; the contractId tells the service which terms
 /// (advance %, retention %) to use.
+///
+/// <para>
+/// <b>Sprint 38 change</b>: the manual <c>WorkCompletedPercent</c>
+/// field is gone. The % is now derived from the line items — the
+/// caller passes <c>LineItems</c> (a list of {lineItemId, quantityThisPeriod})
+/// and the service computes gross → net → work_completed_percent.
+/// </para>
+///
+/// <para>
+/// Backward-compat: <c>WorkCompletedPercent</c> is kept on the
+/// DTO so legacy callers (Sprint 36 frontends) still compile. New
+/// code should use <c>LineItems</c>. The service falls back to the
+/// manual % if <c>LineItems</c> is null/empty AND a synthetic lump
+/// line item exists for this contract (the migration 022 case).
+/// </para>
 /// </summary>
 public record CreateBillingRequest(
     Guid ContractId,
@@ -132,8 +147,9 @@ public record CreateBillingRequest(
     DateTime BillingDate,
     DateTime? PeriodFrom,
     DateTime? PeriodTo,
-    decimal WorkCompletedPercent,
-    string? Notes
+    decimal? WorkCompletedPercent,
+    string? Notes,
+    List<CreateBillingLineItemRequest>? LineItems
 );
 
 /// <summary>
@@ -151,6 +167,14 @@ public record ApproveBillingRequest(
 /// billing is in DRAFT status — once approved the figures are
 /// frozen in the invoice + journal entry and can only be changed
 /// by reversing the whole flow.
+///
+/// <para>
+/// <b>Sprint 38 change</b>: <c>WorkCompletedPercent</c> is now
+/// optional (nullable) and <c>LineItems</c> is the canonical
+/// input. If <c>LineItems</c> is provided, the % is recomputed
+/// from the items. If <c>WorkCompletedPercent</c> is provided on
+/// its own (no <c>LineItems</c>), the legacy path is used.
+/// </para>
 /// </summary>
 public record UpdateBillingRequest(
     string? BillingNumber,
@@ -158,7 +182,8 @@ public record UpdateBillingRequest(
     DateTime? PeriodFrom,
     DateTime? PeriodTo,
     decimal? WorkCompletedPercent,
-    string? Notes
+    string? Notes,
+    List<CreateBillingLineItemRequest>? LineItems
 );
 
 /// <summary>
@@ -200,4 +225,279 @@ public record ClientStatementResponse(
     decimal RetentionHeld,           // sum of retention_deducted (still on the books)
     decimal AdvanceOutstanding,      // advance_deducted sum across billings (the "advance" we collected)
     decimal NetOutstanding          // TotalBilled - TotalPaid
+);
+
+// ============================================================
+// Sprint 38 — BOQ (Bill of Quantities) + Variations
+// ============================================================
+//
+// A contract's BOQ is a list of measurable items. Each item has a
+// unit, a total quantity, and a unit price — the contract_value
+// is the SUM of item.total_price. The user manages the BOQ in the
+// UI; the service enforces that:
+//   - total_price = quantity * unit_price (server-side)
+//   - the line item cannot be deleted if any non-cancelled billing
+//     has claimed it
+//   - reordering is safe to retry (idempotent UPDATE in a tx)
+//
+// Variations (أوامر التغيير) are out-of-band scope changes. They
+// are tracked in their own table with their own items, and become
+// effective (add to / subtract from the contract value) only after
+// the variation is APPROVED. Pre-approval, the items can be
+// freely edited or removed.
+// ============================================================
+
+/// <summary>
+/// One BOQ line item (مقايسة بند). Read view: includes the
+/// derived fields <c>QuantityBilledSoFar</c> and
+/// <c>QuantityRemaining</c> so the UI can show the %-per-item
+/// progress without a second round-trip.
+/// </summary>
+public record ContractLineItemDto(
+    Guid Id,
+    Guid CompanyId,
+    Guid ContractId,
+    int LineNumber,
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal TotalPrice,
+    decimal QuantityBilledSoFar,      // SUM(quantity_cumulative) from billing_line_items
+    decimal QuantityRemaining,         // Quantity - QuantityBilledSoFar
+    string? Notes,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt
+);
+
+/// <summary>
+/// Body for POST /api/contracts/{id}/line-items. The line number
+/// is auto-assigned (max + 1) — the UI does not pass it.
+/// </summary>
+public record CreateLineItemRequest(
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    string? Notes
+);
+
+/// <summary>
+/// Body for PUT /api/line-items/{id}. All four content fields are
+/// required (full replacement). total_price is recomputed server-side.
+/// </summary>
+public record UpdateLineItemRequest(
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    string? Notes
+);
+
+/// <summary>
+/// Body for POST /api/contracts/{id}/line-items/reorder. The list
+/// contains the line item ids in the desired display order; the
+/// service reassigns line_number = (index + 1).
+/// </summary>
+public record ReorderLineItemsRequest(List<Guid> LineItemIds);
+
+/// <summary>
+/// One billing_line_item — the claim of "we did X units of this
+/// item in this billing". The amount column is derived
+/// (quantity_cumulative * unit_price). unit_price is a snapshot
+/// from the line item at billing-creation time, so later edits to
+/// the line item's unit_price do NOT retroactively change existing
+/// billings.
+/// </summary>
+public record BillingLineItemDto(
+    Guid Id,
+    Guid BillingId,
+    Guid LineItemId,
+    int LineNumber,
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal QuantityThisPeriod,
+    decimal QuantityPrevious,
+    decimal QuantityCumulative,
+    decimal UnitPrice,
+    decimal Amount,
+    string? Notes
+);
+
+/// <summary>
+/// Body for posting a single line item on a billing. The caller
+/// supplies only the lineItemId and the new period quantity; the
+/// service computes previous/cumulative and amount.
+/// </summary>
+public record CreateBillingLineItemRequest(
+    Guid LineItemId,
+    decimal QuantityThisPeriod,
+    string? Notes
+);
+
+/// <summary>
+/// Read-only preview of what the billing_line_items WOULD look
+/// like if the user submitted these quantities. Returned by the
+/// preview endpoint so the UI can show live totals before
+/// committing.
+/// </summary>
+public record BillingLineItemPreview(
+    Guid LineItemId,
+    int LineNumber,
+    string Description,
+    string Unit,
+    decimal Quantity,
+    decimal QuantityPrevious,
+    decimal UnitPrice,
+    decimal ProposedThisPeriod,
+    decimal ProposedCumulative,
+    decimal ProposedAmount
+);
+
+/// <summary>
+/// One contract variation (أمر تغيير). Includes the items array
+/// so the UI can show the variation detail page in one round-trip.
+/// </summary>
+public record ContractVariationDto(
+    Guid Id,
+    Guid CompanyId,
+    Guid ContractId,
+    int VariationNumber,
+    string Description,
+    DateTime VariationDate,
+    string Status,                   // DRAFT | APPROVED | REJECTED
+    DateTime? ApprovedAt,
+    Guid? ApprovedBy,
+    string? Notes,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt,
+    List<ContractVariationItemDto> Items
+);
+
+/// <summary>
+/// One item inside a variation. is_addition=true means this row
+/// adds to the effective contract value; is_addition=false means
+/// it subtracts (omitted work).
+/// </summary>
+public record ContractVariationItemDto(
+    Guid Id,
+    Guid VariationId,
+    int LineNumber,
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal TotalPrice,
+    bool IsAddition,
+    string? Notes
+);
+
+/// <summary>
+/// Body for POST /api/contracts/{id}/variations. Creates the
+/// variation in DRAFT status. Items are added separately via
+/// POST /api/variations/{id}/items.
+/// </summary>
+public record CreateVariationRequest(
+    string Description,
+    DateTime VariationDate,
+    string? Notes
+);
+
+/// <summary>
+/// Body for POST /api/variations/{id}/items. Add a single line to
+/// a DRAFT variation. The line number is auto-assigned.
+/// </summary>
+public record AddVariationItemRequest(
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    bool IsAddition,
+    string? Notes
+);
+
+/// <summary>
+/// Body for PUT /api/variation-items/{id}. Full replacement of
+/// the editable fields on a DRAFT variation item.
+/// </summary>
+public record UpdateVariationItemRequest(
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    bool IsAddition,
+    string? Notes
+);
+
+/// <summary>
+/// Body for POST /api/variations/{id}/approve. The user can
+/// override the approval date (e.g. back-date to the variation_date
+/// for accounting period close).
+/// </summary>
+public record ApproveVariationRequest(DateTime? ApprovedAt);
+
+/// <summary>
+/// Body for POST /api/contracts/{id}/line-items/import-excel.
+/// The file is sent as multipart/form-data; the endpoint reads
+/// the bytes and ClosedXML parses the workbook. The expected
+/// columns are: line_number, description, unit, quantity, unit_price.
+/// </summary>
+public record ImportLineItemsRequest(
+    string FileName,
+    string ContentType,
+    byte[] Content
+);
+
+/// <summary>
+/// Result of an Excel / clipboard import. TotalRows is the number
+/// of data rows seen (excluding the header); SuccessCount is the
+/// number of rows that parsed + validated cleanly; ErrorCount is
+/// the rest. The caller decides what to do with Errors (the UI
+/// usually shows them in a red toast).
+/// </summary>
+public record ImportLineItemsResult(
+    int TotalRows,
+    int SuccessCount,
+    int ErrorCount,
+    List<ImportedLineItem> Imported,
+    List<string> Errors
+);
+
+/// <summary>
+/// One row that parsed cleanly during import. The lineNumber is
+/// the row's position in the file (1-based, after the header);
+/// the service reassigns line numbers on insert to keep them
+/// unique per contract.
+/// </summary>
+public record ImportedLineItem(
+    int LineNumber,
+    string Description,
+    string Unit,
+    string? CustomUnit,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal TotalPrice
+);
+
+/// <summary>
+/// Body for POST /api/contracts/{id}/effective-value. There is
+/// no body — the response is the effective contract value (=
+/// contract.contract_value + sum of approved variation items where
+/// is_addition=true - sum where is_addition=false). Wrapped in a
+/// DTO for forward compatibility (we may add currency, dates,
+/// etc. later).
+/// </summary>
+public record EffectiveContractValueResponse(
+    Guid ContractId,
+    decimal ContractValue,
+    decimal ApprovedVariationsNet,
+    decimal EffectiveValue,
+    int ApprovedVariationCount
 );

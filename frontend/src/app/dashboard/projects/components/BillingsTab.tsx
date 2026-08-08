@@ -31,6 +31,7 @@ import {
   Calendar,
   Percent,
   X,
+  Pencil,
 } from "lucide-react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -38,6 +39,9 @@ import { formatNumber, formatDate, cn } from "@/lib/utils";
 import StatusBadgeBilling from "./StatusBadgeBilling";
 import BillingModal from "./BillingModal";
 import type { ContractDto } from "./ContractModal";
+import BillingLineItemsTable, {
+  type BillingLineItemDto,
+} from "./BillingLineItemsTable";
 
 export interface ProgressBillingDto {
   id: string;
@@ -114,6 +118,10 @@ export default function BillingsTab({
   const handleCreated = (b: ProgressBillingDto) => {
     setBillings((prev) => [...prev, b]);
     onBillingsChange?.([...billings, b]);
+    // Nudge the BOQ panel to refresh its billedQuantity totals
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("contract-line-items:refresh"));
+    }
   };
 
   const handleApprove = async (b: ProgressBillingDto) => {
@@ -409,9 +417,42 @@ export default function BillingsTab({
         />
       )}
 
-      {/* View modal */}
+      {/* View modal — includes DRAFT action buttons (edit/approve/cancel) */}
       {viewing && (
-        <ViewBillingModal billing={viewing} onClose={() => setViewing(null)} />
+        <ViewBillingModal
+          billing={viewing}
+          onClose={() => setViewing(null)}
+          onEdit={
+            viewing.status === "DRAFT"
+              ? () => {
+                  // Edit isn't a separate modal in Sprint 38; for now
+                  // we just close the view modal and let the user
+                  // re-open via the row's "view" button. Future: open
+                  // the wizard in edit mode.
+                  setViewing(null);
+                }
+              : undefined
+          }
+          onApprove={
+            viewing.status === "DRAFT"
+              ? () => {
+                  const b = viewing;
+                  setViewing(null);
+                  handleApprove(b);
+                }
+              : undefined
+          }
+          onCancel={
+            viewing.status === "DRAFT"
+              ? () => {
+                  const b = viewing;
+                  setViewing(null);
+                  handleCancel(b);
+                }
+              : undefined
+          }
+          busy={busyId === viewing.id}
+        />
       )}
     </div>
   );
@@ -509,15 +550,46 @@ function Summary({
 function ViewBillingModal({
   billing,
   onClose,
+  onEdit,
+  onApprove,
+  onCancel,
+  busy,
 }: {
   billing: ProgressBillingDto;
   onClose: () => void;
+  onEdit?: () => void;
+  onApprove?: () => void;
+  onCancel?: () => void;
+  busy?: boolean;
 }) {
+  const [items, setItems] = useState<BillingLineItemDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const isDraft = billing.status === "DRAFT";
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api
+      .get(`/billings/${billing.id}/line-items`)
+      .then((res) => setItems(res.data || []))
+      .catch((err) => {
+        // 404 is fine — billing may have no items (legacy or simple
+        // percent-based billing).
+        if ((err as any)?.response?.status === 404) {
+          setItems([]);
+        } else {
+          setError(getErrorMessage(err));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [billing.id]);
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-2 sm:p-4">
-      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-2xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
+      <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-4xl p-4 sm:p-6 max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
+          <h2 className="text-lg font-semibold flex items-center gap-2 flex-wrap">
             <FileText size={18} className="text-primary-600" />
             تفاصيل المستخلص #{billing.billingNumber}
             <StatusBadgeBilling status={billing.status} />
@@ -549,7 +621,6 @@ function ViewBillingModal({
               value={`${formatNumber(billing.workCompletedPercent)}%`}
               mono
             />
-            <Row label="الحالة" value={<StatusBadgeBilling status={billing.status} />} />
           </div>
 
           <div className="border border-edge rounded-md p-3 bg-raised">
@@ -582,6 +653,24 @@ function ViewBillingModal({
             </div>
           </div>
 
+          {/* Sprint 38 — line items breakdown */}
+          <div>
+            <h4 className="font-semibold text-sm mb-2">بنود المستخلص</h4>
+            {error ? (
+              <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-start gap-1">
+                <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            ) : loading ? (
+              <div className="card flex items-center justify-center py-6 text-ink-muted gap-2 text-sm">
+                <Loader2 className="animate-spin" size={14} />
+                جاري تحميل البنود...
+              </div>
+            ) : (
+              <BillingLineItemsTable items={items} totalAmount={billing.grossAmount} />
+            )}
+          </div>
+
           {billing.invoiceId && (
             <div className="text-xs text-ink-muted">
               الفاتورة المرتبطة:{" "}
@@ -610,7 +699,47 @@ function ViewBillingModal({
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-between gap-2 flex-wrap">
+          {isDraft && (onEdit || onApprove || onCancel) ? (
+            <div className="flex gap-2 flex-wrap">
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  disabled={busy}
+                  className="btn-secondary"
+                >
+                  <Pencil size={14} />
+                  <span>تعديل</span>
+                </button>
+              )}
+              {onApprove && (
+                <button
+                  type="button"
+                  onClick={onApprove}
+                  disabled={busy}
+                  className="btn-primary"
+                  style={{ background: "rgb(var(--bg-success))" }}
+                >
+                  {busy ? <Loader2 className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                  <span>اعتماد</span>
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={busy}
+                  className="btn-danger"
+                >
+                  {busy ? <Loader2 className="animate-spin" size={14} /> : <Ban size={14} />}
+                  <span>إلغاء</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div />
+          )}
           <button type="button" onClick={onClose} className="btn-secondary">
             إغلاق
           </button>

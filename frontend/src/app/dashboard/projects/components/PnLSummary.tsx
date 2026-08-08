@@ -31,7 +31,7 @@
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, Loader2, AlertCircle, Briefcase } from "lucide-react";
 import { api, getErrorMessage } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, cn } from "@/lib/utils";
 
 export interface CostCategoryPnL {
   category: string;
@@ -58,6 +58,12 @@ interface Props {
   error: string | null;
   /** Required for the WIP card. */
   projectId: string;
+  /** Sprint 38 — optional contract id. When present, we also
+   *  show a "Effective Contract Value" card. */
+  contractId?: string | null;
+  /** Sprint 38 — the original contract value (so the card can
+   *  render even before the /effective-value fetch resolves). */
+  contractValue?: number;
 }
 
 export interface WipResponse {
@@ -90,7 +96,7 @@ function labelForAccount(code?: string | null): string {
   return CATEGORY_LABEL[prefix] || `حساب ${code}`;
 }
 
-export default function PnLSummary({ pnl, loading, error, projectId }: Props) {
+export default function PnLSummary({ pnl, loading, error, projectId, contractId, contractValue }: Props) {
   if (loading) {
     return (
       <div className="card flex items-center justify-center py-12 text-ink-muted">
@@ -197,6 +203,154 @@ export default function PnLSummary({ pnl, loading, error, projectId }: Props) {
 
       {/* Sprint 36 — WIP card (separate fetch, separate loading state) */}
       <WipCard projectId={projectId} />
+
+      {/* Sprint 38 — Effective contract value card. Shown only
+       *  when a contract exists. Uses the same /effective-value
+       *  endpoint as the panel in ContractTab; results are cached
+       *  by the browser, so re-renders are free. */}
+      {contractId && (
+        <EffectiveValueCard
+          contractId={contractId}
+          fallbackValue={contractValue}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Sprint 38 — Effective contract value card (P&L surface)
+// ============================================================
+interface EffectiveValueResponse {
+  contractId: string;
+  contractValue: number;
+  approvedAdditions: number;
+  approvedDeductions: number;
+  netVariations: number;
+  effectiveValue: number;
+  approvedVariationsCount: number;
+}
+
+function EffectiveValueCard({
+  contractId,
+  fallbackValue,
+}: {
+  contractId: string;
+  fallbackValue?: number;
+}) {
+  const [data, setData] = useState<EffectiveValueResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api
+      .get(`/contracts/${contractId}/effective-value`)
+      .then((res) => setData(res.data))
+      .catch((err) => {
+        if ((err as any)?.response?.status === 404) {
+          // No variations yet — synthesize a default response so
+          // the user still sees the contract value here.
+          setData({
+            contractId,
+            contractValue: Number(fallbackValue) || 0,
+            approvedAdditions: 0,
+            approvedDeductions: 0,
+            netVariations: 0,
+            effectiveValue: Number(fallbackValue) || 0,
+            approvedVariationsCount: 0,
+          });
+        } else {
+          setError(getErrorMessage(err));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [contractId, fallbackValue]);
+
+  if (loading) {
+    return (
+      <div className="card flex items-center justify-center py-6 text-ink-muted gap-2 text-sm">
+        <Loader2 className="animate-spin" size={16} />
+        جاري تحميل القيمة الفعّالة...
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="card border-red-200 bg-red-50 text-red-700 text-sm flex items-start gap-2">
+        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+        <span>فشل تحميل القيمة الفعّالة: {error}</span>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const hasVariations = data.approvedVariationsCount > 0;
+
+  return (
+    <div className="card border-primary-200 bg-primary-50 dark:bg-primary-900/20">
+      <h3 className="font-semibold flex items-center gap-2 mb-3 text-primary-900">
+        <Briefcase size={16} />
+        القيمة الفعّالة للعقد
+      </h3>
+      <div className="space-y-1 text-sm">
+        <Row
+          label="قيمة العقد الأصلية"
+          value={formatNumber(data.contractValue)}
+        />
+        <Row
+          label="إضافات معتمدة"
+          value={`+${formatNumber(data.approvedAdditions)}`}
+          tone="good"
+        />
+        <Row
+          label="خصومات معتمدة"
+          value={`-${formatNumber(data.approvedDeductions)}`}
+          tone="bad"
+        />
+        <div className="border-t border-primary-200 my-1" />
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-primary-900">القيمة الفعّالة</span>
+          <span
+            className="font-mono text-lg font-bold text-primary-900"
+            dir="ltr"
+          >
+            {formatNumber(data.effectiveValue)} د.ل
+          </span>
+        </div>
+        {!hasVariations && (
+          <div className="text-[10px] text-ink-muted text-center pt-1">
+            (لا توجد أوامر تغيير معتمدة بعد)
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "good" | "bad";
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-ink-muted">{label}</span>
+      <span
+        dir="ltr"
+        className={cn(
+          "font-mono",
+          tone === "good" && "text-green-700",
+          tone === "bad" && "text-red-700"
+        )}
+      >
+        {value}
+      </span>
     </div>
   );
 }
