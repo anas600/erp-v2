@@ -303,6 +303,8 @@ public partial class FullYearSeeder
             ("CUST-009", "Al-Sarraj Trading & Services",          "الصرج للتجارة والخدمات",  30_000m, "fast"),
             ("CUST-010", "Al-Waha Retail",                        "الواحة للتجزئة",           15_000m, "fast")
         };
+        // Create L4 cash + bank sub-ledgers FIRST so receipts/payments can post to them
+        await EnsureCashBankL4Async(companyId);
         foreach (var (code, name, nameAr, limit, behavior) in customerDefs)
         {
             try
@@ -387,6 +389,58 @@ public partial class FullYearSeeder
         var p = await _productsSvc.CreateAsync(new CreateProductRequest(
             companyId, code, name, nameAr, price, VAT_RATE));
         return p.Id;
+    }
+
+    /// <summary>
+    /// Sprint 33 — Create L4 sub-ledgers for Cash (1101) and Bank (1102) so
+    /// receipts and payments have a postable account to debit/credit.
+    /// Without these, "لا يوجد حساب صندوق أو بنك قابل للترحيل" errors.
+    /// Idempotent: skip if already exists.
+    /// </summary>
+    private async Task EnsureCashBankL4Async(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        foreach (var (parentCode, code) in new[] { ("1101", "1101-CASH-001"), ("1102", "1102-BANK-001") })
+        {
+            var existing = await conn.ExecuteScalarAsync<Guid?>(@"
+                SELECT id FROM accounts
+                WHERE company_id = @cid AND code = @code
+                LIMIT 1;",
+                new { cid = companyId, code });
+            if (existing is not null) { _accountIds[code] = existing.Value; continue; }
+
+            var parent = await conn.QuerySingleOrDefaultAsync<(Guid id, string name, string name_ar, string nature)?>(@"
+                SELECT id, name, name_ar, nature
+                FROM accounts
+                WHERE company_id = @cid AND code = @parentCode
+                LIMIT 1;",
+                new { cid = companyId, parentCode });
+            if (parent is null) continue;
+
+            var newId = Guid.NewGuid();
+            await conn.ExecuteAsync(@"
+                INSERT INTO accounts
+                    (id, company_id, code, name, name_ar, parent_id,
+                     account_type, nature, level, account_class,
+                     is_control_account, cost_center_required,
+                     is_postable, is_active, balance)
+                VALUES
+                    (@id, @cid, @code, @name, @nameAr, @parentId,
+                     'Asset', 'Debit', 4, 'detail',
+                     false, false,
+                     true, true, 0);",
+                new
+                {
+                    id = newId,
+                    cid = companyId,
+                    code,
+                    name = parent.Value.name + " - Main",
+                    nameAr = (parent.Value.name_ar ?? parent.Value.name) + " - الرئيسي",
+                    parentId = parent.Value.id
+                });
+            _accountIds[code] = newId;
+            _result.SubLedgersCreated++;
+        }
     }
 
     // ----------------------------------------------------------------
