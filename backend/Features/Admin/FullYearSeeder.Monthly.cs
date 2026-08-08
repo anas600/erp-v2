@@ -298,10 +298,30 @@ public partial class FullYearSeeder
                         contact.Name, contact.NameAr, null,
                         $"فاتورة مبيعات - {monthLabel}",
                         taxRate, IntercompanyCompanyId: null, Lines: mainLines);
+                    // Sprint 40 — manual posting. MarkAsPostedAsync skips
+                    // the rules engine; we then build the proper
+                    // sub-ledger journal entry by hand.
                     var draft = await _invoices.CreateDraftAsync(req, userId);
-                    var posted = await _invoices.PostAsync(draft.Id);
+                    await _invoices.MarkAsPostedAsync(draft.Id);
+
+                    // Build the proper JE with sub-ledger accounts.
+                    // The invoice has 1-2 lines — compute the totals
+                    // exactly the way InvoiceService does so the JE
+                    // matches the invoice header.
+                    decimal subtotal = mainLines.Sum(l => l.Quantity * l.UnitPrice);
+                    decimal taxAmount = Math.Round(subtotal * taxRate, 3);
+                    decimal total = subtotal + taxAmount;
+
+                    await PostSalesInvoiceAsync(
+                        companyId, invoiceDate, draft.InvoiceNumber,
+                        code, contact.NameAr,
+                        subtotal, taxAmount, total,
+                        projectId: null,
+                        costCenterId: _costCenterIds.GetValueOrDefault("DPT-SALES"),
+                        userId: userId);
+
                     if (!byCustomer.ContainsKey(code)) byCustomer[code] = new List<Guid>();
-                    byCustomer[code].Add(posted.Id);
+                    byCustomer[code].Add(draft.Id);
                     _result.InvoicesCreated++;
                 }
                 catch (Exception ex)
@@ -357,10 +377,39 @@ public partial class FullYearSeeder
                         contact.Name, contact.NameAr, null,
                         $"فاتورة مشتريات - {monthLabel}",
                         taxRate, IntercompanyCompanyId: null, Lines: lines);
+                    // Sprint 40 — manual posting with proper sub-ledger
+                    // distribution. The previous code called PostAsync
+                    // which fired the rules engine and posted to L3
+                    // "2101 Accounts Payable" instead of "2101-SUPP-XXX".
                     var draft = await _invoices.CreateDraftAsync(req, userId);
-                    var posted = await _invoices.PostAsync(draft.Id);
+                    await _invoices.MarkAsPostedAsync(draft.Id);
+
+                    decimal subtotal = lines.Sum(l => l.Quantity * l.UnitPrice);
+                    decimal taxAmount = Math.Round(subtotal * taxRate, 3);
+                    decimal total = subtotal + taxAmount;
+
+                    // Pick the cost center that matches the supplier
+                    // category — services go to "ACT-PROF", admin to
+                    // "ACT-OFFICE", materials/equipment to "DPT-OPS-SUP".
+                    var costCenterCode = category switch
+                    {
+                        "services"  => "ACT-PROF",
+                        "admin"     => "ACT-OFFICE",
+                        "materials" => "DPT-OPS-SUP",
+                        "equipment" => "DPT-OPS-SUP",
+                        _           => "DPT-OPS"
+                    };
+
+                    await PostPurchaseInvoiceAsync(
+                        companyId, invoiceDate, draft.InvoiceNumber,
+                        code, contact.NameAr,
+                        subtotal, taxAmount, total,
+                        category, projectId: null,
+                        costCenterId: _costCenterIds.GetValueOrDefault(costCenterCode),
+                        userId: userId);
+
                     if (!bySupplier.ContainsKey(code)) bySupplier[code] = new List<Guid>();
-                    bySupplier[code].Add(posted.Id);
+                    bySupplier[code].Add(draft.Id);
                     _result.InvoicesCreated++;
                 }
                 catch (Exception ex)

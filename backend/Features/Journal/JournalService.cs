@@ -69,6 +69,31 @@ public class JournalService
     }
 
     /// <summary>
+    /// Sprint 40 — Trust path. Creates a draft, approves it, and posts
+    /// it in one call. Used by the FullYearSeeder and any other caller
+    /// that has already validated the journal entry (debits = credits,
+    /// period is open, accounts are postable) and wants the entry
+    /// to land directly in the General Ledger without the manual
+    /// review step.
+    ///
+    /// Production-grade safety: still runs the same validation as the
+    /// three-step path (period check, balance check, account
+    /// postability check) — we just collapse the three round-trips
+    /// into one. If anything throws, no half-posted state is left
+    /// behind.
+    /// </summary>
+    public async Task<JournalEntryDto> CreateAndPostAsync(CreateJournalEntryRequest req, Guid? userId)
+    {
+        var draft = await CreateDraftAsync(req, userId);
+        var approved = await ApproveAsync(draft.Id, userId);
+        if (approved is null)
+            throw new InvalidOperationException(
+                $"Failed to approve entry {draft.EntryNumber} — check period status and balance");
+        var posted = await PostAsync(draft.Id);
+        return posted;
+    }
+
+    /// <summary>
     /// Creates an entry in "pending" status — used by the rules engine
     /// (Sprint 15). The entry awaits accountant approval via
     /// ApproveAsync before it affects financial reports.
