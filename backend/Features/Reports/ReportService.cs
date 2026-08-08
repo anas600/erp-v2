@@ -152,7 +152,14 @@ public class ReportService
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
-        // Sum movements (debit - credit) for each account over the period
+        // Sum movements (debit - credit) for each account over the period.
+        // We deliberately EXCLUDE year-end closing entries
+        // (Source = 'year-end-closing') because those would net out the
+        // P&L accounts to zero after the books are closed — a posted
+        // closing entry is the accounting system saying "the period
+        // is over, the P&L rolls to retained earnings". The income
+        // statement still needs to show what happened during the
+        // period, so we filter the closing transfer out.
         var movements = await conn.QueryAsync<IncomeMovementRow>(@"
             SELECT a.code, a.name, a.account_type,
                    COALESCE(SUM(jl.debit - jl.credit), 0) AS net
@@ -161,6 +168,7 @@ public class ReportService
             LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
                 AND je.status = 'posted'
                 AND je.entry_date BETWEEN @from AND @to
+                AND (je.source IS NULL OR je.source <> 'year-end-closing')
             WHERE a.company_id = @companyId AND a.account_type IN ('Revenue', 'Expense')
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code;",

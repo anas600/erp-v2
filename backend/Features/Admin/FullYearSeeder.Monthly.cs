@@ -628,7 +628,7 @@ public partial class FullYearSeeder
 
             var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
                 companyId, FY_END, "إقفال السنة المالية - قيود الإقفال",
-                lines, Source: "manual"), _mainUserId);
+                lines, Source: "year-end-closing"), _mainUserId);
             await _journal.ApproveAsync(entry.Id, _mainUserId);
             await _journal.PostAsync(entry.Id);
             _result.JournalEntriesCreated++;
