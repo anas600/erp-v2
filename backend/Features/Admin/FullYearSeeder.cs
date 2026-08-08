@@ -161,6 +161,7 @@ public partial class FullYearSeeder
     private Dictionary<string, Guid> _productIds = new();
     private Dictionary<string, Guid> _accountIds = new();
     private Dictionary<string, Guid> _userIds = new();
+    private Dictionary<string, Guid> _costCenterIds = new();
     private Guid _mainUserId;
     private Random _rng = new(42); // deterministic for repeatability
     private FullYearSeedResult _result = new();
@@ -263,7 +264,8 @@ public partial class FullYearSeeder
                 intercompany_pairs,
                 account_contact_links,
                 products,
-                contacts
+                contacts,
+                cost_centers
             CASCADE;
             DELETE FROM accounts WHERE level = 4;
             UPDATE accounts SET balance = 0;
@@ -554,6 +556,7 @@ public partial class FullYearSeeder
                 var cc = await _costCenters.CreateAsync(new CreateCostCenterRequest(
                     companyId, code, name, nameAr, type, projectId, resolvedParent));
                 parentMap[code] = cc.Id;
+                _costCenterIds[code] = cc.Id;
                 _result.CostCentersCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"CostCenter {code}: {ex.Message}"); }
