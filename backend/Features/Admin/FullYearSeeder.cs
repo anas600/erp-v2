@@ -459,14 +459,14 @@ public partial class FullYearSeeder
 
     private async Task SeedFiscalYearAsync(Guid companyId)
     {
-        // Check if year already exists
+        // Delete any pre-existing FY (idempotent re-seed) and create fresh.
         using var conn = _db.CreateConnection();
-        var exists = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS (
-                SELECT 1 FROM fiscal_years
-                WHERE company_id = @cid AND code = 'FY2025-2026'
-            );", new { cid = companyId });
-        if (exists) { _result.FiscalYearCreated = false; return; }
+        await conn.ExecuteAsync(
+            "DELETE FROM fiscal_periods WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id = @cid);",
+            new { cid = companyId });
+        await conn.ExecuteAsync(
+            "DELETE FROM fiscal_years WHERE company_id = @cid;",
+            new { cid = companyId });
 
         try
         {

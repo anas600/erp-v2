@@ -854,12 +854,17 @@ public class BillingService
             // 4) Find or auto-create the customer's AR sub-ledger.
             var subLedger = await _accounts.EnsureSubLedgerAsync(billing.company_id, project.Value.customer_id.Value);
 
-            // 5) Find 4101 (Sales of Goods) — not a control account,
-            //    so we post to it directly.
+            // 5) Find 4101 (Sales of Goods). Revenue accounts sit at
+            //    L3 in the standard 4-level COA — the L4 split is
+            //    reserved for balance-sheet sub-ledgers (AR/AP).
+            //    Therefore we deliberately do NOT filter on
+            //    is_postable here: 4101 is the postable revenue
+            //    account even though the COA marks it as a control
+            //    account in the level sense.
             var salesAccount = await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)?>(@"
                 SELECT id, nature FROM accounts
                 WHERE company_id = @companyId AND code = '4101'
-                  AND is_postable = true AND is_active = true
+                  AND is_active = true
                 LIMIT 1;",
                 new { companyId = billing.company_id }, tx);
             if (salesAccount is null || salesAccount.Value.id == Guid.Empty)

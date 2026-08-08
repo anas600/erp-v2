@@ -83,13 +83,13 @@ public partial class FullYearSeeder
             // 8 BOQ line items
             var boq = new (string desc, string unit, decimal qty, decimal price)[]
             {
-                ("حفر أساسات", "m³", 500m, 45m),      // 22,500
-                ("خرسانة عادية", "m³", 300m, 380m),    // 114,000
+                ("حفر أساسات", "m3", 500m, 45m),      // 22,500
+                ("خرسانة عادية", "m3", 300m, 380m),    // 114,000
                 ("حديد تسليح", "ton", 25m, 4_500m),    // 112,500
-                ("بناء جدران بلوك", "m²", 800m, 95m),  // 76,000
-                ("أعمال كهرباء", "m²", 600m, 65m),     // 39,000
-                ("أعمال سباكة", "m²", 600m, 55m),       // 33,000
-                ("دهانات وتشطيبات", "m²", 1200m, 28m), // 33,600
+                ("بناء جدران بلوك", "m2", 800m, 95m),  // 76,000
+                ("أعمال كهرباء", "m2", 600m, 65m),     // 39,000
+                ("أعمال سباكة", "m2", 600m, 55m),       // 33,000
+                ("دهانات وتشطيبات", "m2", 1200m, 28m), // 33,600
                 ("أعمال متنوعة", "lump", 1m, 18_400m)   // 18,400 (balance)
             };
             var totalBoq = boq.Sum(b => b.qty * b.price);
@@ -295,9 +295,9 @@ public partial class FullYearSeeder
 
             var boq = new (string desc, string unit, decimal qty, decimal price)[]
             {
-                ("فحص بصري",        "يوم", 15m, 800m),    // 12,000
-                ("اختبارات مختبرية", "عينة", 50m, 320m), // 16,000
-                ("كتابة التقارير",   "تقرير", 4m, 3_000m)  // 12,000
+                ("فحص بصري",        "day", 15m, 800m),    // 12,000
+                ("اختبارات مختبرية", "piece", 50m, 320m), // 16,000
+                ("كتابة التقارير",   "piece", 4m, 3_000m)  // 12,000
             };
 
             var contract = await _contracts.CreateAsync(project.Id, new CreateContractRequest(
@@ -383,9 +383,9 @@ public partial class FullYearSeeder
 
             var boq = new (string desc, string unit, decimal qty, decimal price)[]
             {
-                ("صيانة كهربائية",  "شهر", 12m, 800m),     // 9,600
-                ("صيانة ميكانيكية", "شهر", 12m, 700m),     // 8,400
-                ("مواد استهلاكية",  "شهر", 12m, 583.33m)   // 7,000
+                ("صيانة كهربائية",  "lump", 12m, 800m),     // 9,600
+                ("صيانة ميكانيكية", "lump", 12m, 700m),     // 8,400
+                ("مواد استهلاكية",  "lump", 12m, 583.33m)   // 7,000
             };
 
             var contract = await _contracts.CreateAsync(project.Id, new CreateContractRequest(
