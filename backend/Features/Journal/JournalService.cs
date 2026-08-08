@@ -18,7 +18,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries
             WHERE company_id = @companyId
             ORDER BY entry_date DESC, created_at DESC
@@ -44,7 +44,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries
             WHERE company_id = @companyId AND status = 'pending'
             ORDER BY created_at ASC;",
@@ -271,7 +271,7 @@ public class JournalService
         try
         {
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
             if (entry is null) return false;
@@ -437,7 +437,7 @@ public class JournalService
             // status check before opening a tx)
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
                 SELECT id, company_id, entry_number, entry_date, narration,
-                       status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                       status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId });
 
@@ -494,7 +494,7 @@ public class JournalService
 
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
             SELECT id, company_id, entry_number, entry_date, narration,
-                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries WHERE id = @id;",
             new { id = entryId });
 

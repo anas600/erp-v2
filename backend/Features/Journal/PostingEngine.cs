@@ -49,7 +49,7 @@ public class PostingEngine
         {
             // Load entry
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
 
@@ -173,7 +173,7 @@ public class PostingEngine
     {
         using var conn = _db.CreateConnection();
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id, project_id
             FROM journal_entries WHERE id = @id;",
             new { id });
         if (entry is null) return null;
