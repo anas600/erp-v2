@@ -640,9 +640,16 @@ public partial class FullYearSeeder
                 if (e.balance > 0)
                     lines.Add(new CreateJournalLineRequest(e.id, 0, e.balance, "إقفال مصروفات", null));
             }
-            // Net to current year P&L
-            var totalRevenue = revenueAccounts.Sum(r => Math.Abs(Math.Min(r.balance, 0)));
-            var totalExpense = expenseAccounts.Sum(e => Math.Max(e.balance, 0));
+            // Net to current year P&L. PostingEngine stores the
+            // natural balance: positive for both debit-nature
+            // (expenses) and credit-nature (revenue) accounts when
+            // they have a normal balance. So we take the balance
+            // directly for both. The previous code used
+            // `Math.Min(r.balance, 0)` which would zero out any
+            // positive (credit) balance — never matching real
+            // revenue numbers.
+            var totalRevenue = revenueAccounts.Sum(r => Math.Abs(r.balance));
+            var totalExpense = expenseAccounts.Sum(e => Math.Abs(e.balance));
             var netIncome = totalRevenue - totalExpense;
             if (netIncome > 0)
                 lines.Add(new CreateJournalLineRequest(currentYearPL, 0, netIncome, "صافي الدخل", null));
