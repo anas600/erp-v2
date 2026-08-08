@@ -6,6 +6,7 @@ using ErpV2.Features.FiscalYears;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Journal;
 using ErpV2.Features.Payments;
+using ErpV2.Features.Products;
 using ErpV2.Features.Projects;
 using ErpV2.Features.Receipts;
 
@@ -104,6 +105,7 @@ public partial class FullYearSeeder
     private readonly ReceiptService _receipts;
     private readonly PaymentService _payments;
     private readonly JournalService _journal;
+    private readonly ProductService _productsSvc;
     private readonly ProjectService _projects;
     private readonly BillingService _billings;
     private readonly ContractService _contracts;
@@ -120,6 +122,7 @@ public partial class FullYearSeeder
         ReceiptService receipts,
         PaymentService payments,
         JournalService journal,
+        ProductService productsSvc,
         ProjectService projects,
         BillingService billings,
         ContractService contracts,
@@ -135,6 +138,7 @@ public partial class FullYearSeeder
         _receipts = receipts;
         _payments = payments;
         _journal = journal;
+        _productsSvc = productsSvc;
         _projects = projects;
         _billings = billings;
         _contracts = contracts;
@@ -239,7 +243,8 @@ public partial class FullYearSeeder
                 invoices,
                 intercompany_pairs,
                 account_contact_links,
-                products
+                products,
+                contacts
             CASCADE;
             DELETE FROM accounts WHERE level = 4;
             UPDATE accounts SET balance = 0;
@@ -350,8 +355,9 @@ public partial class FullYearSeeder
         {
             try
             {
-                var pid = await conn_InsertProduct(companyId, code, name, nameAr, price, cost, category);
-                _productIds[code] = pid;
+                var p = await _productsSvc.CreateAsync(new CreateProductRequest(
+                    companyId, code, name, nameAr, price, VAT_RATE));
+                _productIds[code] = p.Id;
                 _result.ProductsCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Product {code}: {ex.Message}"); }
@@ -366,17 +372,10 @@ public partial class FullYearSeeder
         Guid companyId, string code, string name, string nameAr,
         decimal price, decimal cost, string category)
     {
-        using var conn = _db.CreateConnection();
-        var id = Guid.NewGuid();
-        await conn.ExecuteAsync(@"
-            INSERT INTO products
-                (id, company_id, code, name, name_ar, sale_price, cost_price,
-                 category, is_active, track_inventory, created_at, updated_at)
-            VALUES
-                (@id, @cid, @code, @name, @nameAr, @price, @cost,
-                 @category, true, false, NOW(), NOW());",
-            new { id, cid = companyId, code, name, nameAr, price, cost, category });
-        return id;
+        // Use ProductService for consistent schema handling
+        var p = await _productsSvc.CreateAsync(new CreateProductRequest(
+            companyId, code, name, nameAr, price, VAT_RATE));
+        return p.Id;
     }
 
     // ----------------------------------------------------------------
