@@ -621,13 +621,20 @@ public partial class FullYearSeeder
             }
 
             var lines = new List<CreateJournalLineRequest>();
-            // Revenue balances are credit (negative in our convention), so debit them
+            // Close revenue: revenue accounts have Credit nature, so
+            // a positive balance value represents a credit balance
+            // (which is the normal state for a Revenue account). We
+            // debit it to zero it out. The previous version checked
+            // `r.balance < 0` which never matched because PostingEngine
+            // stores Credit-nature balances as positive — leaving
+            // revenue un-closed and the year-end transfer short.
             foreach (var r in revenueAccounts)
             {
-                if (r.balance < 0) // credit balance → debit to close
+                if (r.balance != 0)
                     lines.Add(new CreateJournalLineRequest(r.id, Math.Abs(r.balance), 0, "إقفال إيرادات", null));
             }
-            // Expense balances are debit (positive), so credit them
+            // Close expenses: expense accounts have Debit nature, so
+            // a positive balance is a debit balance. Credit to zero.
             foreach (var e in expenseAccounts)
             {
                 if (e.balance > 0)
