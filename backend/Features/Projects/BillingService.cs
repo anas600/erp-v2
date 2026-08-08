@@ -871,19 +871,22 @@ public class BillingService
                 throw new InvalidOperationException(
                     "حساب 4101 (إيراد بيع بضاعة) غير موجود أو غير قابل للترحيل. الرجاء إعداد دليل الحسابات.");
 
-            // 6) Insert the sales invoice as POSTED.
+            // 6) Insert the sales invoice as POSTED. The invoices table
+            //    uses party_name/party_name_ar/party_tax_id (free text)
+            //    rather than a contact_id FK — that was a Sprint 3
+            //    design choice and we keep it consistent here.
             var invoiceId = Guid.NewGuid();
             var invoiceDate = req.BillingDate;
             await conn.ExecuteAsync(@"
                 INSERT INTO invoices (
                     id, company_id, invoice_number, invoice_type, invoice_date,
-                    contact_id, party_name, party_name_ar, party_tax_id, notes,
+                    party_name, party_name_ar, party_tax_id, notes,
                     subtotal, tax_amount, total, status,
                     project_id, created_at, posted_at
                 )
                 VALUES (
                     @id, @companyId, @invoiceNumber, 'sales', @invoiceDate,
-                    @contactId, @partyName, @partyNameAr, @partyTaxId, @notes,
+                    @partyName, @partyNameAr, @partyTaxId, @notes,
                     @subtotal, @taxAmount, @total, 'posted',
                     @projectId, NOW(), NOW()
                 );",
@@ -893,7 +896,6 @@ public class BillingService
                     companyId = billing.company_id,
                     invoiceNumber = billing.billing_number,
                     invoiceDate,
-                    contactId = project.Value.customer_id,
                     partyName = customer.Value.name,
                     partyNameAr = customer.Value.name_ar ?? customer.Value.name,
                     partyTaxId = customer.Value.tax_id,
