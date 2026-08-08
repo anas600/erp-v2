@@ -33,7 +33,7 @@ import Link from "next/link";
 import {
   ArrowRight, Loader2, Pencil, FolderKanban, MapPin, User, Calendar,
   DollarSign, FileText, TrendingUp, Wallet, ClipboardList, CheckCircle2,
-  FileSignature, FileBarChart, Receipt
+  FileSignature, FileBarChart, Receipt, FilePlus
 } from "lucide-react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -46,6 +46,7 @@ import ContractTab from "../components/ContractTab";
 import type { ContractDto } from "../components/ContractModal";
 import BillingsTab, { type ProgressBillingDto } from "../components/BillingsTab";
 import StatementTab from "../components/StatementTab";
+import VariationTab from "../components/VariationTab";
 
 interface Project {
   id: string;
@@ -105,12 +106,13 @@ interface RevenueRow {
   status: string;
 }
 
-type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation" | "contract" | "billings" | "statement";
+type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation" | "contract" | "billings" | "variations" | "statement";
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "overview",   label: "نظرة عامة",       icon: ClipboardList },
   { id: "contract",   label: "العقد",           icon: FileSignature },
   { id: "billings",   label: "المستخلصات",      icon: Receipt },
+  { id: "variations", label: "أوامر التغيير",   icon: FilePlus },
   { id: "costs",      label: "التكاليف",        icon: Wallet },
   { id: "revenue",    label: "الإيرادات",       icon: TrendingUp },
   { id: "pnl",        label: "الربح والخسارة",   icon: DollarSign },
@@ -274,7 +276,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       {tab === "costs" && <CostsTab rows={costs} />}
       {tab === "revenue" && <RevenueTab rows={revenue} />}
       {tab === "pnl" && (
-        <PnLSummary pnl={pnl} loading={pnlLoading} error={error} projectId={projectId} />
+        <PnLSummary
+          pnl={pnl}
+          loading={pnlLoading}
+          error={error}
+          projectId={projectId}
+          contractId={contract?.id}
+          contractValue={contract?.contractValue ?? project.contractValue ?? 0}
+        />
       )}
       {tab === "allocation" && (
         <AllocationPanel projectId={projectId} onChange={() => { setPnl(null); loadTab("pnl"); }} />
@@ -293,6 +302,25 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           initialBillings={billings}
           onBillingsChange={setBillings}
         />
+      )}
+      {tab === "variations" && contract && (
+        <VariationTab
+          projectId={projectId}
+          contractId={contract.id}
+          onVariationsChange={() => {
+            // Nudge the contract tab to refresh its effective value
+            window.dispatchEvent(
+              new CustomEvent("contract-effective-value:refresh", {
+                detail: { contractId: contract.id },
+              })
+            );
+          }}
+        />
+      )}
+      {tab === "variations" && !contract && (
+        <div className="card text-center text-ink-muted py-12 text-sm">
+          يتطلب إنشاء أوامر تغيير وجود عقد للمشروع. أضف عقداً من تبويب "العقد" أولاً.
+        </div>
       )}
       {tab === "statement" && (
         <StatementTab
