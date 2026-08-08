@@ -239,7 +239,7 @@ public class ReportService
         // We need `level` to detect sub-ledgers (L4) and `parent_id` to
         // find their control account (L3) — see the de-dup logic below.
         var rows = await conn.QueryAsync<BalanceRowEx>(@"
-            SELECT id, code, name, account_type, balance, level, parent_id
+            SELECT id, code, name, account_type, nature, balance, level, parent_id
             FROM accounts
             WHERE company_id = @companyId AND is_active = true
               AND account_type IN ('Asset', 'Liability', 'Equity')
@@ -406,7 +406,7 @@ public class ReportService
     private record TrialBalanceRow(string code, string name, string account_type, string nature, decimal balance);
     private record TrialBalanceRowEx(Guid id, string code, string name, string account_type, string nature, decimal balance, int level, Guid? parent_id);
     private record BalanceRow(string code, string name, string account_type, decimal balance);
-    private record BalanceRowEx(Guid id, string code, string name, string account_type, decimal balance, int level, Guid? parent_id);
+    private record BalanceRowEx(Guid id, string code, string name, string account_type, string? nature, decimal balance, int level, Guid? parent_id);
     private record IncomeMovementRow(string code, string name, string account_type, decimal net);
 
     /// <summary>
