@@ -331,15 +331,16 @@ public class ReportService
             switch (r.account_type)
             {
                 case "Asset":
-                    // Use the SIGNED value, not Math.Abs. Contra-assets
-                    // (e.g. 1202 Accumulated Depreciation, nature=Credit)
-                    // carry a positive balance value that should
-                    // REDUCE total assets, not increase it. The
-                    // previous Math.Abs made the BS say
-                    // A = Cash + AR + AccDep instead of
-                    // A = Cash + AR - AccDep.
-                    assets.Add(new BalanceSheetLine(displayCode, displayName, amount));
-                    totalAssets += amount;
+                    // For debit-nature assets (Cash, AR, etc.) the
+                    // natural balance is positive → adds to assets.
+                    // For credit-nature assets (Accumulated Depreciation,
+                    // 1202) the natural balance of 30,000 represents
+                    // a $30,000 credit balance that REDUCES the asset
+                    // total. Negate the amount for credit-nature
+                    // assets so they show as a negative asset.
+                    var assetAmount = r.nature == "Credit" ? -amount : amount;
+                    assets.Add(new BalanceSheetLine(displayCode, displayName, assetAmount));
+                    totalAssets += assetAmount;
                     break;
                 case "Liability":
                     liabilities.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
