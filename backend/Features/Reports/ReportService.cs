@@ -331,8 +331,15 @@ public class ReportService
             switch (r.account_type)
             {
                 case "Asset":
-                    assets.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
-                    totalAssets += Math.Abs(amount);
+                    // Use the SIGNED value, not Math.Abs. Contra-assets
+                    // (e.g. 1202 Accumulated Depreciation, nature=Credit)
+                    // carry a positive balance value that should
+                    // REDUCE total assets, not increase it. The
+                    // previous Math.Abs made the BS say
+                    // A = Cash + AR + AccDep instead of
+                    // A = Cash + AR - AccDep.
+                    assets.Add(new BalanceSheetLine(displayCode, displayName, amount));
+                    totalAssets += amount;
                     break;
                 case "Liability":
                     liabilities.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
