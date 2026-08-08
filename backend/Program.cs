@@ -237,6 +237,7 @@ builder.Services.AddSingleton<FiscalYearService>();          // Sprint 25: fisca
 builder.Services.AddSingleton<AdminService>();               // Sprint 26: cleanup + seed admin endpoints
 builder.Services.AddSingleton<CoaSeeder>();                  // Sprint 31: full COA reseed
 builder.Services.AddSingleton<DemoDataSeeder>();             // Sprint 26: seed 5 customers + 3 suppliers + 10 invoices + 5 receipts + 2 payments
+builder.Services.AddSingleton<FullYearSeeder>();            // Sprint 39: full 12-month realistic data (use /api/admin/seed-full-year)
 // FIX 2026-08-05: ReceiptService and PaymentService were created in
 // Sprint 21 but never registered in DI. Same pattern as Intercompany
 // in Sprint 24. Sprint 25 ContactStatementService depends on them, so
@@ -251,6 +252,14 @@ builder.Services.AddSingleton<PaymentService>();
 // truth for advance/retention terms that BillingService reads.
 builder.Services.AddSingleton<ContractService>();
 builder.Services.AddSingleton<BillingService>();
+
+// Sprint 38 — BOQ (Bill of Quantities) + Variations. Order matters
+// for readability: LineItemService has no deps; VariationService
+// depends on LineItemService (for the shared unit validator);
+// BillingService now depends on VariationService (for the effective
+// contract value used in work_completed_percent computation).
+builder.Services.AddSingleton<LineItemService>();
+builder.Services.AddSingleton<VariationService>();
 
 // Web
 builder.Services.AddEndpointsApiExplorer();
@@ -338,6 +347,14 @@ ProjectPnLReportEndpoints.Map(app);
 // RequireAuthorization via their own Map().
 ContractEndpoints.Map(app);
 BillingEndpoints.Map(app);
+
+// Sprint 38 — BOQ (line items) + variations. These extend the
+// Sprint 36 contracting surface without touching any existing
+// routes. /api/contracts/{id}/line-items/* owns the BOQ CRUD +
+// reorder + Excel/clipboard import. /api/contracts/{id}/variations
+// + /api/variations/{id}/* own the variation lifecycle.
+LineItemEndpoints.Map(app);
+VariationEndpoints.Map(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);

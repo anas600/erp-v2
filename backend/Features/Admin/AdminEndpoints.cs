@@ -609,5 +609,47 @@ public static class AdminEndpoints
                 details = updated
             });
         });
+
+        // ----------------------------------------------------------------
+        // Sprint 39 — Full-year realistic data seeder
+        // ----------------------------------------------------------------
+        // POST /api/admin/seed-full-year?companyId=...
+        // Wipes transactions and re-creates a full year (Sep 2025 → Aug 2026)
+        // of realistic business activity: 10 customers, 10 suppliers, 15
+        // products, ~80 sales invoices, ~60 purchase invoices, ~50 receipts,
+        // ~45 payments, recurring monthly entries, 4 projects with BOQ +
+        // contracts + progress billings + variations, year-end closing.
+        // Requires super_admin.
+        grp.MapPost("/seed-full-year", async (
+            HttpContext ctx,
+            [FromQuery] Guid companyId,
+            [FromServices] FullYearSeeder seeder,
+            [FromServices] IDbConnectionFactory db) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+
+            // Guard: company must exist
+            using (var conn = db.CreateConnection())
+            {
+                var exists = await conn.ExecuteScalarAsync<bool>(
+                    "SELECT EXISTS (SELECT 1 FROM companies WHERE id = @id);",
+                    new { id = companyId });
+                if (!exists)
+                    return Results.BadRequest(new { error = "الشركة غير موجودة" });
+
+                // Re-enable all business rules so the seeder produces JEs
+                await conn.ExecuteAsync("UPDATE business_rules SET enabled = true;");
+            }
+
+            var result = await seeder.SeedAsync(companyId, null);
+            return Results.Ok(result);
+        });
     }
 }
