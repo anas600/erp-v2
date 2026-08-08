@@ -598,9 +598,19 @@ public partial class FullYearSeeder
                   AND (code LIKE '51%' OR code LIKE '52%' OR code LIKE '53%' OR code LIKE '54%')
                   AND balance != 0;",
                 new { cid = companyId })).ToList();
-            var retained = _accountIds.GetValueOrDefault("3301");
+            // Closing destination: 3202 (Current Year P&L), which the
+            // balance sheet then rolls into 3201 (Retained Earnings)
+            // for the start of the next period. The previous version
+            // wrote to 3301 (Statutory Reserve) which inflated equity
+            // incorrectly and confused the balance-sheet equation.
+            var currentYearPL = _accountIds.GetValueOrDefault("3202");
+            if (currentYearPL == Guid.Empty)
+            {
+                // Fall back to 3201 if 3202 is missing
+                currentYearPL = _accountIds.GetValueOrDefault("3201");
+            }
 
-            if (retained == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
+            if (currentYearPL == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
             {
                 _logger.LogInformation("FullYearSeeder: no closing entries needed");
                 return;
@@ -619,14 +629,14 @@ public partial class FullYearSeeder
                 if (e.balance > 0)
                     lines.Add(new CreateJournalLineRequest(e.id, 0, e.balance, "إقفال مصروفات", null));
             }
-            // Net to retained earnings
+            // Net to current year P&L
             var totalRevenue = revenueAccounts.Sum(r => Math.Abs(Math.Min(r.balance, 0)));
             var totalExpense = expenseAccounts.Sum(e => Math.Max(e.balance, 0));
             var netIncome = totalRevenue - totalExpense;
             if (netIncome > 0)
-                lines.Add(new CreateJournalLineRequest(retained, 0, netIncome, "صافي الدخل", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, 0, netIncome, "صافي الدخل", null));
             else if (netIncome < 0)
-                lines.Add(new CreateJournalLineRequest(retained, Math.Abs(netIncome), 0, "صافي خسارة", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, Math.Abs(netIncome), 0, "صافي خسارة", null));
 
             if (lines.Count < 2) return;
 
