@@ -178,28 +178,39 @@ public partial class FullYearSeeder
 
             // Phase 1: Master data (accounts cache, customers, suppliers, products)
             await SeedMasterDataAsync(companyId);
+            _logger.LogInformation("FullYearSeeder: phase 1 (master) done");
 
             // Phase 2: Fiscal year + periods
-            await SeedFiscalYearAsync(companyId);
+            try { await SeedFiscalYearAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 2 (fiscal) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 2 (fiscal): {ex.Message}"); return _result; }
 
             // Phase 3: Opening balance journal entry (cash, bank, AR, AP)
-            await SeedOpeningBalancesAsync(companyId);
+            try { await SeedOpeningBalancesAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 3 (opening) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 3 (opening): {ex.Message}"); return _result; }
 
             // Phase 4: Monthly recurring + transactions
-            for (var month = 0; month < 12; month++)
+            try
             {
-                var monthDate = FY_START.AddMonths(month);
-                await SeedMonthAsync(companyId, monthDate, userId);
+                for (var month = 0; month < 12; month++)
+                {
+                    var monthDate = FY_START.AddMonths(month);
+                    await SeedMonthAsync(companyId, monthDate, userId);
+                }
+                _logger.LogInformation("FullYearSeeder: phase 4 (12 months) done");
             }
+            catch (Exception ex) { _result.Errors.Add($"Phase 4: {ex.Message}"); return _result; }
 
             // Phase 5: Projects with full lifecycle
-            await SeedProjectsAsync(companyId, userId);
+            try { await SeedProjectsAsync(companyId, userId); _logger.LogInformation("FullYearSeeder: phase 5 (projects) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 5: {ex.Message}"); return _result; }
 
             // Phase 6: Year-end closing
-            await SeedYearEndClosingAsync(companyId, userId);
+            try { await SeedYearEndClosingAsync(companyId, userId); _logger.LogInformation("FullYearSeeder: phase 6 (closing) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 6: {ex.Message}"); return _result; }
 
             // Phase 7: Bulk approve all pending journal entries
-            await BulkApprovePendingAsync(companyId);
+            try { await BulkApprovePendingAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 7 (approve) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 7: {ex.Message}"); return _result; }
 
             sw.Stop();
             _result.ElapsedSeconds = sw.Elapsed.TotalSeconds;
@@ -210,7 +221,7 @@ public partial class FullYearSeeder
         }
         catch (Exception ex)
         {
-            _result.Errors.Add($"Fatal: {ex.Message}");
+            _result.Errors.Add($"Fatal: {ex.Message} | Inner: {ex.InnerException?.Message}");
             _logger.LogError(ex, "FullYearSeeder failed");
         }
 
