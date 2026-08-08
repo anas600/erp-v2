@@ -347,6 +347,15 @@ public class ReportService
                     totalLiabilities += Math.Abs(amount);
                     break;
                 case "Equity":
+                    // Sprint 40 — skip 3202 (Current Year P&L) on the
+                    // balance sheet. The seeder's year-end closing
+                    // moves the FY net income INTO 3202; if we also
+                    // add the year-to-date NET line below, we double-
+                    // count. The NET line (added at the end) is the
+                    // authoritative current-year figure. 3201/3202
+                    // would only be correct if the closing also
+                    // cleared 3202 to 3201, which it doesn't (yet).
+                    if (r.code == "3202") continue;
                     equity.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
                     totalEquity += Math.Abs(amount);
                     break;
