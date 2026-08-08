@@ -400,7 +400,7 @@ public partial class FullYearSeeder
         var exists = await conn.ExecuteScalarAsync<bool>(@"
             SELECT EXISTS (
                 SELECT 1 FROM fiscal_years
-                WHERE company_id = @cid AND name = 'FY 2025-2026'
+                WHERE company_id = @cid AND code = 'FY2025-2026'
             );", new { cid = companyId });
         if (exists) { _result.FiscalYearCreated = false; return; }
 
