@@ -174,12 +174,12 @@ public class ReportService
             LEFT JOIN journal_lines jl ON jl.account_id = a.id
             LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
                 AND je.status = 'posted'
-                AND je.entry_date BETWEEN @from AND @to
+                AND je.entry_date BETWEEN @fromDate AND @toDate
                 AND (je.source IS NULL OR je.source <> 'year-end-closing')
             WHERE a.company_id = @companyId AND a.account_type IN ('Revenue', 'Expense')
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code;",
-            new { companyId, from = fromDate, to = toDate });
+            new { companyId, fromDate, toDate });
 
         foreach (var m in movements)
             _log.LogInformation("IS movement: {Code} {Type} {Net}", m.code, m.account_type, m.net);
