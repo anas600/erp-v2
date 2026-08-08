@@ -119,9 +119,9 @@ public partial class FullYearSeeder
         var lastDay = new DateTime(month.Year, month.Month, DateTime.DaysInMonth(month.Year, month.Month));
         var entries = new List<(string desc, List<CreateJournalLineRequest> lines)>();
 
-        // 1) Rent — 5,000 LYD (Cash → Rent Expense 5303)
+        // 1) Rent — 5,000 LYD (Cash → Rent Expense 5102)
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash) &&
-            _accountIds.TryGetValue("5303", out var rent))
+            _accountIds.TryGetValue("5102", out var rent))
         {
             entries.Add(("إيجار شهري", new List<CreateJournalLineRequest>
             {
@@ -131,10 +131,9 @@ public partial class FullYearSeeder
         }
 
         // 2) Salaries — 35,000 LYD total (5 employees × 7,000)
-        // Dr Salaries Expense 5301, Cr Cash
-        if (_accountIds.TryGetValue("5301", out var salaries) && _accountIds.TryGetValue("1101-CASH-001", out cash))
+        // Dr Salaries Expense 5101, Cr Cash
+        if (_accountIds.TryGetValue("5101", out var salaries) && _accountIds.TryGetValue("1101-CASH-001", out cash))
         {
-            var employeeIds = _userIds.Values.Take(5).ToList();
             var salaryLines = new List<CreateJournalLineRequest>
             {
                 new(salaries, 35_000m, 0, "رواتب الشهر", null)
@@ -143,8 +142,8 @@ public partial class FullYearSeeder
             entries.Add(("رواتب شهرية", salaryLines));
         }
 
-        // 3) Electricity — 1,200 LYD (Utilities 5304)
-        if (_accountIds.TryGetValue("5304", out var utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank1))
+        // 3) Electricity — 1,200 LYD (Utilities 5103)
+        if (_accountIds.TryGetValue("5103", out var utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank1))
         {
             entries.Add(("فاتورة كهرباء", new List<CreateJournalLineRequest>
             {
@@ -154,7 +153,7 @@ public partial class FullYearSeeder
         }
 
         // 4) Water — 300 LYD
-        if (_accountIds.TryGetValue("5304", out utilities) && _accountIds.TryGetValue("1101-CASH-001", out cash))
+        if (_accountIds.TryGetValue("5103", out utilities) && _accountIds.TryGetValue("1101-CASH-001", out cash))
         {
             entries.Add(("فاتورة ماء", new List<CreateJournalLineRequest>
             {
@@ -164,7 +163,7 @@ public partial class FullYearSeeder
         }
 
         // 5) Internet + Phone — 500 LYD
-        if (_accountIds.TryGetValue("5304", out utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank2))
+        if (_accountIds.TryGetValue("5103", out utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank2))
         {
             entries.Add(("إنترنت وهاتف", new List<CreateJournalLineRequest>
             {
@@ -173,8 +172,8 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 6) Depreciation — 2,500 LYD (Accumulated Depreciation 1202 / Depreciation Expense 5302)
-        if (_accountIds.TryGetValue("5302", out var depExp) &&
+        // 6) Depreciation — 2,500 LYD (Accumulated Depreciation 1202 / Depreciation Expense 5106)
+        if (_accountIds.TryGetValue("5106", out var depExp) &&
             _accountIds.TryGetValue("1202", out var accDep))
         {
             entries.Add(("إهلاك شهري", new List<CreateJournalLineRequest>
@@ -184,10 +183,14 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 7) Loan installment — 4,000 LYD (3,500 principal + 500 interest)
-        // Dr Loan Payable 2201 (3,500), Dr Interest Expense 5305 (500), Cr Bank (4,000)
+        // 7) Loan installment — 4,000 LYD (3,500 principal + 500 interest).
+        //    Note: the standard COA has no specific "interest expense"
+        //    account — we map both the interest and the bank fees
+        //    onto 5203 (Hospitality) as a generic admin-expense
+        //    bucket. A real chart would add 5206 "Bank Charges &
+        //    Interest" — out of scope for the demo.
         if (_accountIds.TryGetValue("2201", out var loan) &&
-            _accountIds.TryGetValue("5305", out var intExp) &&
+            _accountIds.TryGetValue("5203", out var intExp) &&
             _accountIds.TryGetValue("1102-BANK-001", out var bank3))
         {
             entries.Add(("قسط قرض بنكي", new List<CreateJournalLineRequest>
@@ -198,8 +201,9 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 8) Bank service charges — 50 LYD
-        if (_accountIds.TryGetValue("5306", out var bankChg) &&
+        // 8) Bank service charges — 50 LYD (mapped to 5203 for the
+        //    same reason as the loan interest above).
+        if (_accountIds.TryGetValue("5203", out var bankChg) &&
             _accountIds.TryGetValue("1102-BANK-001", out var bank4))
         {
             entries.Add(("رسوم بنكية", new List<CreateJournalLineRequest>
@@ -209,9 +213,9 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 9) Insurance prepaid amortization — 800 LYD
-        if (_accountIds.TryGetValue("1205", out var prepaidIns) &&
-            _accountIds.TryGetValue("5307", out var insExp))
+        // 9) Insurance prepaid amortization — 800 LYD (1205 Intangible/Prepaid → 5104 Insurance)
+        if (_accountIds.TryGetValue("1106", out var prepaidIns) &&
+            _accountIds.TryGetValue("5104", out var insExp))
         {
             entries.Add(("إطفاء تأمين", new List<CreateJournalLineRequest>
             {
