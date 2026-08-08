@@ -6,32 +6,48 @@ using ErpV2.Features.Journal;
 namespace ErpV2.Features.Projects;
 
 /// <summary>
-/// Sprint 36 — Progress Billing (مستخلصات) service.
+/// Sprint 36 + Sprint 38 — Progress Billing (مستخلصات) service.
 ///
-/// This is the workhorse of the contracting workflow. It owns the
-/// calculation engine that turns a "work completed %" into four
-/// monetary figures (gross / advance / retention / net), and it
-/// drives the DRAFT → INVOICED → CANCELLED lifecycle.
+/// <para>
+/// <b>Sprint 36</b> introduced the %-based calculation:
+///   gross = contract_value * work_completed_percent / 100
+///   advance_deducted = min(remaining advance, gross)
+///   retention_deducted = gross * retention_percent
+///   net = gross − advance − retention
+/// </para>
 ///
-/// Calculation algorithm (Sprint 36 spec, with the worked example):
-///   Contract  : value=100,000, advance=10%, retention=5%, retention_start=1
-///   Billing 1 : work_completed=30% → gross=30,000
-///               previous_advance=0 → remaining_advance=10,000
-///               advance_deducted = min(30,000, 10,000) = 10,000
-///               retention_deducted = 30,000 * 5% = 1,500
-///               net = 30,000 - 10,000 - 1,500 = 18,500
-///   Billing 2 : work_completed=60% → gross=60,000
-///               previous_advance=10,000 → remaining_advance=0
-///               advance_deducted = 0
-///               retention_deducted = 60,000 * 5% = 3,000
-///               net = 60,000 - 0 - 3,000 = 57,000
+/// <para>
+/// <b>Sprint 38 (BOQ)</b> replaces the % input with a list of
+/// line-item quantities. The system now computes:
+///   1. For each line item:
+///        quantity_previous = sum from previous non-cancelled billings
+///        quantity_cumulative = quantity_previous + quantity_this_period
+///        amount = quantity_cumulative * unit_price (snapshot)
+///   2. gross = sum of all amounts
+///   3. work_completed_percent = gross / effective_contract_value * 100
+///   4. advance / retention / net: same as Sprint 36
+/// </para>
 ///
-/// Atomicity (ApproveAsync):
-///   The whole "create invoice + create JE + update billing status"
-///   dance is wrapped in a single transaction. If any step fails,
-///   nothing is persisted. This is the critical property — a partial
-///   state (invoice without billing update) would leave the
-///   statement tab lying to the user.
+/// <para>
+/// <b>Backward compatibility</b>:
+///   - Migration 022 force-migrated every existing contract to ONE
+///     synthetic <c>lump</c> line item (qty=1, unit_price=contract_value).
+///   - Migration 022 also force-migrated every existing billing to ONE
+///     matching billing_line_item (quantity_cumulative = work_completed_percent).
+///   - The math is bit-identical to Sprint 36 when the new endpoints
+///     are bypassed and the legacy WorkCompletedPercent path is used.
+///   - If <c>req.LineItems</c> is null/empty AND a synthetic lump line
+///     item exists, we use it as a % gauge. This means old frontends
+///     calling POST /api/projects/{id}/billings with just a percent
+///     still get the same numbers.
+/// </para>
+///
+/// <para>
+/// Atomicity (ApproveAsync): unchanged from Sprint 36 — the whole
+/// "create invoice + create JE + update billing status" dance is
+/// wrapped in a single transaction. See <see cref="ApproveAsync"/>
+/// for the full dance.
+/// </para>
 /// </summary>
 public class BillingService
 {
@@ -40,6 +56,7 @@ public class BillingService
     private readonly AccountService _accounts;
     private readonly JournalService _journal;
     private readonly PostingEngine _posting;
+    private readonly VariationService _variations;
     private readonly ILogger<BillingService> _log;
 
     public BillingService(
@@ -48,6 +65,7 @@ public class BillingService
         AccountService accounts,
         JournalService journal,
         PostingEngine posting,
+        VariationService variations,
         ILogger<BillingService> log)
     {
         _db = db;
@@ -55,6 +73,7 @@ public class BillingService
         _accounts = accounts;
         _journal = journal;
         _posting = posting;
+        _variations = variations;
         _log = log;
     }
 
@@ -103,33 +122,54 @@ public class BillingService
         return row is null ? null : MapRow(row);
     }
 
+    /// <summary>
+    /// Lists the billing_line_items for a billing. The UI uses this
+    /// to render the line-item breakdown on the billing detail page
+    /// and to populate the "what was claimed" view after approval.
+    /// </summary>
+    public async Task<List<BillingLineItemDto>> GetBillingLineItemsAsync(Guid billingId)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<BillingLineItemRow>(@"
+            SELECT bli.id, bli.billing_id, bli.line_item_id,
+                   li.line_number, li.description, li.unit, li.custom_unit,
+                   bli.quantity_this_period, bli.quantity_previous,
+                   bli.quantity_cumulative, bli.unit_price, bli.amount,
+                   bli.notes
+            FROM billing_line_items bli
+            JOIN contract_line_items li ON li.id = bli.line_item_id
+            WHERE bli.billing_id = @billingId
+            ORDER BY li.line_number ASC;",
+            new { billingId });
+        return rows.Select(MapBillingLineItem).ToList();
+    }
+
     // ============================================================
     // Create (the calculation engine)
     // ============================================================
 
     /// <summary>
-    /// Creates a new progress billing. This is where the advance
-    /// and retention math happens — see the class-level comment for
-    /// the algorithm.
+    /// Creates a new progress billing. The new (Sprint 38) shape is:
+    ///   1. Compute each line item's amount (cumulative qty * unit_price).
+    ///   2. gross = sum of all amounts.
+    ///   3. work_completed_percent = gross / effective_value * 100.
+    ///   4. advance / retention / net as before.
     ///
-    /// Refuses to create the billing if:
-    ///   - the project has no contract yet
-    ///   - the work_completed_percent is lower than the previous max
-    ///     (you can't go backwards — projects accumulate progress)
-    ///   - the contract belongs to a different company than the
-    ///     project (impossible by FK but defended in depth)
+    /// <para>
+    /// Backward-compat: if <c>req.LineItems</c> is null/empty, we
+    /// fall back to the Sprint 36 %-based math. The migration 022
+    /// synthetic lump line item makes that fallback produce the
+    /// same numbers as before, so legacy frontends still work.
+    /// </para>
     /// </summary>
     public async Task<ProgressBillingDto> CreateAsync(Guid projectId, CreateBillingRequest req)
     {
-        // 1) Validate the percent range up front (cheap).
-        if (req.WorkCompletedPercent < 0 || req.WorkCompletedPercent > 100)
-            throw new InvalidOperationException("نسبة الإنجاز يجب أن تكون بين 0 و 100");
         if (string.IsNullOrWhiteSpace(req.BillingNumber))
             throw new InvalidOperationException("رقم المستخلص مطلوب");
 
         using var conn = _db.CreateConnection();
 
-        // 2) Load the project — need its company_id for the
+        // 1) Load the project — need its company_id for the
         //    cross-company check and to stamp progress_billings.company_id.
         var project = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid company_id, string? name, string? name_ar, Guid? customer_id)?>(@"
             SELECT id, company_id, name, name_ar, customer_id
@@ -138,7 +178,7 @@ public class BillingService
         if (project is null)
             throw new InvalidOperationException("المشروع غير موجود");
 
-        // 3) Load the contract (must exist for this project).
+        // 2) Load the contract (must exist for this project).
         var contract = await _contracts.GetByProjectAsync(projectId);
         if (contract is null)
             throw new InvalidOperationException("لا يوجد عقد لهذا المشروع. الرجاء إنشاء عقد أولاً.");
@@ -147,9 +187,7 @@ public class BillingService
         if (contract.CompanyId != project.Value.company_id)
             throw new InvalidOperationException("العقد لا ينتمي لنفس شركة المشروع");
 
-        // 4) Check uniqueness of billing_number within the company
-        //    (pre-check for a friendly error; the UNIQUE index also
-        //    catches it at the DB level as a backstop).
+        // 3) Check uniqueness of billing_number within the company.
         var dup = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) FROM progress_billings
             WHERE company_id = @companyId AND billing_number = @billingNumber;",
@@ -157,6 +195,10 @@ public class BillingService
         if (dup > 0)
             throw new InvalidOperationException(
                 $"رقم المستخلص '{req.BillingNumber}' مستخدم بالفعل في هذه الشركة");
+
+        // 4) Compute the effective contract value (original +
+        //    approved variation items).
+        var effectiveValue = await _variations.GetEffectiveContractValueAsync(contract.Id);
 
         // 5) Sum previous billings — the cumulative math inputs.
         //    We exclude CANCELLED billings (they don't count toward
@@ -171,31 +213,79 @@ public class BillingService
             WHERE project_id = @projectId
               AND status != 'CANCELLED';",
             new { projectId }) ?? 0m;
-        var previousMaxPercent = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(MAX(work_completed_percent), 0) FROM progress_billings
-            WHERE project_id = @projectId
-              AND status != 'CANCELLED';",
-            new { projectId }) ?? 0m;
         var nextBillingNumber = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) + 1 FROM progress_billings
             WHERE project_id = @projectId
               AND status != 'CANCELLED';",
             new { projectId });
 
-        // 6) Validate cumulative % — can't go backwards.
-        if (req.WorkCompletedPercent < previousMaxPercent)
-            throw new InvalidOperationException(
-                $"نسبة الإنجاز ({req.WorkCompletedPercent}%) أقل من الحد الأقصى السابق ({previousMaxPercent}%). " +
-                "لا يمكن إنقاص نسبة الإنجاز التراكمية.");
+        // 6) Resolve the line items. The two paths:
+        //    (a) New: req.LineItems is non-empty — use those, compute amounts.
+        //    (b) Legacy: req.LineItems is null/empty — use the Sprint 36
+        //        manual % and the synthetic lump line item (if any).
+        //        If no lump line item exists, refuse — there's nothing to bill.
+        List<BillingLineItemInsert> billingLineItems;
+        decimal gross;
+        decimal workCompletedPercent;
 
-        // 7) Calculate the four amounts.
-        var gross = Math.Round(contract.ContractValue * (req.WorkCompletedPercent / 100m), 3);
-        var advanceTotal = Math.Round(contract.ContractValue * (contract.AdvancePercent / 100m), 3);
+        if (req.LineItems is { Count: > 0 })
+        {
+            // Path (a): BOQ-based.
+            (billingLineItems, gross) = await ComputeLineItemAmountsAsync(
+                contract.Id, projectId, req.LineItems);
+            if (effectiveValue <= 0)
+                throw new InvalidOperationException("قيمة العقد الفعلي صفر — لا يمكن إنشاء مستخلص");
+            workCompletedPercent = Math.Round(gross / effectiveValue * 100m, 3);
+        }
+        else
+        {
+            // Path (b): legacy %-based.
+            if (!req.WorkCompletedPercent.HasValue)
+                throw new InvalidOperationException(
+                    "يجب تحديد نسبة الإنجاز أو بنود المستخلص (LineItems)");
+            if (req.WorkCompletedPercent.Value < 0 || req.WorkCompletedPercent.Value > 100)
+                throw new InvalidOperationException("نسبة الإنجاز يجب أن تكون بين 0 و 100");
+            // Validate cumulative % can't go backwards.
+            var previousMaxPercent = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(MAX(work_completed_percent), 0) FROM progress_billings
+                WHERE project_id = @projectId
+                  AND status != 'CANCELLED';",
+                new { projectId }) ?? 0m;
+            if (req.WorkCompletedPercent.Value < previousMaxPercent)
+                throw new InvalidOperationException(
+                    $"نسبة الإنجاز ({req.WorkCompletedPercent.Value}%) أقل من الحد الأقصى السابق ({previousMaxPercent}%). " +
+                    "لا يمكن إنقاص نسبة الإنجاز التراكمية.");
+
+            gross = Math.Round(contract.ContractValue * (req.WorkCompletedPercent.Value / 100m), 3);
+            workCompletedPercent = req.WorkCompletedPercent.Value;
+
+            // Find the synthetic lump line item (migration 022) so we
+            // can insert one matching billing_line_item. If the caller
+            // has already migrated to BOQ (real items exist) and is
+            // using the legacy %, we still need a billing_line_item
+            // for accounting traceability — use the lump if it exists.
+            billingLineItems = await BuildLegacySyntheticLineItemAsync(
+                contract.Id, projectId, gross, workCompletedPercent);
+            if (billingLineItems.Count == 0)
+            {
+                // No synthetic lump line item — synthesize one on the
+                // fly for this legacy path. The contract's effective
+                // value is unchanged; we don't add to the BOQ.
+                _log.LogWarning(
+                    "Legacy %-based billing on contract {ContractId} without a synthetic lump; creating one on the fly.",
+                    contract.Id);
+                billingLineItems = new List<BillingLineItemInsert>
+                {
+                    new(Guid.Empty, workCompletedPercent, 0,
+                        workCompletedPercent, contract.ContractValue, gross)
+                };
+            }
+        }
+
+        // 7) Calculate advance / retention / net.
+        var advanceTotal = Math.Round(effectiveValue * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
-        var advanceDeducted = Math.Min(gross, remainingAdvance);
-        // Round to 3dp to keep column-precision consistent. We use
-        // 3 because the column is decimal(18,3).
-        advanceDeducted = Math.Round(advanceDeducted, 3);
+        var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
 
         decimal retentionDeducted = 0m;
         if (nextBillingNumber >= contract.RetentionStartBilling)
@@ -205,54 +295,273 @@ public class BillingService
 
         var net = Math.Round(gross - advanceDeducted - retentionDeducted, 3);
 
-        // 8) Insert the billing in DRAFT status. The user reviews
-        //    the four figures and clicks Approve to commit.
+        // 8) Insert the billing in DRAFT status + the billing_line_items,
+        //    all in one transaction so a partial failure can't leave a
+        //    billing without its line items.
         var id = Guid.NewGuid();
-        await conn.ExecuteAsync(@"
-            INSERT INTO progress_billings (
-                id, company_id, project_id, contract_id, billing_number,
-                billing_date, period_from, period_to,
-                work_completed_percent, gross_amount,
-                advance_deducted, retention_deducted, net_amount,
-                status, notes, created_at
-            )
-            VALUES (
-                @id, @companyId, @projectId, @contractId, @billingNumber,
-                @billingDate, @periodFrom, @periodTo,
-                @workCompletedPercent, @gross,
-                @advanceDeducted, @retentionDeducted, @net,
-                'DRAFT', @notes, NOW()
-            );",
-            new
+        using (var tx = conn.BeginTransaction())
+        {
+            try
             {
-                id,
-                companyId = project.Value.company_id,
-                projectId,
-                contractId = contract.Id,
-                billingNumber = req.BillingNumber,
-                billingDate = req.BillingDate,
-                periodFrom = req.PeriodFrom,
-                periodTo = req.PeriodTo,
-                workCompletedPercent = req.WorkCompletedPercent,
-                gross,
-                advanceDeducted,
-                retentionDeducted,
-                net,
-                notes = req.Notes
-            });
+                await conn.ExecuteAsync(@"
+                    INSERT INTO progress_billings (
+                        id, company_id, project_id, contract_id, billing_number,
+                        billing_date, period_from, period_to,
+                        work_completed_percent, gross_amount,
+                        advance_deducted, retention_deducted, net_amount,
+                        status, notes, created_at
+                    )
+                    VALUES (
+                        @id, @companyId, @projectId, @contractId, @billingNumber,
+                        @billingDate, @periodFrom, @periodTo,
+                        @workCompletedPercent, @gross,
+                        @advanceDeducted, @retentionDeducted, @net,
+                        'DRAFT', @notes, NOW()
+                    );",
+                    new
+                    {
+                        id,
+                        companyId = project.Value.company_id,
+                        projectId,
+                        contractId = contract.Id,
+                        billingNumber = req.BillingNumber,
+                        billingDate = req.BillingDate,
+                        periodFrom = req.PeriodFrom,
+                        periodTo = req.PeriodTo,
+                        workCompletedPercent,
+                        gross,
+                        advanceDeducted,
+                        retentionDeducted,
+                        net,
+                        notes = req.Notes
+                    }, tx);
+
+                foreach (var bli in billingLineItems)
+                {
+                    // If the line item was a "ghost" (legacy % path
+                    // with no synthetic line item), look up the
+                    // synthetic lump line item id by contract.
+                    var lineItemId = bli.LineItemId;
+                    if (lineItemId == Guid.Empty)
+                    {
+                        lineItemId = await conn.ExecuteScalarAsync<Guid>(@"
+                            SELECT id FROM contract_line_items
+                            WHERE contract_id = @contractId AND line_number = 1
+                            LIMIT 1;",
+                            new { contractId = contract.Id }, tx);
+                        if (lineItemId == Guid.Empty)
+                            throw new InvalidOperationException(
+                                "تعذر تحديد بند المستخلص — لا يوجد بند BOQ للعقد");
+                    }
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO billing_line_items (
+                            id, company_id, billing_id, line_item_id,
+                            quantity_this_period, quantity_previous, quantity_cumulative,
+                            unit_price, amount
+                        )
+                        VALUES (
+                            @id, @companyId, @billingId, @lineItemId,
+                            @quantityThisPeriod, @quantityPrevious, @quantityCumulative,
+                            @unitPrice, @amount
+                        );",
+                        new
+                        {
+                            id = Guid.NewGuid(),
+                            companyId = project.Value.company_id,
+                            billingId = id,
+                            lineItemId,
+                            quantityThisPeriod = bli.QuantityThisPeriod,
+                            quantityPrevious = bli.QuantityPrevious,
+                            quantityCumulative = bli.QuantityCumulative,
+                            unitPrice = bli.UnitPrice,
+                            amount = bli.Amount
+                        }, tx);
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+        }
 
         return (await GetByIdAsync(id))!;
     }
+
+    /// <summary>
+    /// Computes the line-item amounts for a BOQ-based billing.
+    /// Returns the inserts and the gross total.
+    /// </summary>
+    private async Task<(List<BillingLineItemInsert> items, decimal gross)>
+        ComputeLineItemAmountsAsync(
+            Guid contractId, Guid projectId, List<CreateBillingLineItemRequest> items)
+    {
+        using var conn = _db.CreateConnection();
+        var inserts = new List<BillingLineItemInsert>();
+        decimal gross = 0m;
+
+        foreach (var item in items)
+        {
+            // Load the line item (we need its unit_price, quantity,
+            // and to confirm it belongs to this contract).
+            var li = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid contract_id, decimal quantity, decimal unit_price, string? custom_unit, string unit)?>(@"
+                SELECT id, contract_id, quantity, unit_price, custom_unit, unit
+                FROM contract_line_items WHERE id = @id;",
+                new { id = item.LineItemId });
+            if (li is null)
+                throw new InvalidOperationException(
+                    $"بند المستخلص غير موجود: {item.LineItemId}");
+            if (li.Value.contract_id != contractId)
+                throw new InvalidOperationException(
+                    "البند لا ينتمي لنفس عقد المستخلص");
+
+            // Sum the previous claims for this line item from
+            // non-cancelled billings. We use billing_line_items as
+            // the source of truth (it has the per-billing split).
+            var previousQty = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(SUM(bli.quantity_this_period), 0)
+                FROM billing_line_items bli
+                JOIN progress_billings pb ON pb.id = bli.billing_id
+                WHERE bli.line_item_id = @lineItemId
+                  AND pb.status != 'CANCELLED'
+                  AND pb.id <> @excludeBillingId;",
+                new { lineItemId = item.LineItemId, excludeBillingId = Guid.Empty }) ?? 0m;
+
+            var thisPeriod = item.QuantityThisPeriod;
+            if (thisPeriod < 0)
+                throw new InvalidOperationException(
+                    $"الكمية المنفذة للبند يجب أن تكون أكبر من أو تساوي صفر");
+            var cumulative = Math.Round(previousQty + thisPeriod, 3);
+            if (cumulative > li.Value.quantity)
+                throw new InvalidOperationException(
+                    $"الكمية التراكمية ({cumulative}) لبند '{li.Value.unit}' تتجاوز الكمية الإجمالية ({li.Value.quantity})");
+
+            // amount uses the snapshot unit_price (which we just
+            // pulled from contract_line_items — the snapshot is
+            // implicit in the line item, since we don't allow
+            // editing a line item's unit_price once billed).
+            var amount = Math.Round(cumulative * li.Value.unit_price, 3);
+            gross = Math.Round(gross + amount, 3);
+
+            inserts.Add(new BillingLineItemInsert(
+                LineItemId: li.Value.id,
+                QuantityThisPeriod: thisPeriod,
+                QuantityPrevious: previousQty,
+                QuantityCumulative: cumulative,
+                UnitPrice: li.Value.unit_price,
+                Amount: amount));
+        }
+
+        return (inserts, gross);
+    }
+
+    /// <summary>
+    /// Builds the synthetic billing_line_item for the legacy
+    /// %-based path. If the contract has a synthetic lump line
+    /// item (migration 022), we attach the billing to that and
+    /// use work_completed_percent as the qty. If not, we return
+    /// an empty list — the caller decides what to do.
+    /// </summary>
+    private async Task<List<BillingLineItemInsert>> BuildLegacySyntheticLineItemAsync(
+        Guid contractId, Guid projectId, decimal gross, decimal workCompletedPercent)
+    {
+        using var conn = _db.CreateConnection();
+        var lump = await conn.QuerySingleOrDefaultAsync<(Guid id, decimal unit_price)?>(@"
+            SELECT id, unit_price FROM contract_line_items
+            WHERE contract_id = @contractId
+              AND line_number = 1
+              AND unit = 'lump'
+              AND quantity = 1
+            LIMIT 1;",
+            new { contractId });
+        if (lump is null)
+            return new List<BillingLineItemInsert>();
+
+        // The synthetic line item has qty=1, unit_price=contract_value.
+        // Using work_completed_percent as the qty means:
+        //   amount = work_completed_percent * contract_value = gross.
+        // This matches the Sprint 36 calculation exactly.
+        return new List<BillingLineItemInsert>
+        {
+            new(
+                LineItemId: lump.Value.id,
+                QuantityThisPeriod: workCompletedPercent,
+                QuantityPrevious: 0m,
+                QuantityCumulative: workCompletedPercent,
+                UnitPrice: lump.Value.unit_price,
+                Amount: gross)
+        };
+    }
+
+    /// <summary>
+    /// Returns a preview of what the billing_line_items would look
+    /// like if the user submitted these quantities. Used by the UI
+    /// to show live totals before committing (e.g. the user types
+    /// in a quantity and the table updates immediately).
+    /// </summary>
+    public async Task<List<BillingLineItemPreview>> PreviewBillingLineItemsAsync(
+        Guid contractId, List<CreateBillingLineItemRequest> items)
+    {
+        if (items is null || items.Count == 0)
+            return new List<BillingLineItemPreview>();
+
+        using var conn = _db.CreateConnection();
+        var previews = new List<BillingLineItemPreview>();
+
+        foreach (var item in items)
+        {
+            var li = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid contract_id, int line_number, string description, string unit, string? custom_unit, decimal quantity, decimal unit_price)?>(@"
+                SELECT id, contract_id, line_number, description, unit, custom_unit,
+                       quantity, unit_price
+                FROM contract_line_items WHERE id = @id;",
+                new { id = item.LineItemId });
+            if (li is null || li.Value.contract_id != contractId)
+                continue;
+
+            var previousQty = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(SUM(bli.quantity_this_period), 0)
+                FROM billing_line_items bli
+                JOIN progress_billings pb ON pb.id = bli.billing_id
+                WHERE bli.line_item_id = @lineItemId
+                  AND pb.status != 'CANCELLED';",
+                new { lineItemId = item.LineItemId }) ?? 0m;
+            var proposedCumulative = Math.Round(previousQty + item.QuantityThisPeriod, 3);
+            var proposedAmount = Math.Round(proposedCumulative * li.Value.unit_price, 3);
+
+            previews.Add(new BillingLineItemPreview(
+                LineItemId: li.Value.id,
+                LineNumber: li.Value.line_number,
+                Description: li.Value.description,
+                Unit: li.Value.unit,
+                Quantity: li.Value.quantity,
+                QuantityPrevious: previousQty,
+                UnitPrice: li.Value.unit_price,
+                ProposedThisPeriod: item.QuantityThisPeriod,
+                ProposedCumulative: proposedCumulative,
+                ProposedAmount: proposedAmount));
+        }
+        return previews;
+    }
+
+    private record BillingLineItemInsert(
+        Guid LineItemId,
+        decimal QuantityThisPeriod,
+        decimal QuantityPrevious,
+        decimal QuantityCumulative,
+        decimal UnitPrice,
+        decimal Amount);
 
     // ============================================================
     // Update (only while DRAFT)
     // ============================================================
 
     /// <summary>
-    /// Replaces the editable fields on a DRAFT billing. If the
-    /// percent changed, the four amount columns are recomputed via
-    /// the same algorithm as CreateAsync (so the displayed numbers
-    /// are always in sync with the contract terms).
+    /// Replaces the editable fields on a DRAFT billing. If
+    /// <c>req.LineItems</c> is provided, the four amount columns
+    /// are recomputed from the items; otherwise the legacy
+    /// <c>req.WorkCompletedPercent</c> is used.
     /// </summary>
     public async Task<ProgressBillingDto?> UpdateAsync(Guid id, UpdateBillingRequest req)
     {
@@ -274,19 +583,7 @@ public class BillingService
         var contract = await _contracts.GetByIdAsync(existing.contract_id)
             ?? throw new InvalidOperationException("العقد غير موجود");
 
-        // Recompute only if the percent actually changed.
-        decimal newPercent = req.WorkCompletedPercent ?? existing.work_completed_percent;
-        if (newPercent < 0 || newPercent > 100)
-            throw new InvalidOperationException("نسبة الإنجاز يجب أن تكون بين 0 و 100");
-
-        // Validate cumulative % against the OTHER billings (exclude self).
-        var otherMaxPercent = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(MAX(work_completed_percent), 0) FROM progress_billings
-            WHERE project_id = @projectId AND id <> @id AND status != 'CANCELLED';",
-            new { projectId = existing.project_id, id }) ?? 0m;
-        if (newPercent < otherMaxPercent)
-            throw new InvalidOperationException(
-                $"نسبة الإنجاز ({newPercent}%) أقل من الحد الأقصى للمستخلصات الأخرى ({otherMaxPercent}%)");
+        var effectiveValue = await _variations.GetEffectiveContractValueAsync(existing.contract_id);
 
         // Re-sum the OTHER billings' gross + advance (so we don't
         // double-count this row's old values into the cumulative).
@@ -303,8 +600,41 @@ public class BillingService
             WHERE project_id = @projectId AND id <> @id AND status != 'CANCELLED';",
             new { projectId = existing.project_id, id });
 
-        var gross = Math.Round(contract.ContractValue * (newPercent / 100m), 3);
-        var advanceTotal = Math.Round(contract.ContractValue * (contract.AdvancePercent / 100m), 3);
+        decimal gross;
+        decimal workCompletedPercent;
+        List<BillingLineItemInsert> lineItems;
+
+        if (req.LineItems is { Count: > 0 })
+        {
+            // BOQ path. We pass the billing's id as the exclude so
+            // ComputeLineItemAmountsAsync doesn't double-count this
+            // billing's existing claims.
+            (lineItems, gross) = await ComputeLineItemAmountsForUpdateAsync(
+                existing.contract_id, existing.project_id, id, req.LineItems);
+            if (effectiveValue <= 0)
+                throw new InvalidOperationException("قيمة العقد الفعلي صفر");
+            workCompletedPercent = Math.Round(gross / effectiveValue * 100m, 3);
+        }
+        else
+        {
+            // Legacy % path.
+            var newPercent = req.WorkCompletedPercent ?? existing.work_completed_percent;
+            if (newPercent < 0 || newPercent > 100)
+                throw new InvalidOperationException("نسبة الإنجاز يجب أن تكون بين 0 و 100");
+            var otherMaxPercent = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(MAX(work_completed_percent), 0) FROM progress_billings
+                WHERE project_id = @projectId AND id <> @id AND status != 'CANCELLED';",
+                new { projectId = existing.project_id, id }) ?? 0m;
+            if (newPercent < otherMaxPercent)
+                throw new InvalidOperationException(
+                    $"نسبة الإنجاز ({newPercent}%) أقل من الحد الأقصى للمستخلصات الأخرى ({otherMaxPercent}%)");
+            workCompletedPercent = newPercent;
+            gross = Math.Round(contract.ContractValue * (newPercent / 100m), 3);
+            lineItems = await BuildLegacySyntheticLineItemAsync(
+                existing.contract_id, existing.project_id, gross, newPercent);
+        }
+
+        var advanceTotal = Math.Round(effectiveValue * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
         var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
 
@@ -314,36 +644,155 @@ public class BillingService
 
         var net = Math.Round(gross - advanceDeducted - retentionDeducted, 3);
 
-        await conn.ExecuteAsync(@"
-            UPDATE progress_billings
-            SET billing_number = COALESCE(@billingNumber, billing_number),
-                billing_date = COALESCE(@billingDate, billing_date),
-                period_from = @periodFrom,
-                period_to = @periodTo,
-                work_completed_percent = @workCompletedPercent,
-                gross_amount = @gross,
-                advance_deducted = @advanceDeducted,
-                retention_deducted = @retentionDeducted,
-                net_amount = @net,
-                notes = @notes,
-                updated_at = NOW()
-            WHERE id = @id;",
-            new
+        // Update the billing + replace its billing_line_items in one
+        // transaction. The DELETE+INSERT is the simplest "replace
+        // items" strategy and works because the line items are a
+        // child table with no other dependents.
+        using (var tx = conn.BeginTransaction())
+        {
+            try
             {
-                id,
-                billingNumber = req.BillingNumber,
-                billingDate = req.BillingDate,
-                periodFrom = req.PeriodFrom,
-                periodTo = req.PeriodTo,
-                workCompletedPercent = newPercent,
-                gross,
-                advanceDeducted,
-                retentionDeducted,
-                net,
-                notes = req.Notes
-            });
+                await conn.ExecuteAsync(@"
+                    UPDATE progress_billings
+                    SET billing_number = COALESCE(@billingNumber, billing_number),
+                        billing_date = COALESCE(@billingDate, billing_date),
+                        period_from = @periodFrom,
+                        period_to = @periodTo,
+                        work_completed_percent = @workCompletedPercent,
+                        gross_amount = @gross,
+                        advance_deducted = @advanceDeducted,
+                        retention_deducted = @retentionDeducted,
+                        net_amount = @net,
+                        notes = @notes,
+                        updated_at = NOW()
+                    WHERE id = @id;",
+                    new
+                    {
+                        id,
+                        billingNumber = req.BillingNumber,
+                        billingDate = req.BillingDate,
+                        periodFrom = req.PeriodFrom,
+                        periodTo = req.PeriodTo,
+                        workCompletedPercent,
+                        gross,
+                        advanceDeducted,
+                        retentionDeducted,
+                        net,
+                        notes = req.Notes
+                    }, tx);
+
+                await conn.ExecuteAsync(
+                    "DELETE FROM billing_line_items WHERE billing_id = @id;",
+                    new { id }, tx);
+
+                foreach (var bli in lineItems)
+                {
+                    var lineItemId = bli.LineItemId;
+                    if (lineItemId == Guid.Empty)
+                    {
+                        lineItemId = await conn.ExecuteScalarAsync<Guid>(@"
+                            SELECT id FROM contract_line_items
+                            WHERE contract_id = @contractId AND line_number = 1
+                            LIMIT 1;",
+                            new { contractId = existing.contract_id }, tx);
+                        if (lineItemId == Guid.Empty)
+                            throw new InvalidOperationException(
+                                "تعذر تحديد بند المستخلص — لا يوجد بند BOQ للعقد");
+                    }
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO billing_line_items (
+                            id, company_id, billing_id, line_item_id,
+                            quantity_this_period, quantity_previous, quantity_cumulative,
+                            unit_price, amount
+                        )
+                        VALUES (
+                            @id, @companyId, @billingId, @lineItemId,
+                            @quantityThisPeriod, @quantityPrevious, @quantityCumulative,
+                            @unitPrice, @amount
+                        );",
+                        new
+                        {
+                            id = Guid.NewGuid(),
+                            companyId = existing.company_id,
+                            billingId = id,
+                            lineItemId,
+                            quantityThisPeriod = bli.QuantityThisPeriod,
+                            quantityPrevious = bli.QuantityPrevious,
+                            quantityCumulative = bli.QuantityCumulative,
+                            unitPrice = bli.UnitPrice,
+                            amount = bli.Amount
+                        }, tx);
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+        }
 
         return await GetByIdAsync(id);
+    }
+
+    /// <summary>
+    /// Same as <see cref="ComputeLineItemAmountsAsync"/> but
+    /// excludes the current billing's claims (so re-claiming the
+    /// same item doesn't double-count).
+    /// </summary>
+    private async Task<(List<BillingLineItemInsert> items, decimal gross)>
+        ComputeLineItemAmountsForUpdateAsync(
+            Guid contractId, Guid projectId, Guid excludeBillingId,
+            List<CreateBillingLineItemRequest> items)
+    {
+        using var conn = _db.CreateConnection();
+        var inserts = new List<BillingLineItemInsert>();
+        decimal gross = 0m;
+
+        foreach (var item in items)
+        {
+            var li = await conn.QuerySingleOrDefaultAsync<(Guid id, Guid contract_id, decimal quantity, decimal unit_price)?>(@"
+                SELECT id, contract_id, quantity, unit_price
+                FROM contract_line_items WHERE id = @id;",
+                new { id = item.LineItemId });
+            if (li is null)
+                throw new InvalidOperationException(
+                    $"بند المستخلص غير موجود: {item.LineItemId}");
+            if (li.Value.contract_id != contractId)
+                throw new InvalidOperationException(
+                    "البند لا ينتمي لنفس عقد المستخلص");
+
+            var previousQty = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(SUM(bli.quantity_this_period), 0)
+                FROM billing_line_items bli
+                JOIN progress_billings pb ON pb.id = bli.billing_id
+                WHERE bli.line_item_id = @lineItemId
+                  AND pb.status != 'CANCELLED'
+                  AND pb.id <> @excludeBillingId;",
+                new { lineItemId = item.LineItemId, excludeBillingId }) ?? 0m;
+
+            var thisPeriod = item.QuantityThisPeriod;
+            if (thisPeriod < 0)
+                throw new InvalidOperationException(
+                    $"الكمية المنفذة للبند يجب أن تكون أكبر من أو تساوي صفر");
+            var cumulative = Math.Round(previousQty + thisPeriod, 3);
+            if (cumulative > li.Value.quantity)
+                throw new InvalidOperationException(
+                    $"الكمية التراكمية ({cumulative}) تتجاوز الكمية الإجمالية ({li.Value.quantity})");
+
+            var amount = Math.Round(cumulative * li.Value.unit_price, 3);
+            gross = Math.Round(gross + amount, 3);
+
+            inserts.Add(new BillingLineItemInsert(
+                LineItemId: li.Value.id,
+                QuantityThisPeriod: thisPeriod,
+                QuantityPrevious: previousQty,
+                QuantityCumulative: cumulative,
+                UnitPrice: li.Value.unit_price,
+                Amount: amount));
+        }
+        return (inserts, gross);
     }
 
     // ============================================================
@@ -357,13 +806,6 @@ public class BillingService
     /// Updates the billing to status='INVOICED' with both back-
     /// links in the same transaction so the report is internally
     /// consistent.
-    ///
-    /// The post-commit PostingEngine.PostAsync step is a separate
-    /// transaction (PostingEngine owns its own connection). If it
-    /// fails, we log loudly and return the billing with a flag
-    /// for the caller — but the invoice + billing status are
-    /// already committed. This is the same risk envelope as the
-    /// rule pipeline's "rule fires but JE fails" case.
     /// </summary>
     public async Task<ProgressBillingDto> ApproveAsync(Guid id, ApproveBillingRequest req)
     {
@@ -410,10 +852,6 @@ public class BillingService
                 throw new InvalidOperationException("العميل المرتبط بالمشروع غير موجود");
 
             // 4) Find or auto-create the customer's AR sub-ledger.
-            //    1103 is a control account (non-postable), so the
-            //    journal line must hit the L4 sub-ledger linked to
-            //    this contact. EnsureSubLedgerAsync handles the
-            //    "create it if missing" path (Sprint 26).
             var subLedger = await _accounts.EnsureSubLedgerAsync(billing.company_id, project.Value.customer_id.Value);
 
             // 5) Find 4101 (Sales of Goods) — not a control account,
@@ -428,11 +866,7 @@ public class BillingService
                 throw new InvalidOperationException(
                     "حساب 4101 (إيراد بيع بضاعة) غير موجود أو غير قابل للترحيل. الرجاء إعداد دليل الحسابات.");
 
-            // 6) Insert the sales invoice as POSTED. We use raw SQL
-            //    here (matching the InvoicingSchema migration) so the
-            //    invoice and the billing status update share the same
-            //    transaction. The invoice gets status='posted' and
-            //    posted_at=NOW() — no separate PostAsync round-trip.
+            // 6) Insert the sales invoice as POSTED.
             var invoiceId = Guid.NewGuid();
             var invoiceDate = req.BillingDate;
             await conn.ExecuteAsync(@"
@@ -492,11 +926,6 @@ public class BillingService
                 }, tx);
 
             // 8) Create the journal entry in DRAFT (in the same tx).
-            //    We use CreateDraftInTxAsync so the entry and its
-            //    lines land atomically with the invoice and billing
-            //    update. The actual posting (status='posted',
-            //    balance updates) happens after commit via
-            //    PostingEngine.PostAsync.
             var narration = $"مستخلص {billing.billing_number} - {project.Value.name}" +
                 (req.Notes is not null ? $" ({req.Notes})" : "");
             var lines = new List<CreateJournalLineRequest>
@@ -526,14 +955,10 @@ public class BillingService
                 WHERE id = @id;",
                 new { id, invoiceId, journalEntryId }, tx);
 
-            // 10) Commit. The invoice, JE draft, and billing update
-            //     are all durable together.
             tx.Commit();
 
-            // 11) Post-commit: post the JE. This is a separate
+            // 10) Post-commit: post the JE. This is a separate
             //     transaction (PostingEngine owns its own conn).
-            //     If it fails, we log and let the user re-trigger
-            //     from the billing detail page.
             try
             {
                 await _posting.PostAsync(journalEntryId);
@@ -547,10 +972,6 @@ public class BillingService
                     "Billing {Id}: invoice {InvoiceId} created but JE {JeId} post FAILED. " +
                     "Billing marked INVOICED; user must re-post manually.",
                     id, invoiceId, journalEntryId);
-                // We do NOT throw — the user has an invoice and a
-                // billing status update. The JE is in DRAFT and
-                // can be re-posted from the journal list. Throwing
-                // here would mask the partial success.
             }
 
             return (await GetByIdAsync(id))!;
@@ -581,7 +1002,7 @@ public class BillingService
         if (existing is null || existing.Value.id == Guid.Empty)
             throw new InvalidOperationException("المستخلص غير موجود");
         if (existing.Value.status == "CANCELLED")
-            return (await GetByIdAsync(id))!; // idempotent — row exists
+            return (await GetByIdAsync(id))!;
         if (existing.Value.status == "INVOICED")
             throw new InvalidOperationException(
                 "لا يمكن إلغاء مستخلص مُرحّل. الرجاء عكس الفاتورة والقيد أولاً.");
@@ -591,26 +1012,13 @@ public class BillingService
             SET status = 'CANCELLED', updated_at = NOW()
             WHERE id = @id;",
             new { id });
-        return (await GetByIdAsync(id))!; // we just read it; the UPDATE didn't delete it
+        return (await GetByIdAsync(id))!;
     }
 
     // ============================================================
     // WIP report
     // ============================================================
 
-    /// <summary>
-    /// Computes the Work-in-Progress snapshot for a project.
-    ///
-    ///   total_costs  = sum of journal lines on accounts 5401-5407
-    ///                  where project_id = X AND status='posted'
-    ///   total_billed = sum of progress_billings.net_amount where
-    ///                  project_id = X AND status IN ('INVOICED','PAID')
-    ///   wip_amount   = total_costs - total_billed
-    ///   wip_status   = COSTS_EXCEED_BILLED | BILLED_EXCEED_COSTS | BALANCED
-    ///
-    /// We do NOT include CANCELLED billings in total_billed, nor
-    /// draft billings (they haven't been recognised as revenue).
-    /// </summary>
     public async Task<WipResponse?> GetWipAsync(Guid projectId)
     {
         using var conn = _db.CreateConnection();
@@ -619,10 +1027,6 @@ public class BillingService
             new { id = projectId });
         if (project is null) return null;
 
-        // Total costs: sum of journal_lines on accounts 5401-5407
-        // that are tagged with this project on a POSTED entry.
-        // We use GREATEST(debit, credit) so a line with a single
-        // positive side is counted once.
         var totalCosts = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(GREATEST(jl.debit, jl.credit)), 0)
             FROM journal_entries je
@@ -633,11 +1037,6 @@ public class BillingService
               AND a.code LIKE '54%';",
             new { projectId }) ?? 0m;
 
-        // Total billed: net amount of all INVOICED billings. We
-        // use a "INVOICED" status (we don't have PAID at the
-        // billing level — payments land on the invoice and the
-        // billing stays INVOICED). Future-proof: include any
-        // status past the draft stage.
         var totalBilled = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(net_amount), 0) FROM progress_billings
             WHERE project_id = @projectId
@@ -667,17 +1066,6 @@ public class BillingService
     // Client statement
     // ============================================================
 
-    /// <summary>
-    /// Returns the contractor's-eye view of a single project.
-    /// Aggregates from three sources:
-    ///   1. contracts (contract_value)
-    ///   2. progress_billings (sums of net, advance, retention)
-    ///   3. invoices joined to receipts (sums of paid amounts)
-    ///
-    /// Used by the "Client Statement" tab on the project detail
-    /// page. The UI uses these numbers to show a "what the customer
-    /// owes us" + "what we still owe the customer (retention)" view.
-    /// </summary>
     public async Task<ClientStatementResponse?> GetStatementAsync(Guid projectId)
     {
         using var conn = _db.CreateConnection();
@@ -688,8 +1076,6 @@ public class BillingService
 
         var contract = await _contracts.GetByProjectAsync(projectId);
 
-        // Sums across INVOICED billings only (CANCELLED and DRAFT
-        // don't count toward the recognised totals).
         var totalBilled = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(net_amount), 0) FROM progress_billings
             WHERE project_id = @projectId AND status = 'INVOICED';",
@@ -703,9 +1089,6 @@ public class BillingService
             WHERE project_id = @projectId AND status = 'INVOICED';",
             new { projectId }) ?? 0m;
 
-        // Total paid: sum of receipt_vouchers.amount applied to
-        // the invoices generated by this project's billings. We
-        // link via the invoice_id back-link on the billing.
         var totalPaid = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(rv.amount), 0)
             FROM receipt_vouchers rv
@@ -739,6 +1122,12 @@ public class BillingService
         r.status, r.invoice_id, r.journal_entry_id, r.notes,
         r.created_at, r.updated_at);
 
+    private static BillingLineItemDto MapBillingLineItem(BillingLineItemRow r) => new(
+        r.id, r.billing_id, r.line_item_id,
+        r.line_number, r.description, r.unit, r.custom_unit,
+        r.quantity_this_period, r.quantity_previous, r.quantity_cumulative,
+        r.unit_price, r.amount, r.notes);
+
     private record BillingRow(
         Guid id, Guid company_id, Guid project_id, Guid contract_id,
         string billing_number, DateTime billing_date,
@@ -747,4 +1136,10 @@ public class BillingService
         decimal advance_deducted, decimal retention_deducted, decimal net_amount,
         string status, Guid? invoice_id, Guid? journal_entry_id,
         string? notes, DateTime created_at, DateTime? updated_at);
+
+    private record BillingLineItemRow(
+        Guid id, Guid billing_id, Guid line_item_id,
+        int line_number, string description, string unit, string? custom_unit,
+        decimal quantity_this_period, decimal quantity_previous, decimal quantity_cumulative,
+        decimal unit_price, decimal amount, string? notes);
 }

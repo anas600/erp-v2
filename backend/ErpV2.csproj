@@ -19,6 +19,10 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.6" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.6.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <!-- Sprint 38: Excel parsing for BOQ import. ClosedXML is a
+         well-maintained pure-managed library (no Office interop,
+         no licensing issues) and reads .xlsx streams. -->
+    <PackageReference Include="ClosedXML" Version="0.102.3" />
   </ItemGroup>
 
 </Project>

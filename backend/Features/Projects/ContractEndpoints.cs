@@ -204,5 +204,52 @@ public static class BillingEndpoints
             var stmt = await svc.GetStatementAsync(id);
             return stmt is null ? Results.NotFound() : Results.Ok(stmt);
         });
+
+        // GET /api/billings/{id}/line-items — Sprint 38 BOQ view.
+        // Returns the line items claimed on this billing (the
+        // billing_line_items table).
+        grp.MapGet("/billings/{id:guid}/line-items", async (
+            Guid id, [FromServices] BillingService svc) =>
+        {
+            var list = await svc.GetBillingLineItemsAsync(id);
+            return Results.Ok(list);
+        });
+
+        // POST /api/billings/{id}/preview-line-items — Sprint 38 live preview.
+        // Body: { items: [{lineItemId, quantityThisPeriod}, ...] }
+        // Returns the preview rows so the UI can show "what the
+        // amounts WOULD be" before the user commits the billing.
+        grp.MapPost("/billings/{id:guid}/preview-line-items", async (
+            Guid id,
+            [FromBody] PreviewBillingLineItemsRequest? body,
+            [FromServices] BillingService svc,
+            [FromServices] ContractService contracts) =>
+        {
+            try
+            {
+                var billing = await svc.GetByIdAsync(id);
+                if (billing is null)
+                    return Results.NotFound();
+                // We need the contractId to validate items; the
+                // preview doesn't write, so this is read-only.
+                var items = body?.Items ?? new List<CreateBillingLineItemRequest>();
+                var previews = await svc.PreviewBillingLineItemsAsync(
+                    billing.ContractId, items);
+                return Results.Ok(previews);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
     }
 }
+
+/// <summary>
+/// Body for POST /api/billings/{id}/preview-line-items. Just the
+/// list of (lineItemId, quantityThisPeriod) pairs the UI is
+/// considering — no commit, no side effects.
+/// </summary>
+public record PreviewBillingLineItemsRequest(
+    List<CreateBillingLineItemRequest> Items
+);
