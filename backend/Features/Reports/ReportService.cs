@@ -159,27 +159,40 @@ public class ReportService
 
         _log.LogInformation("IS: company={CompanyId} from={From} to={To}", companyId, fromDate, toDate);
 
-        // Sum movements (debit - credit) for each account over the period.
-        // We deliberately EXCLUDE year-end closing entries
-        // (Source = 'year-end-closing') because those would net out the
-        // P&L accounts to zero after the books are closed — a posted
-        // closing entry is the accounting system saying "the period
-        // is over, the P&L rolls to retained earnings". The income
-        // statement still needs to show what happened during the
-        // period, so we filter the closing transfer out.
+        // Sprint 40 — RESTRUCTURE to inner join (not left join) so the
+        // date filter on journal_entries actually excludes out-of-range
+        // postings. The previous LEFT JOIN placed the date filter in
+        // the ON clause, which kept accounts-with-no-matching-JE
+        // visible but did NOT filter the matched rows by date when
+        // those rows already satisfied the LEFT JOIN's id match.
+        //
+        // Wait — that's not how SQL works. The ON filter SHOULD
+        // exclude out-of-range JEs. But the symptom is that 2020-01-01
+        // to 2020-12-31 still shows the full year. So something is
+        // bypassing the filter.
+        //
+        // Hypothesis: PostgreSQL's BETWEEN on TIMESTAMP requires the
+        // comparison type to match. Dapper passes DateTime, Npgsql
+        // sends it as 'timestamp' which compares correctly. BUT the
+        // entry_date column is timestamp without time zone, and
+        // the parameter is being sent as DateTime (Kind=Utc). The
+        // mismatch might silently coerce the parameter to NULL.
+        //
+        // Fix: send the parameter as Date only (cast to date), which
+        // matches the column semantics and avoids any tz shenanigans.
         var movements = await conn.QueryAsync<IncomeMovementRow>(@"
             SELECT a.code, a.name, a.account_type,
                    COALESCE(SUM(jl.debit - jl.credit), 0) AS net
             FROM accounts a
-            LEFT JOIN journal_lines jl ON jl.account_id = a.id
-            LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+            INNER JOIN journal_lines jl ON jl.account_id = a.id
+            INNER JOIN journal_entries je ON je.id = jl.journal_entry_id
                 AND je.status = 'posted'
-                AND je.entry_date BETWEEN @fromDate AND @toDate
+                AND je.entry_date::date BETWEEN @fromDate AND @toDate
                 AND (je.source IS NULL OR je.source <> 'year-end-closing')
             WHERE a.company_id = @companyId AND a.account_type IN ('Revenue', 'Expense')
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code;",
-            new { companyId, fromDate, toDate });
+            new { companyId, fromDate = fromDate.Date, toDate = toDate.Date });
 
         foreach (var m in movements)
             _log.LogInformation("IS movement: {Code} {Type} {Net}", m.code, m.account_type, m.net);
