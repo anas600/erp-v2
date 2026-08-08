@@ -229,7 +229,6 @@ public partial class FullYearSeeder
                 billing_line_items,
                 progress_billings,
                 contracts,
-                project_allocations,
                 project_milestones,
                 projects,
                 journal_lines,
