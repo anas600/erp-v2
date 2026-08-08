@@ -16,6 +16,7 @@ public partial class FullYearSeedResult
     public int BillingsCreated { get; set; }
     public int VariationsCreated { get; set; }
     public int LineItemsCreated { get; set; }
+    public int CostCentersCreated { get; set; }
     public bool YearEndClosingCreated { get; set; }
     public int EntriesApproved { get; set; }
     public int EntriesPosted { get; set; }

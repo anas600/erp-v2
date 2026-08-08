@@ -2,6 +2,7 @@ using Dapper;
 using ErpV2.Common;
 using ErpV2.Features.Accounts;
 using ErpV2.Features.Contacts;
+using ErpV2.Features.CostCenters;
 using ErpV2.Features.FiscalYears;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Journal;
@@ -107,6 +108,7 @@ public partial class FullYearSeeder
     private readonly JournalService _journal;
     private readonly ProductService _productsSvc;
     private readonly ProjectService _projects;
+    private readonly CostCenterService _costCenters;
     private readonly BillingService _billings;
     private readonly ContractService _contracts;
     private readonly LineItemService _lineItems;
@@ -129,6 +131,7 @@ public partial class FullYearSeeder
         LineItemService lineItems,
         VariationService variations,
         FiscalYearService fiscalYears,
+        CostCenterService costCenters,
         ILogger<FullYearSeeder> logger)
     {
         _db = db;
@@ -145,6 +148,7 @@ public partial class FullYearSeeder
         _lineItems = lineItems;
         _variations = variations;
         _fiscalYears = fiscalYears;
+        _costCenters = costCenters;
         _logger = logger;
     }
 
@@ -187,6 +191,10 @@ public partial class FullYearSeeder
             // Phase 3: Opening balance journal entry (cash, bank, AR, AP)
             try { await SeedOpeningBalancesAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 3 (opening) done"); }
             catch (Exception ex) { _result.Errors.Add($"Phase 3 (opening): {ex.Message}"); return _result; }
+
+            // Phase 3b: Cost centers (departments + activities)
+            try { await SeedCostCentersAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 3b (cost centers) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 3b (cost centers): {ex.Message}"); }
 
             // Phase 4: Monthly recurring + transactions
             try
@@ -498,5 +506,57 @@ public partial class FullYearSeeder
             _result.JournalEntriesCreated++;
         }
         catch (Exception ex) { _result.Errors.Add($"Opening: {ex.Message}"); }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 3b: Cost centers (departments, activities)
+    // ----------------------------------------------------------------
+    // Realistic cost center tree for a Libyan company with mixed
+    // operations (construction + services + admin).
+    // Type: 'project' (linked to project) | 'department' | 'activity'
+    // ----------------------------------------------------------------
+    private async Task SeedCostCentersAsync(Guid companyId)
+    {
+        var defs = new (string Code, string Name, string NameAr, string Type, Guid? ProjectId, Guid? ParentId)[]
+        {
+            // Departments
+            ("DPT-ADMIN",   "Administration",       "الإدارة العامة",          "department", null, null),
+            ("DPT-FIN",     "Finance & Accounting", "المالية والمحاسبة",        "department", null, null),
+            ("DPT-SALES",   "Sales & Marketing",    "المبيعات والتسويق",        "department", null, null),
+            ("DPT-OPS",     "Operations",            "العمليات",                  "department", null, null),
+            ("DPT-HR",      "Human Resources",       "الموارد البشرية",          "department", null, null),
+            ("DPT-IT",      "IT",                    "تقنية المعلومات",          "department", null, null),
+            // Sub-departments
+            ("DPT-OPS-CONST", "Construction Operations", "عمليات المقاولات",       "department", null, null), // parent: DPT-OPS
+            ("DPT-OPS-SUP",   "Supply Operations",       "عمليات التوريد",         "department", null, null),
+            ("DPT-OPS-SVC",   "Service Operations",      "عمليات الخدمات",         "department", null, null),
+            // Activities (operational)
+            ("ACT-TRAVEL",   "Travel",                "السفر",                    "activity", null, null),
+            ("ACT-TRAINING", "Training & Development","التدريب والتطوير",          "activity", null, null),
+            ("ACT-AUDIT",    "External Audit",        "التدقيق الخارجي",          "activity", null, null),
+            ("ACT-MARKET",   "Marketing Campaigns",   "الحملات التسويقية",         "activity", null, null),
+            ("ACT-OFFICE",   "Office Supplies",       "اللوازم المكتبية",          "activity", null, null),
+            ("ACT-MAINT",    "Maintenance & Repairs", "الصيانة والإصلاحات",         "activity", null, null),
+            ("ACT-PROF",     "Professional Services", "الخدمات المهنية",            "activity", null, null),
+        };
+
+        var parentMap = new Dictionary<string, Guid>();
+        foreach (var (code, name, nameAr, type, projectId, parentId) in defs)
+        {
+            try
+            {
+                // Resolve parent ID if code references it
+                Guid? resolvedParent = parentId;
+                if (resolvedParent == null && code == "DPT-OPS-CONST") resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+                if (resolvedParent == null && code == "DPT-OPS-SUP")   resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+                if (resolvedParent == null && code == "DPT-OPS-SVC")   resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+
+                var cc = await _costCenters.CreateAsync(new CreateCostCenterRequest(
+                    companyId, code, name, nameAr, type, projectId, resolvedParent));
+                parentMap[code] = cc.Id;
+                _result.CostCentersCreated++;
+            }
+            catch (Exception ex) { _result.Errors.Add($"CostCenter {code}: {ex.Message}"); }
+        }
     }
 }
