@@ -484,17 +484,30 @@ public partial class FullYearSeeder
 
     private async Task SeedOpeningBalancesAsync(Guid companyId)
     {
-        // Starting capital (Sep 1, 2025):
-        //   Cash 1101-CASH-001:    50,000 LYD
-        //   Bank 1102-BANK-001:   150,000 LYD
-        //   Capital 3101:         200,000 LYD (owner's equity)
+        // Starting capital (Sep 1, 2025) — sized to cover a full
+        // year of recurring expenses plus a buffer for working
+        // capital. The previous version used Cash=50K + Bank=150K,
+        // which is way too small for a holding company running
+        // 35K/month in salaries alone — the cash account would go
+        // deeply negative by year-end.
+        //
+        //   Cash 1101-CASH-001:  600,000 LYD (covers recurring
+        //                         expenses + small payments)
+        //   Bank 1102-BANK-001:  400,000 LYD (covers larger payments
+        //                         and project billings)
+        //   Prepaid 1106:          9,600 LYD (insurance prepaid for
+        //                         the year, amortizes to 0 by Aug)
+        //   Capital 3101:      1,009,600 LYD (owner's equity, the
+        //                         sum of the above three debits)
         var lines = new List<CreateJournalLineRequest>();
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash))
-            lines.Add(new CreateJournalLineRequest(cash, 50_000m, 0, "رصيد افتتاحي - صندوق", null));
+            lines.Add(new CreateJournalLineRequest(cash, 600_000m, 0, "رصيد افتتاحي - صندوق", null));
         if (_accountIds.TryGetValue("1102-BANK-001", out var bank))
-            lines.Add(new CreateJournalLineRequest(bank, 150_000m, 0, "رصيد افتتاحي - بنك", null));
+            lines.Add(new CreateJournalLineRequest(bank, 400_000m, 0, "رصيد افتتاحي - بنك", null));
+        if (_accountIds.TryGetValue("1106", out var prepaid))
+            lines.Add(new CreateJournalLineRequest(prepaid, 9_600m, 0, "تأمين مسبق - رصيد افتتاحي", null));
         if (_accountIds.TryGetValue("3101", out var capital))
-            lines.Add(new CreateJournalLineRequest(capital, 0, 200_000m, "رأس المال الافتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(capital, 0, 1_009_600m, "رأس المال الافتتاحي", null));
 
         if (lines.Count == 0) return;
 
