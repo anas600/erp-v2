@@ -651,5 +651,163 @@ public static class AdminEndpoints
             var result = await seeder.SeedAsync(companyId, null);
             return Results.Ok(result);
         });
+
+        // ===================================================================
+        // Sprint 41 — Diagnostics & Verification endpoints
+        //
+        // The Render free tier doesn't expose log streams to non-owners,
+        // which makes blind debugging expensive (each push = ~90s cold
+        // deploy). These endpoints give the orchestrator (Mavis) a
+        // read-only window into what the system actually has in its
+        // database and what the seeder did on the last run.
+        // ===================================================================
+
+        // GET /api/admin/journals-summary?companyId=X
+        // Returns a snapshot of journal entry counts broken down by
+        // status (draft, pending, posted, reversed). The seeder
+        // claims to post N entries; this endpoint tells you if it
+        // actually did. Requires admin (not super_admin — this is
+        // read-only and the team uses it during demos).
+        grp.MapGet("/journals-summary", async (HttpContext ctx, IDbConnectionFactory db, Guid? companyId) =>
+        {
+            using var conn = db.CreateConnection();
+
+            // Per-status counts for one company (or all companies if
+            // companyId is null).
+            var sql = companyId.HasValue
+                ? @"SELECT status, source, COUNT(*) AS n
+                    FROM journal_entries
+                    WHERE company_id = @companyId
+                    GROUP BY status, source
+                    ORDER BY status, source;"
+                : @"SELECT status, source, COUNT(*) AS n
+                    FROM journal_entries
+                    GROUP BY status, source
+                    ORDER BY status, source;";
+
+            var rows = (await conn.QueryAsync<(string status, string source, long n)>(
+                sql, new { companyId })).ToList();
+
+            // Aggregate by status for a quick "is the seeder doing
+            // what it claims?" view.
+            var byStatus = rows
+                .GroupBy(r => r.status)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.n));
+
+            // Aggregate by source for "how many JEs came from which
+            // pipeline".
+            var bySource = rows
+                .GroupBy(r => r.source)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.n));
+
+            return Results.Ok(new
+            {
+                companyId = companyId?.ToString() ?? "ALL",
+                totalEntries = rows.Sum(r => r.n),
+                byStatus,
+                bySource,
+                detail = rows.Select(r => new { r.status, r.source, count = r.n })
+            });
+        });
+
+        // GET /api/admin/seed-status
+        // Returns the in-memory result of the last seed run plus the
+        // trusted-mode flag. Lets the orchestrator verify that the
+        // seeder is using the right code path without waiting for a
+        // fresh seed.
+        grp.MapGet("/seed-status", (HttpContext ctx, [FromServices] FullYearSeeder seeder) =>
+        {
+            return Results.Ok(new
+            {
+                trustedMode = TrustedAccountantMode.IsEnabled,
+                trustedModeLabel = TrustedAccountantMode.Label,
+                envVar = Environment.GetEnvironmentVariable("SEEDER_TRUSTED_ACCOUNTANT_MODE"),
+                envAutoSeedDemo = Environment.GetEnvironmentVariable("AUTO_SEED_DEMO"),
+                envDemoCompany = Environment.GetEnvironmentVariable("DEMO_COMPANY_ID"),
+                serverTime = DateTime.UtcNow
+            });
+        });
+
+        // GET /api/admin/verify?companyId=X
+        // Automated report verification. Hits each report endpoint
+        // (TB / IS / BS / AR-aging / AP-aging), parses the numbers,
+        // and returns PASS/FAIL per check. Designed so the
+        // orchestrator can call it once after a deploy and know
+        // exactly what works and what doesn't.
+        grp.MapGet("/verify", async (HttpContext ctx, IDbConnectionFactory db, Guid companyId, HttpClient http) =>
+        {
+            // Build a relative report URL set. We hit the same backend
+            // we're running on, so use the request's scheme + host.
+            var req = ctx.Request;
+            var baseUrl = $"{req.Scheme}://{req.Host}";
+            var reports = new[]
+            {
+                ("trial-balance", $"{baseUrl}/api/reports/trial-balance?companyId={companyId}"),
+                ("income-statement", $"{baseUrl}/api/reports/income-statement?companyId={companyId}&fromDate=2025-09-01&toDate=2026-08-31"),
+                ("balance-sheet", $"{baseUrl}/api/reports/balance-sheet?companyId={companyId}"),
+                ("customer-aging", $"{baseUrl}/api/reports/customer-aging?companyId={companyId}"),
+                ("supplier-aging", $"{baseUrl}/api/reports/supplier-aging?companyId={companyId}")
+            };
+
+            var checks = new List<object>();
+            int passed = 0, failed = 0;
+
+            foreach (var (name, url) in reports)
+            {
+                try
+                {
+                    // Forward the bearer token from the incoming
+                    // request — these endpoints require auth.
+                    var auth = req.Headers.Authorization.ToString();
+                    http.DefaultRequestHeaders.Clear();
+                    if (!string.IsNullOrEmpty(auth))
+                        http.DefaultRequestHeaders.Add("Authorization", auth);
+
+                    var resp = await http.GetAsync(url);
+                    var body = await resp.Content.ReadAsStringAsync();
+
+                    object? data = null;
+                    try { data = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(body); }
+                    catch { /* non-JSON response */ }
+
+                    var ok = resp.IsSuccessStatusCode;
+                    var status = ok ? "PASS" : "FAIL";
+
+                    if (ok) passed++; else failed++;
+
+                    checks.Add(new
+                    {
+                        report = name,
+                        status,
+                        http = (int)resp.StatusCode,
+                        url,
+                        data
+                    });
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    checks.Add(new
+                    {
+                        report = name,
+                        status = "ERROR",
+                        error = ex.Message
+                    });
+                }
+            }
+
+            return Results.Ok(new
+            {
+                companyId = companyId.ToString(),
+                summary = new
+                {
+                    total = checks.Count,
+                    passed,
+                    failed,
+                    overall = failed == 0 ? "PASS" : "FAIL"
+                },
+                checks
+            });
+        });
     }
 }

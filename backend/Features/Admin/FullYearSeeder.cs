@@ -20,6 +20,7 @@ namespace ErpV2.Features.Admin;
 public partial class FullYearSeedResult
 {
     public Guid CompanyId { get; set; }
+    public string Mode { get; set; } = "HUMAN-ONLY (each JE requires the accountant to approve and post)";
     public int CustomersCreated { get; set; }
     public int SuppliersCreated { get; set; }
     public int ProductsCreated { get; set; }
@@ -28,6 +29,8 @@ public partial class FullYearSeedResult
     public int ReceiptsCreated { get; set; }
     public int PaymentsCreated { get; set; }
     public bool FiscalYearCreated { get; set; }
+    public int EntriesApproved { get; set; }
+    public int EntriesPosted { get; set; }
     public List<string> Errors { get; set; } = new();
     public double ElapsedSeconds { get; set; }
 
@@ -170,11 +173,26 @@ public partial class FullYearSeeder
     // Public entry point
     // ----------------------------------------------------------------
 
-    public async Task<FullYearSeedResult> SeedAsync(Guid companyId, Guid? userId = null)
+    public async Task<FullYearSeedResult> SeedAsync(
+        Guid companyId,
+        Guid? userId = null,
+        bool? trustedMode = null)
     {
-        _result = new FullYearSeedResult { CompanyId = companyId };
+        // Sprint 41 — accept an explicit trusted-mode flag from the
+        // caller (the admin endpoint + the auto-seed task on
+        // startup). The flag travels with the call graph so the
+        // helpers all see the same value regardless of static
+        // state.
+        var trusted = trustedMode ?? TrustedAccountantMode.IsEnabled;
+        _result = new FullYearSeedResult
+        {
+            CompanyId = companyId,
+            Mode = trusted
+                ? "TRUSTED-ACCOUNTANT (Mavis-as-accountant — auto-approve + post for demo data only)"
+                : "HUMAN-ONLY (each JE requires the accountant to approve and post)"
+        };
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("FullYearSeeder: starting for company {CompanyId}", companyId);
+        _logger.LogInformation("FullYearSeeder: starting for company {CompanyId} — mode: {Mode}", companyId, _result.Mode);
 
         try
         {
@@ -232,6 +250,39 @@ public partial class FullYearSeeder
         {
             _result.Errors.Add($"Fatal: {ex.Message} | Inner: {ex.InnerException?.Message}");
             _logger.LogError(ex, "FullYearSeeder failed");
+        }
+
+        // Sprint 41 — reconcile the approved/posted counters against
+        // the actual database state. Earlier iterations of the
+        // seeder relied on in-memory `_result.EntriesApproved++` in
+        // the helper methods, but the counters came back as 0 from
+        // Render even though JEs were clearly created. We don't
+        // know exactly why (singleton scope? serialization? an
+        // exception swallowed by the helper?), so instead of
+        // guessing we just query the DB at the end. This is the
+        // single source of truth.
+        try
+        {
+            using var conn = _db.CreateConnection();
+            var posted = await conn.ExecuteScalarAsync<long>(@"
+                SELECT COUNT(*) FROM journal_entries
+                WHERE company_id = @companyId AND status = 'posted';",
+                new { companyId });
+            var approved = await conn.ExecuteScalarAsync<long>(@"
+                SELECT COUNT(*) FROM journal_entries
+                WHERE company_id = @companyId
+                  AND status IN ('draft', 'posted')
+                  AND source IN ('manual', 'rule:%', 'invoice:%', 'opening-balance', 'reverse', 'year-end-closing');",
+                new { companyId });
+            _result.EntriesPosted = (int)posted;
+            _result.EntriesApproved = (int)approved;
+            _logger.LogInformation(
+                "FullYearSeeder: reconciled counters from DB — posted={Posted}, approved={Approved}",
+                posted, approved);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FullYearSeeder: failed to reconcile counters from DB");
         }
 
         return _result;

@@ -370,4 +370,70 @@ using (var scope = app.Services.CreateScope())
     migrator.MigrateUp();
 }
 
+// ============================================================
+// Sprint 41 — Auto-seed demo company on startup (test/preview only)
+//
+// Gated by env var `AUTO_SEED_DEMO=true`. When set, the backend
+// spawns a background task ~5s after startup that:
+//   1. Checks if the demo company has any invoices
+//   2. If empty → runs the FullYearSeeder in trusted-accountant mode
+//   3. Logs the result; doesn't block the HTTP listener
+//
+// Why: Render free tier's "deploy" is the fastest way to reset the
+// demo data. Without this, every redeploy leaves the previous
+// broken/partial state in place. With it, the moment the backend
+// is reachable, the system is in a known-good demo state.
+// ============================================================
+var autoSeedFlag = Environment.GetEnvironmentVariable("AUTO_SEED_DEMO");
+var demoCompanyId = Environment.GetEnvironmentVariable("DEMO_COMPANY_ID");
+if (string.Equals(autoSeedFlag, "true", StringComparison.OrdinalIgnoreCase)
+    && !string.IsNullOrEmpty(demoCompanyId)
+    && Guid.TryParse(demoCompanyId, out var demoCompanyGuid))
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation(
+        "AUTO_SEED_DEMO=true: scheduling demo seed for company {CompanyId} in 5s",
+        demoCompanyGuid);
+
+    // Fire-and-forget so we don't block app.Run().
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+            var seeder = scope.ServiceProvider.GetRequiredService<FullYearSeeder>();
+
+            // Check if the demo company already has data. If yes,
+            // skip — we don't want to wipe a manually-edited state.
+            using (var conn = db.CreateConnection())
+            {
+                var invoiceCount = await Dapper.SqlMapper.ExecuteScalarAsync<long>(
+                    conn, "SELECT COUNT(*) FROM invoices WHERE company_id = @id;",
+                    new { id = demoCompanyGuid });
+                if (invoiceCount > 0)
+                {
+                    logger.LogInformation(
+                        "AUTO_SEED: demo company already has {Count} invoices, skipping seed",
+                        invoiceCount);
+                    return;
+                }
+            }
+
+            logger.LogInformation("AUTO_SEED: starting FullYearSeeder for {CompanyId}", demoCompanyGuid);
+            var result = await seeder.SeedAsync(demoCompanyGuid, null, trustedMode: true);
+            logger.LogInformation(
+                "AUTO_SEED: completed — invoices={Inv}, receipts={Rec}, payments={Pay}, JEs={JE}, posted={Posted}, errors={Err}",
+                result.InvoicesCreated, result.ReceiptsCreated, result.PaymentsCreated,
+                result.JournalEntriesCreated, result.EntriesPosted, result.Errors.Count);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "AUTO_SEED: background seed failed");
+        }
+    });
+}
+
 app.Run();

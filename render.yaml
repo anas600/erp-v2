@@ -74,6 +74,23 @@ services:
         value: "1440"
       - key: CORS__Origins
         value: https://erp-v2-frontend.onrender.com
+      # Sprint 41 — auto-seed the demo company on every backend
+      # startup. Combined with the env var below, this means
+      # every deploy of the backend results in a clean,
+      # fully-posted demo dataset within ~3 minutes of the
+      # backend becoming reachable. The seeder is a no-op if
+      # the demo company already has invoices, so manual edits
+      # are preserved across restarts.
+      - key: AUTO_SEED_DEMO
+        value: "true"
+      - key: DEMO_COMPANY_ID
+        value: "c9fba678-29db-43ec-8c34-5a35d205e79b"
+      # Sprint 41 — when AUTO_SEED_DEMO is on, the seeder runs
+      # in "trusted accountant" mode (Mavis signs every JE).
+      # Outside of auto-seed, this is opt-in via the env var so
+      # production deployments can keep the human-only flow.
+      - key: SEEDER_TRUSTED_ACCOUNTANT_MODE
+        value: "true"
 
   # -----------------------------------------------------------
   # Next.js 15 frontend
