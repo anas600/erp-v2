@@ -570,7 +570,9 @@ public class ReportService
         // actually in production:
         //   - 'rule:<UUID>' — rule engine (default path)
         //   - 'invoice:sales' / 'invoice:purchase' — FullYearSeeder direct post
-        //   - 'project:billing' — project billing voucher (also creates AR)
+        //   - 'project:billing' — seeder's billing source (used by seeder)
+        //   - 'billing' — BillingService source (used when user creates
+        //     a billing voucher via the UI) — Sprint 44 fix
         //   - 'manual' — admin manual entry with invoice number in narration
         //   - 'invoice:<UUID>' — future voucher-created invoice journals
         //
@@ -580,6 +582,12 @@ public class ReportService
         // was empty even though CUST-001 had 7 outstanding invoices
         // visible on the contact detail page. The accountant flagged
         // this on 2026-08-12.
+        //
+        // Sprint 44 fix (hotfix 2): added 'billing' (exact match) for
+        // the BillingService path. The user noticed the aging total
+        // for CUST-005 stayed at 142K after paying a 25K billing
+        // because the billings were never in the aging report in
+        // the first place. Now billings are included.
         //
         // We use narration parsing because the actual JE source values
         // vary by event type — the narration always contains the
@@ -604,6 +612,7 @@ public class ReportService
                   je.source LIKE 'rule:%'
                OR je.source LIKE 'invoice:%'
                OR je.source LIKE 'project:%'
+               OR je.source = 'billing'
                OR je.source = 'manual'
              )
              AND je.narration LIKE '%' || i.invoice_number || '%'
@@ -678,6 +687,8 @@ public class ReportService
         //
         // Sprint 43 — broaden source pattern to cover all seeder sources
         // (see customer aging comment for the full list).
+        // Sprint 44 hotfix 2 — also include 'billing' source (the
+        // exact string used by BillingService for UI-created billings).
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -698,6 +709,7 @@ public class ReportService
                   je.source LIKE 'rule:%'
                OR je.source LIKE 'invoice:%'
                OR je.source LIKE 'project:%'
+               OR je.source = 'billing'
                OR je.source = 'manual'
              )
              AND je.narration LIKE '%' || i.invoice_number || '%'
