@@ -840,12 +840,18 @@ public static class AdminEndpoints
             // ---------- Check 4: Balance sheet A = L + E ----------
             try
             {
-                // Sum by account_type. Asset = Debit nature. Liability/Equity = Credit nature.
+                // For the BS, we use the account_type to decide the
+                // sign (not the nature). This is the key insight:
+                //   Asset accounts contribute positively when they
+                //   have a debit balance (debit - credit). Contra-
+                //   assets (e.g. 1202 Accum Dep) are account_type
+                //   'Asset' but with a credit balance — they're
+                //   shown with their natural sign and we NEGATE.
+                //   The simplest rule: balance for each account is
+                //   (debit - credit) for Asset, (credit - debit)
+                //   for Liability/Equity, and we sum directly.
                 var assets = await conn.ExecuteScalarAsync<decimal?>(@"
-                    SELECT COALESCE(SUM(
-                        CASE WHEN a.nature = 'Debit' THEN jl.debit - jl.credit
-                             ELSE jl.credit - jl.debit END
-                    ), 0)
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
                     FROM journal_lines jl
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
@@ -853,10 +859,7 @@ public static class AdminEndpoints
                       AND a.account_type = 'Asset';",
                     new { id = companyId }) ?? 0m;
                 var liabEq = await conn.ExecuteScalarAsync<decimal?>(@"
-                    SELECT COALESCE(SUM(
-                        CASE WHEN a.nature = 'Credit' THEN jl.credit - jl.debit
-                             ELSE jl.debit - jl.credit END
-                    ), 0)
+                    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
                     FROM journal_lines jl
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
