@@ -967,7 +967,7 @@ public static class AdminEndpoints
         // This is the "natural" balance the PostingEngine itself
         // uses, so the result matches what individual PostAsync
         // calls would have produced.
-        grp.MapPost("/rebuild-balances", async (HttpContext ctx, IDbConnectionFactory db, [FromQuery] Guid companyId) =>
+        grp.MapPost("/rebuild-balances", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger, [FromQuery] Guid companyId) =>
         {
             if (!ctx.IsSuperAdmin())
             {
