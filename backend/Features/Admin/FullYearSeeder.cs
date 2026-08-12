@@ -461,7 +461,15 @@ public partial class FullYearSeeder
     private async Task EnsureCashBankL4Async(Guid companyId)
     {
         using var conn = _db.CreateConnection();
-        foreach (var (parentCode, code) in new[] { ("1101", "1101-CASH-001"), ("1102", "1102-BANK-001") })
+        // Sprint 42 — added a 2nd cash point (Benghazi branch) and a
+        // 2nd bank account (project-loan bank) so the demo can show
+        // intra-company transfers and per-cash-point reporting.
+        foreach (var (parentCode, code, nameAr) in new[] {
+            ("1101", "1101-CASH-001", "الصندوق الرئيسي - طرابلس"),
+            ("1101", "1101-CASH-002", "صندوق فرع بنغازي"),
+            ("1102", "1102-BANK-001", "البنك التجاري - حساب تشغيلي"),
+            ("1102", "1102-BANK-002", "مصرف الجمهورية - حساب قرض المشاريع")
+        })
         {
             var existing = await conn.ExecuteScalarAsync<Guid?>(@"
                 SELECT id FROM accounts
@@ -495,8 +503,8 @@ public partial class FullYearSeeder
                     id = newId,
                     cid = companyId,
                     code,
-                    name = parent.Value.name + " - Main",
-                    nameAr = (parent.Value.name_ar ?? parent.Value.name) + " - الرئيسي",
+                    name = parent.Value.name + " - " + code,
+                    nameAr = nameAr,
                     parentId = parent.Value.id
                 });
             _accountIds[code] = newId;
