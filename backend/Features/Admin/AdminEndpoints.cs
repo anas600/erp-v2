@@ -1196,6 +1196,8 @@ public static class AdminEndpoints
                 ORDER BY a.code;",
                 new { id = companyId });
             return Results.Ok(rows.Select(r => new { r.code, computedBalance = r.net, storedBalance = r.balance, drift = r.net - r.balance }));
+        });
+
         // POST /api/admin/reset-posting-rules
         // Sprint 42 — the user wants clean, well-documented
         // posting rules that are:
@@ -1381,7 +1383,7 @@ public static class AdminEndpoints
                     created.Add(new
                     {
                         name = tmpl.name,
-                        event = tmpl.eventName
+                        eventName = tmpl.eventName
                     });
                 }
 
