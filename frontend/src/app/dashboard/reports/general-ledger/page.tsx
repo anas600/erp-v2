@@ -20,6 +20,18 @@
  *   - For credit-nature accounts (liabilities, equity, revenue):
  *     positive means credit balance
  *
+ * Sprint 44 — L3 control account handling. When the user picks
+ * an L3 control account (e.g. 1103 Accounts Receivable), the GL
+ * is empty because L3 is not postable — all postings go to L4
+ * sub-ledgers. Instead of showing "no movements" (which is
+ * technically correct but useless), we now detect the L3
+ * control case and render a "Sub-ledger Schedule" — the
+ * reconciliation view that shows every L4 sub-ledger under
+ * the L3 control with its current balance. The L3 control's
+ * NET balance equals the sum of its sub-ledgers by construction
+ * (Sprint 41 rebuild-balances writes the NET to the L3 control),
+ * so the reconciliation is automatic.
+ *
  * To get here from elsewhere in the app, you can pass
  *   ?accountId=<uuid>&from=YYYY-MM-DD&to=YYYY-MM-DD
  * in the URL. The trial balance will link here with the
@@ -30,7 +42,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { BookOpen, Loader2, Printer } from "lucide-react";
+import { BookOpen, Loader2, Printer, Layers, Users } from "lucide-react";
 import { formatDate, formatNumber } from "@/lib/utils";
 
 interface Account {
@@ -74,6 +86,36 @@ interface LedgerReport {
   entries: LedgerEntry[];
 }
 
+/**
+ * Sprint 44 — Sub-ledger Schedule (كشف الحسابات التحليلية).
+ * Returned by GET /api/reports/sub-ledger-schedule for an L3
+ * control account. Each line is one L4 sub-ledger with its
+ * current balance. The parent (L3) balance is the NET.
+ */
+interface SubLedgerScheduleLine {
+  accountId: string;
+  accountCode: string;       // e.g. "1103-CUST-001"
+  accountName: string;
+  contactId: string | null;
+  contactCode: string | null;
+  contactName: string | null;
+  balance: number;            // signed per account nature
+}
+
+interface SubLedgerScheduleReport {
+  companyId: string;
+  companyName: string;
+  asOfDate: string;
+  parentAccountId: string;
+  parentCode: string;        // e.g. "1103"
+  parentName: string;
+  accountType: string;
+  nature: string;
+  parentBalance: number;     // L3 NET
+  subLedgerCount: number;
+  lines: SubLedgerScheduleLine[];
+}
+
 export default function GeneralLedgerPage() {
   const { activeCompany } = useAuth();
   const searchParams = useSearchParams();
@@ -86,6 +128,7 @@ export default function GeneralLedgerPage() {
   const [from, setFrom] = useState<string>(searchParams.get("from") ?? firstOfYear);
   const [to, setTo] = useState<string>(searchParams.get("to") ?? today);
   const [report, setReport] = useState<LedgerReport | null>(null);
+  const [schedule, setSchedule] = useState<SubLedgerScheduleReport | null>(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [loadingReport, setLoadingReport] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,35 +177,61 @@ export default function GeneralLedgerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCompany]);
 
-  // Load the ledger when account or dates change
-  const loadReport = useCallback(async () => {
-    if (!activeCompany || !selectedAccountId) return;
-    setLoadingReport(true);
-    setError(null);
-    try {
-      const r = await api.get(
-        `/reports/general-ledger?companyId=${activeCompany.id}&accountId=${selectedAccountId}&from=${from}&to=${to}`
-      );
-      setReport(r.data);
-    } catch (err) {
-      setError(getErrorMessage(err));
-      setReport(null);
-    } finally {
-      setLoadingReport(false);
-    }
-  }, [activeCompany, selectedAccountId, from, to]);
-
-  useEffect(() => { loadReport(); }, [loadReport]);
-
   // Build a code→Account map so the table can show the
   // account name even when the API returns just ids.
+  // MUST be declared before loadReport because loadReport's
+  // useCallback depends on it (to detect L3 control accounts).
   const accountById = useMemo(() => {
     const m = new Map<string, Account>();
     accounts.forEach((a) => m.set(a.id, a));
     return m;
   }, [accounts]);
 
+  // Load the ledger when account or dates change
+  //
+  // Sprint 44 — when the selected account is an L3 control,
+  // we also fetch the sub-ledger schedule. The GL itself returns
+  // "no movements" for L3 (which is correct — L3 is not
+  // postable), but the schedule shows the L4 breakdown that
+  // makes the L3 balance meaningful. We render whichever is
+  // appropriate based on the account's level.
+  const loadReport = useCallback(async () => {
+    if (!activeCompany || !selectedAccountId) return;
+    setLoadingReport(true);
+    setError(null);
+    setReport(null);
+    setSchedule(null);
+    try {
+      const r = await api.get(
+        `/reports/general-ledger?companyId=${activeCompany.id}&accountId=${selectedAccountId}&from=${from}&to=${to}`
+      );
+      setReport(r.data);
+      // If this is an L3 account, also pull the sub-ledger schedule.
+      const acc = accountById.get(selectedAccountId);
+      if (acc?.level === 3) {
+        try {
+          const sr = await api.get(
+            `/reports/sub-ledger-schedule?companyId=${activeCompany.id}&accountId=${selectedAccountId}`
+          );
+          setSchedule(sr.data);
+        } catch {
+          // Sub-ledger schedule not available (no sub-ledgers under
+          // this L3) — that's fine, the GL still shows.
+          setSchedule(null);
+        }
+      }
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setReport(null);
+    } finally {
+      setLoadingReport(false);
+    }
+  }, [activeCompany, selectedAccountId, from, to, accountById]);
+
+  useEffect(() => { loadReport(); }, [loadReport]);
+
   const selectedAccount = selectedAccountId ? accountById.get(selectedAccountId) : null;
+  const showSchedule = selectedAccount?.level === 3 && schedule !== null;
 
   return (
     <div>
@@ -252,6 +321,104 @@ export default function GeneralLedgerPage() {
         <div className="card flex justify-center py-8">
           <Loader2 className="animate-spin text-primary-500" size={32} />
         </div>
+      ) : showSchedule && schedule ? (
+        // Sprint 44 — L3 control account view: show the sub-ledger
+        // schedule instead of "no movements". This is the
+        // reconciliation view: L4 sub-ledgers + their balances +
+        // the L3 NET, so the reader can verify they match.
+        <div className="card">
+          <div className="border-b border-edge pb-3 mb-3">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Layers size={18} className="text-primary-600" />
+                  حساب: {schedule.parentCode} — {schedule.parentName}
+                  <span className="badge badge-info text-xs">كشف حساب تجميعي</span>
+                </h2>
+                <p className="text-sm text-ink-muted mt-1">
+                  {schedule.companyName} • حتى تاريخ: {formatDate(schedule.asOfDate)} •
+                  النوع: <span className="font-mono">{schedule.accountType}</span> •
+                  الطبيعة: <span className="font-mono">{schedule.nature}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-ledger count + parent balance summary */}
+          <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+            <Summary label="عدد الحسابات التحليلية" value={schedule.subLedgerCount} isInt />
+            <Summary label="رصيد الحساب التجميعي (L3)" value={schedule.parentBalance} bold />
+            <Summary label="مجموع أرصدة L4" value={schedule.lines.reduce((s, l) => s + l.balance, 0)} bold />
+          </div>
+
+          {schedule.lines.length === 0 ? (
+            <p className="text-center text-ink-muted py-6">
+              لا توجد حسابات تحليلية تحت هذا الحساب
+            </p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>الحساب التحليلي</th>
+                  <th>الجهة</th>
+                  <th className="text-left">الرصيد</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedule.lines.map((l) => (
+                  <tr key={l.accountId} className="hover:bg-raised">
+                    <td>
+                      <div className="font-mono text-sm">{l.accountCode}</div>
+                      <div className="text-xs text-ink-muted">{l.accountName}</div>
+                    </td>
+                    <td>
+                      {l.contactId ? (
+                        <a
+                          href={`/dashboard/contacts/${l.contactId}`}
+                          className="text-primary-700 hover:underline flex items-center gap-1"
+                        >
+                          <Users size={12} />
+                          {l.contactName || l.contactCode}
+                        </a>
+                      ) : (
+                        <span className="text-ink-subtle text-sm">—</span>
+                      )}
+                    </td>
+                    <td
+                      className="font-mono text-left font-semibold"
+                      dir="ltr"
+                    >
+                      {formatNumber(l.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 font-bold bg-raised">
+                  <td colSpan={2} className="py-2">مجموع أرصدة L4</td>
+                  <td className="font-mono text-left py-2 text-primary-700" dir="ltr">
+                    {formatNumber(schedule.lines.reduce((s, l) => s + l.balance, 0))}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+
+          <div className="mt-4 p-3 bg-emerald-50 text-emerald-800 rounded-md text-sm flex items-start gap-2">
+            <Layers size={16} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <strong>كشف الحساب التجميعي (Sub-ledger Schedule):</strong>
+              <p className="mt-1">
+                هذا حساب <strong>تجميعي</strong> (L3) — كل الترحيلات تتم على الحسابات التحليلية (L4) أدناه.
+                رصيد الحساب التجميعي = مجموع أرصدة الحسابات التحليلية (مطابقة تلقائية).
+              </p>
+              <p className="mt-2 text-xs">
+                <strong>للوصول للحركات التفصيلية:</strong> اضغط على اسم الجهة (إن وُجد) لفتح كشف حسابها،
+                أو اختر حساب L4 من القائمة أعلاه لعرض قيوده المحاسبية.
+              </p>
+            </div>
+          </div>
+        </div>
       ) : report ? (
         <div className="card">
           {/* Account header */}
@@ -335,12 +502,12 @@ export default function GeneralLedgerPage() {
   );
 }
 
-function Summary({ label, value, bold }: { label: string; value: number; bold?: boolean }) {
+function Summary({ label, value, bold, isInt }: { label: string; value: number; bold?: boolean; isInt?: boolean }) {
   return (
     <div className={`p-2 rounded ${bold ? "bg-primary-50" : "bg-raised"}`}>
       <p className="text-xs text-ink-muted">{label}</p>
       <p className={`font-mono ${bold ? "text-lg font-bold text-primary-700" : "text-sm"}`} dir="ltr">
-        {formatNumber(value)}
+        {isInt ? value : formatNumber(value)}
       </p>
     </div>
   );
