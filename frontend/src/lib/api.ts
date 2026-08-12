@@ -64,29 +64,46 @@ api.interceptors.request.use((config) => {
 });
 
 // Response interceptor: 401 → clear session + redirect to login.
+//                     429 → wait + retry (Render/Cloudflare rate limit)
 //
 // Sprint 34 hotfix v4 (2026-08-07): removed pre-warm + silent retry.
-// The user reported: "لا تعمل اسكربتات لكي تزعج الخادم اعتقد ان
-// هناك حدود استخدام للخطه المجانيه" — every pre-warm call + every
-// retry = extra request against Render's free tier, which has hard
-// monthly limits. The pre-warm itself can fail with 502 and cause
-// the same error the user was seeing. The cleanest fix: just let
-// errors happen and show them. The user can refresh manually.
-//
-// What stayed:
-//  - 401 handling (security-critical)
-//  - Friendly Arabic error messages
-//  - 30s axios timeout
+// Sprint 45 (2026-08-13): added 429 retry. The user hit 429 across
+// most pages — Render's free tier + Cloudflare rate-limit during
+// burst navigation. We retry 429 (rate limit) up to 2 times with
+// exponential backoff (3s, 6s), using the Retry-After header if
+// present, otherwise the default 3s. We do NOT retry other errors
+// (502/503/504 are kept as "show and let the user refresh" because
+// those typically need a fresh page state — pre-warm retry was a
+// footgun, as the Sprint 34 comment explains).
 api.interceptors.response.use(
   (r) => r,
-  (err: AxiosError) => {
+  async (err: AxiosError) => {
     if (err.response?.status === 401) {
       Cookies.remove("erp_token");
       Cookies.remove("erp_user");
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/auth/login")) {
         window.location.href = "/auth/login";
       }
+      return Promise.reject(err);
     }
+
+    // 429 retry: wait then retry. Cap at 2 retries.
+    if (err.response?.status === 429) {
+      const config = err.config as any;
+      config.__retryCount = config.__retryCount ?? 0;
+      if (config.__retryCount >= 2) {
+        return Promise.reject(err);
+      }
+      config.__retryCount += 1;
+      // Honor Retry-After header if Cloudflare/Render sends one
+      const retryAfter = parseInt(err.response.headers["retry-after"] ?? "", 10);
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 3000 * config.__retryCount; // 3s, 6s
+      await new Promise((r) => setTimeout(r, waitMs));
+      return axios.request(config);
+    }
+
     return Promise.reject(err);
   }
 );
@@ -103,6 +120,9 @@ export function getErrorMessage(err: unknown): string {
     const status = err.response?.status ?? 0;
     if (status === 502 || status === 503 || status === 504) {
       return "الخادم في وضع السكون. يرجى تحديث الصفحة بعد 30 ثانية";
+    }
+    if (status === 429) {
+      return "تم تجاوز حد الاستخدام. جاري إعادة المحاولة تلقائياً...";
     }
     if (status === 404) {
       return "العنصر المطلوب غير موجود";
