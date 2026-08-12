@@ -3,37 +3,15 @@ namespace ErpV2.Common;
 /// <summary>
 /// Sprint 41 — Trusted accountant mode flag.
 ///
-<<<<<<< HEAD
 /// Background: the system has two distinct roles that can post a
 /// journal entry to the General Ledger:
-=======
-/// The system has two distinct roles that can post a journal entry
-/// to the General Ledger:
->>>>>>> main
 ///   1. A human accountant, who reviews and approves each JE
 ///      through the Journal page (the "trust-the-human" path).
 ///   2. The data seeder (FullYearSeeder), which generates hundreds
 ///      of JEs for the demo scenario. Acting as the seeder's
 ///      accountable signatory, Mavis reviews every JE with
-<<<<<<< HEAD
 ///      accountant-grade diligence before posting — the "trust-the-
 ///      Mavis-as-accountant" path used only for the demo seed.
-///
-/// The two paths are gated by a single environment variable so the
-/// production behavior never changes:
-///
-///   SEEDER_TRUSTED_ACCOUNTANT_MODE = "true"  → Mavis-as-accountant
-///                                            (seeder auto-posts JEs)
-///   (any other value or unset)            → human-only (default)
-///
-/// Setting the flag in production would be a serious policy error
-/// — it would let the seeder bypass the accountant's review for
-/// any future seed run. The default is therefore the strict path.
-/// The flag is read once at startup; rotating the env var requires
-/// a redeploy.
-=======
-///      accountant-grade diligence before posting — the "trust-
-///      the-Mavis-as-accountant" path used only for the demo seed.
 ///
 /// The flag can be set two ways (first match wins):
 ///   1. Environment variable `SEEDER_TRUSTED_ACCOUNTANT_MODE = "true"`
@@ -46,16 +24,11 @@ namespace ErpV2.Common;
 ///
 /// Outside of those two paths the flag is false and the human
 /// accountant is the only one who can post a JE.
->>>>>>> main
 /// </summary>
 public static class TrustedAccountantMode
 {
     /// <summary>True when the seeder may post JEs on the user's behalf.</summary>
-<<<<<<< HEAD
-    public static bool IsEnabled { get; } =
-=======
     public static bool IsEnabled =>
->>>>>>> main
         string.Equals(
             Environment.GetEnvironmentVariable("SEEDER_TRUSTED_ACCOUNTANT_MODE"),
             "true",
