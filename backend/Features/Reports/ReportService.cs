@@ -565,19 +565,25 @@ public class ReportService
         // receivable).
         //
         // Join strategy: invoices link to JEs through different paths
-        // depending on what created the JE:
-        //   1. Rule engine: narration contains "فاتورة مبيعات رقم INV-S-..."
-        //   2. Manual invoice journal: the JE has a `source = 'invoice:UUID'`
-        //      (set by the JournalService.CreateDraftInTxAsync for invoice
-        //      vouchers — though the current code uses rules, not direct
-        //      invoice vouchers, so this is future-proofing)
-        //   3. The old broken path: invoice.journal_entry_id (column
-        //      doesn't exist; checked for safety)
+        // depending on what created the JE. Sprint 43 fix — broaden
+        // the source pattern to cover ALL the seeder-generated sources
+        // actually in production:
+        //   - 'rule:<UUID>' — rule engine (default path)
+        //   - 'invoice:sales' / 'invoice:purchase' — FullYearSeeder direct post
+        //   - 'project:billing' — project billing voucher (also creates AR)
+        //   - 'manual' — admin manual entry with invoice number in narration
+        //   - 'invoice:<UUID>' — future voucher-created invoice journals
         //
-        // We use narration parsing for the rule-generated path because
-        // that's what the rule engine actually does. A LEFT JOIN to
-        // journal_entries with a parse ensures the invoice is only
-        // counted when the JE is actually posted.
+        // The original Sprint 41 JOIN was `je.source = 'invoice:' ||
+        // i.id::text` (UUID format) which never matched the seeder
+        // sources like 'invoice:sales' — that's why the aging report
+        // was empty even though CUST-001 had 7 outstanding invoices
+        // visible on the contact detail page. The accountant flagged
+        // this on 2026-08-12.
+        //
+        // We use narration parsing because the actual JE source values
+        // vary by event type — the narration always contains the
+        // invoice number as the reliable join key.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -594,7 +600,12 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
+             AND (
+                  je.source LIKE 'rule:%'
+               OR je.source LIKE 'invoice:%'
+               OR je.source LIKE 'project:%'
+               OR je.source = 'manual'
+             )
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
@@ -664,6 +675,9 @@ public class ReportService
         // exclude invoices whose linked JE is not POSTED (still
         // PENDING or DRAFT), so aging only reflects real financial
         // impact.
+        //
+        // Sprint 43 — broaden source pattern to cover all seeder sources
+        // (see customer aging comment for the full list).
         var rows = await conn.QueryAsync<SupplierAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -680,7 +694,12 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
+             AND (
+                  je.source LIKE 'rule:%'
+               OR je.source LIKE 'invoice:%'
+               OR je.source LIKE 'project:%'
+               OR je.source = 'manual'
+             )
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'
