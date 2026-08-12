@@ -801,22 +801,26 @@ public static class AdminEndpoints
             // ---------- Check 3: Income statement movement ----------
             try
             {
-                // Revenue + expense accounts in the 4xxx and 5xxx range
+                // Filter by account_type, not code prefix. The COA
+                // uses account_type='Revenue' for 4xxx and
+                // account_type='Expense' for 5xxx.
                 var revenue = await conn.ExecuteScalarAsync<decimal?>(@"
-                    SELECT COALESCE(SUM(jl.credit) - SUM(jl.debit), 0)
+                    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
                     FROM journal_lines jl
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '4%';",
+                      AND a.account_type = 'Revenue'
+                      AND (je.source IS NULL OR je.source <> 'year-end-closing');",
                     new { id = companyId }) ?? 0m;
                 var expense = await conn.ExecuteScalarAsync<decimal?>(@"
-                    SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0)
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
                     FROM journal_lines jl
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '5%';",
+                      AND a.account_type = 'Expense'
+                      AND (je.source IS NULL OR je.source <> 'year-end-closing');",
                     new { id = companyId }) ?? 0m;
                 var hasActivity = revenue > 0 || expense > 0;
                 if (hasActivity) passed++; else failed++;
@@ -836,6 +840,7 @@ public static class AdminEndpoints
             // ---------- Check 4: Balance sheet A = L + E ----------
             try
             {
+                // Sum by account_type. Asset = Debit nature. Liability/Equity = Credit nature.
                 var assets = await conn.ExecuteScalarAsync<decimal?>(@"
                     SELECT COALESCE(SUM(
                         CASE WHEN a.nature = 'Debit' THEN jl.debit - jl.credit
@@ -845,7 +850,7 @@ public static class AdminEndpoints
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '1%';",
+                      AND a.account_type = 'Asset';",
                     new { id = companyId }) ?? 0m;
                 var liabEq = await conn.ExecuteScalarAsync<decimal?>(@"
                     SELECT COALESCE(SUM(
@@ -856,7 +861,7 @@ public static class AdminEndpoints
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '2%' OR a.code LIKE '3%';",
+                      AND a.account_type IN ('Liability', 'Equity');",
                     new { id = companyId }) ?? 0m;
                 var balanced = Math.Abs(assets - liabEq) < 100m; // tolerate 100 LYD diff for opening vs FY
                 if (balanced) passed++; else failed++;
@@ -876,14 +881,16 @@ public static class AdminEndpoints
             // ---------- Check 5: AR aging (sub-ledger balance) ----------
             try
             {
-                // Sum of (debit - credit) for AR sub-ledger accounts
+                // Sum of (debit - credit) for AR sub-ledger accounts.
+                // The COA has 1103 as the customer AR control account
+                // and 1103-CUST-XXX as the L4 sub-ledgers.
                 var ar = await conn.ExecuteScalarAsync<decimal?>(@"
                     SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
                     FROM journal_lines jl
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '1103%' AND a.code LIKE '1103-%';",
+                      AND (a.code = '1103' OR a.code LIKE '1103-%');",
                     new { id = companyId }) ?? 0m;
                 var hasAR = ar > 0;
                 if (hasAR) passed++; else failed++;
@@ -909,7 +916,7 @@ public static class AdminEndpoints
                     JOIN journal_entries je ON je.id = jl.journal_entry_id
                     JOIN accounts a ON a.id = jl.account_id
                     WHERE je.company_id = @id AND je.status = 'posted'
-                      AND a.code LIKE '2101-%';",
+                      AND (a.code = '2101' OR a.code LIKE '2101-%');",
                     new { id = companyId }) ?? 0m;
                 var hasAP = ap > 0;
                 if (hasAP) passed++; else failed++;
