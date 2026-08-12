@@ -991,7 +991,6 @@ public static class AdminEndpoints
                         journal_entries,
                         invoice_lines,
                         invoices,
-                        project_allocations,
                         cost_centers,
                         products,
                         contacts
