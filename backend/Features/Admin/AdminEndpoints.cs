@@ -1083,16 +1083,18 @@ public static class AdminEndpoints
 
                 // Step 2: Set L3 control balances to NET of their
                 // L4 sub-ledgers' balances (Sprint 33 NET rule).
-                // We compute: L3.balance = Σ (sub_ledger.balance with
-                // natural signs) — this is the "غير مخصص" (unallocated)
-                // figure the trial balance displays.
+                //
+                // Sign convention (consistent with Step 1 / L4 storage):
+                //   - All sub-ledger balances are stored as signed numbers
+                //     (positive for normal Dr-balance, negative for Cr-balance
+                //     or for contra accounts).
+                //   - The L3 control = sum of its sub-ledgers' signed balances.
+                //   - The TB display code uses account_type to determine which
+                //     side of the T-account to show the line on.
                 var l3Updated = await conn.ExecuteAsync(@"
                     UPDATE accounts parent
                     SET balance = COALESCE((
-                        SELECT SUM(CASE
-                            WHEN child.nature = 'Debit' THEN child.balance
-                            ELSE -child.balance
-                        END)
+                        SELECT SUM(child.balance)
                         FROM accounts child
                         WHERE child.parent_id = parent.id
                     ), 0)

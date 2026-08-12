@@ -59,8 +59,18 @@ public class ReportService
         void AddLine(string code, string name, string type, string nature, decimal balance)
         {
             if (Math.Abs(balance) < 0.01m) return;
+            // Sprint 42 — use account_type to determine which side
+            // of the T-account the line goes on. The convention
+            // (matches the rebuild-balances endpoint):
+            //   - Asset / Expense: positive balance → Dr, negative → Cr
+            //   - Liability / Equity / Revenue: positive balance → Cr, negative → Dr
+            // The "nature" field is kept on the line for the UI but
+            // is no longer used for side determination — that broke
+            // contra-assets (e.g. 1202 Accum Dep) which are
+            // account_type=Asset but nature=Credit.
             decimal debitBal = 0, creditBal = 0;
-            if (nature == "Debit")
+            var isDebitNormal = type == "Asset" || type == "Expense";
+            if (isDebitNormal)
             {
                 if (balance >= 0) debitBal = balance;
                 else creditBal = -balance;
@@ -126,7 +136,9 @@ public class ReportService
                 // Display-only: render the line but don't add to totals
                 if (Math.Abs(r.balance) < 0.01m) continue;
                 decimal d = 0, c = 0;
-                if (r.nature == "Debit")
+                // Sprint 42 — use account_type for side (see AddLine).
+                var isDebitNormal = r.account_type == "Asset" || r.account_type == "Expense";
+                if (isDebitNormal)
                 {
                     if (r.balance >= 0) d = r.balance;
                     else c = -r.balance;
