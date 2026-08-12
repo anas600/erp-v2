@@ -325,6 +325,8 @@ footer a { color: var(--primary); text-decoration: none; }
       <a href="#walkthrough">جولة كاملة</a>
       <a href="#data">البيانات</a>
       <a href="#roadmap">الخطوات</a>
+      <a href="#sprint-40-41" style="background: rgba(15,118,110,.15); color: #0F766E; font-weight: 600;">✨ جديد: Sprint 40+41</a>
+      <a href="#api">API</a>
       <a href="#discuss">نناقش</a>
     </div>
   </div>
@@ -904,11 +906,35 @@ footer a { color: var(--primary); text-decoration: none; }
       <h4>الاستقرار على Render</h4>
       <p>إصلاح 3 bugs في migration 005 (ترتيب الجدول، connection isolation، FK recreation) — Deploy ناجح في 4 محاولات</p>
     </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز</span>
+      <div class="num">Sprint 15-37</div>
+      <h4>النضج التشغيلي</h4>
+      <p>Year-end closing + Period locks + Intercompany eliminations + Cost centers + Contract variations + Project P&L + BOQ wizard + Excel import</p>
+    </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز</span>
+      <div class="num">Sprint 38-39</div>
+      <h4>BOQ + Wizard + بيانات واقعية</h4>
+      <p>مديول BOQ كامل + Variation Management + استيراد Excel + Wizard 4 خطوات + FullYearSeeder (12 شهر)</p>
+    </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز — Sprint 40</span>
+      <div class="num">Sprint 40</div>
+      <h4>المحاسب هو البوّابة</h4>
+      <p>إيقاف القواعد التلقائية (7 rules) — الـ Seeder يعمل كـ محاسب: يضع كل قيد، يحدد الطرف المدين والدائن، يستخدم Sub-ledger الصحيح (1103-CUST-001، 2101-SUPP-001). تقارير TB/IS/BS متطابقة (A = L + E).</p>
+    </div>
+    <div class="roadmap-step done">
+      <span class="status">✓ منجز — Sprint 41</span>
+      <div class="num">Sprint 41</div>
+      <h4>وضع المحاسب الموثوق</h4>
+      <p>TrustedAccountantMode — 3 أوضاع: (1) محاسب فقط: كل قيد ينتظر موافقة يدوية، (2) موثوق للـ Seeder: Mavis يوقّع تلقائياً للبيانات الديمو فقط، (3) Auto-seed على startup — كل deploy = بيانات نظيفة تلقائياً. Plus: pagination + bulk approve/post + diagnostic endpoints (/api/admin/verify).</p>
+    </div>
     <div class="roadmap-step todo">
       <span class="status">⏳ قادم</span>
-      <div class="num">Sprint 15+</div>
+      <div class="num">Sprint 42+</div>
       <h4>ما يمكن إضافته</h4>
-      <p>PDF reports + Audit log UI + Email notifications + Multi-currency + Bank reconciliation + Backup/Restore</p>
+      <p>PDF reports + Audit log UI + Email notifications + Multi-currency + Bank reconciliation + Backup/Restore + Mobile app</p>
     </div>
   </div>
 </section>
@@ -971,6 +997,85 @@ footer a { color: var(--primary); text-decoration: none; }
     }]
   }'</span>
     </div>
+  </div>
+</section>
+
+<!-- ===== SPRINT 40+41 — TRUSTED ACCOUNTANT MODE ===== -->
+<section id="sprint-40-41">
+  <div class="section-header">
+    <div class="section-tag">جديد — Sprint 40 + 41</div>
+    <h2 class="serif">المحاسب هو البوّابة + الوضع الموثوق</h2>
+    <p>كيف ينشر النظام القيود فعلياً — 3 أوضاع، شفافية كاملة، وبيانات ديمو دائماً نظيفة.</p>
+  </div>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #0F766E;">📌 المشكلة اللي حلّيناها</h3>
+    <p style="margin-bottom: 10px;">قبل Sprint 40، كان في النظام <strong>7 قواعد أعمال (business rules)</strong> تشتغل تلقائياً: لما تنشئ فاتورة بيع، الـ rule engine يفتح ويولّد القيد ويترحّله بدون أي تدخّل من المحاسب. النتيجة:</p>
+    <ul style="margin-right: 20px; line-height: 1.8;">
+      <li>القيد يُولّد بأكواد L3 فقط (2101, 1103) — <strong>بدون Sub-ledger</strong> للعميل/المورّد</li>
+      <li>صعب على المحاسب يتابع الطرف المدين/الدائن لكل عملية</li>
+      <li>ميزان المراجعة لا يتطابق مع كشف الحساب التفصيلي</li>
+      <li>في 414 قيد ديمو، <strong>الصفر منها مع sub-ledger</strong></li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #0F766E;">✅ الحل — Sprint 40: الـ Seeder يعمل كمحاسب</h3>
+    <p style="margin-bottom: 10px;">أوقفنا الـ 7 rules نهائياً (migration 023). الآن، السبرنت 40 يقدم <strong>Accountant-Grade Seeder</strong> — 23 commits تعيد بناء كل قيد <strong>كأنه محاسب سود</strong>:</p>
+    <div class="codeblock" dir="ltr" style="text-align: left; font-size: 12px;">
+<span class="c-comment"># مثال: قيد فاتورة بيع</span>
+Dr  1103-CUST-001      (subtotal + VAT)        1,150
+   Cr 4101 (Sales Revenue)                         1,000
+   Cr 2104 (Output VAT Payable)                       150
+
+<span class="c-comment"># مثال: قيد دفعة من عميل</span>
+Dr  1101-CASH-001                                1,000
+   Cr 1103-CUST-001                                1,000
+    </div>
+    <p style="margin-top: 10px;"><strong>النتيجة:</strong></p>
+    <ul style="margin-right: 20px; line-height: 1.8;">
+      <li>TB balanced: Dr = Cr = 11,117,282.62 LYD</li>
+      <li>IS correct: Revenue 4,018,590 / Expense 1,792,404 / Net 2,226,186</li>
+      <li>BS balanced: Assets 4,672,088 = Liab+Eq 4,672,088</li>
+      <li>AR Sub-ledger: 4,165,102 LYD موزّع على 10 عملاء</li>
+      <li>AP Sub-ledger: 1,331,789 LYD موزّع على 10 موردين</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #0F766E;">🔐 Sprint 41 — 3 أوضاع للمحاسبة</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 14px;">
+      <div style="border: 2px solid #0F766E; border-radius: 8px; padding: 12px; background: #F0FDFA;">
+        <div style="font-weight: 600; margin-bottom: 6px;">1. وضع المحاسب البشري (افتراضي)</div>
+        <div style="font-size: 12px;">كل قيد يطلع كـ DRAFT. لازم المحاسب يضغط "موافقة" ثم "ترحيل" يدوياً. الإنتاج الحقيقي.</div>
+      </div>
+      <div style="border: 2px solid #0F766E; border-radius: 8px; padding: 12px; background: #F0FDFA;">
+        <div style="font-weight: 600; margin-bottom: 6px;">2. وضع المحاسب الموثوق (Trusted)</div>
+        <div style="font-size: 12px;">للـ Demo Seeder فقط. Mavis يوقّع على القيود كخبير محاسبي. مفعّل عبر <code>SEEDER_TRUSTED_ACCOUNTANT_MODE=true</code>.</div>
+      </div>
+      <div style="border: 2px solid #0F766E; border-radius: 8px; padding: 12px; background: #F0FDFA;">
+        <div style="font-weight: 600; margin-bottom: 6px;">3. Auto-Seed عند التشغيل</div>
+        <div style="font-size: 12px;">كل deploy = بيانات ديمو نظيفة. لو الشركة فاضية، الـ seeder يشتغل تلقائياً بعد 5 ثواني. مفعل عبر <code>AUTO_SEED_DEMO=true</code>.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #0F766E;">🔧 الأدوات التشخيصية الجديدة</h3>
+    <p style="margin-bottom: 10px;">3 endpoints جديدة تخليني (Mavis) أتحقق من النظام بدون deploy جديد:</p>
+    <div class="codeblock" dir="ltr" style="text-align: left; font-size: 12px;">
+<span class="c-comment"># 1. شوف حالة الـ env vars + وضع الثقة</span>
+GET /api/admin/seed-status
+
+<span class="c-comment"># 2. عدّاد القيود حسب الحالة والمصدر</span>
+GET /api/admin/journals-summary?companyId=X
+<span class="c-comment"># بيرجع: {totalEntries, byStatus: {draft, posted}, bySource: {invoice:sales, ...}}</span>
+
+<span class="c-comment"># 3. تحقق تلقائي شامل (6 فحوصات)</span>
+GET /api/admin/verify?companyId=X
+<span class="c-comment"># بيرجع: overall: PASS/FAIL + 6 checks (TB balanced, IS activity, BS balanced, AR, AP, JE count)</span>
+    </div>
+    <p style="margin-top: 10px;"><strong>+ صفحة Journal الجديدة</strong>: pagination (50/page) + أزرار "موافقة الكل" و"ترحيل الكل" + تصفية حسب الحالة.</p>
   </div>
 </section>
 

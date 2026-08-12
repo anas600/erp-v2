@@ -20,6 +20,7 @@ namespace ErpV2.Features.Admin;
 public partial class FullYearSeedResult
 {
     public Guid CompanyId { get; set; }
+    public string Mode { get; set; } = "HUMAN-ONLY (each JE requires the accountant to approve and post)";
     public int CustomersCreated { get; set; }
     public int SuppliersCreated { get; set; }
     public int ProductsCreated { get; set; }
@@ -28,6 +29,8 @@ public partial class FullYearSeedResult
     public int ReceiptsCreated { get; set; }
     public int PaymentsCreated { get; set; }
     public bool FiscalYearCreated { get; set; }
+    public int EntriesApproved { get; set; }
+    public int EntriesPosted { get; set; }
     public List<string> Errors { get; set; } = new();
     public double ElapsedSeconds { get; set; }
 
@@ -82,11 +85,11 @@ public partial class FullYearSeeder
     // Constants
     // ----------------------------------------------------------------
 
-    /// <summary>Fiscal year start (Sept 1, 2025).</summary>
-    public static readonly DateTime FY_START = new(2025, 9, 1);
+    /// <summary>Fiscal year start (Jan 1, 2026) — calendar-year FY.</summary>
+    public static readonly DateTime FY_START = new(2026, 1, 1);
 
-    /// <summary>Fiscal year end (Aug 31, 2026).</summary>
-    public static readonly DateTime FY_END = new(2026, 8, 31);
+    /// <summary>Fiscal year end (Dec 31, 2026).</summary>
+    public static readonly DateTime FY_END = new(2026, 12, 31);
 
     /// <summary>Libyan VAT rate (4% on most goods and services).</summary>
     public const decimal VAT_RATE = 0.04m;
@@ -170,11 +173,26 @@ public partial class FullYearSeeder
     // Public entry point
     // ----------------------------------------------------------------
 
-    public async Task<FullYearSeedResult> SeedAsync(Guid companyId, Guid? userId = null)
+    public async Task<FullYearSeedResult> SeedAsync(
+        Guid companyId,
+        Guid? userId = null,
+        bool? trustedMode = null)
     {
-        _result = new FullYearSeedResult { CompanyId = companyId };
+        // Sprint 41 — accept an explicit trusted-mode flag from the
+        // caller (the admin endpoint + the auto-seed task on
+        // startup). The flag travels with the call graph so the
+        // helpers all see the same value regardless of static
+        // state.
+        var trusted = trustedMode ?? TrustedAccountantMode.IsEnabled;
+        _result = new FullYearSeedResult
+        {
+            CompanyId = companyId,
+            Mode = trusted
+                ? "TRUSTED-ACCOUNTANT (Mavis-as-accountant — auto-approve + post for demo data only)"
+                : "HUMAN-ONLY (each JE requires the accountant to approve and post)"
+        };
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("FullYearSeeder: starting for company {CompanyId}", companyId);
+        _logger.LogInformation("FullYearSeeder: starting for company {CompanyId} — mode: {Mode}", companyId, _result.Mode);
 
         try
         {
@@ -232,6 +250,39 @@ public partial class FullYearSeeder
         {
             _result.Errors.Add($"Fatal: {ex.Message} | Inner: {ex.InnerException?.Message}");
             _logger.LogError(ex, "FullYearSeeder failed");
+        }
+
+        // Sprint 41 — reconcile the approved/posted counters against
+        // the actual database state. Earlier iterations of the
+        // seeder relied on in-memory `_result.EntriesApproved++` in
+        // the helper methods, but the counters came back as 0 from
+        // Render even though JEs were clearly created. We don't
+        // know exactly why (singleton scope? serialization? an
+        // exception swallowed by the helper?), so instead of
+        // guessing we just query the DB at the end. This is the
+        // single source of truth.
+        try
+        {
+            using var conn = _db.CreateConnection();
+            var posted = await conn.ExecuteScalarAsync<long>(@"
+                SELECT COUNT(*) FROM journal_entries
+                WHERE company_id = @companyId AND status = 'posted';",
+                new { companyId });
+            var approved = await conn.ExecuteScalarAsync<long>(@"
+                SELECT COUNT(*) FROM journal_entries
+                WHERE company_id = @companyId
+                  AND status IN ('draft', 'posted')
+                  AND source IN ('manual', 'rule:%', 'invoice:%', 'opening-balance', 'reverse', 'year-end-closing');",
+                new { companyId });
+            _result.EntriesPosted = (int)posted;
+            _result.EntriesApproved = (int)approved;
+            _logger.LogInformation(
+                "FullYearSeeder: reconciled counters from DB — posted={Posted}, approved={Approved}",
+                posted, approved);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FullYearSeeder: failed to reconcile counters from DB");
         }
 
         return _result;
@@ -322,7 +373,12 @@ public partial class FullYearSeeder
                 var c = await _contacts.CreateAsync(new CreateContactRequest(
                     companyId, "customer", code, name, nameAr, null, null, null));
                 _customerIds[code] = c.Id;
-                await _accounts.EnsureSubLedgerAsync(companyId, c.Id);
+                // Sprint 42 — capture the sub-ledger's id AND code
+                // so the opening balance and the rest of the
+                // seeder can reference the customer's AR account
+                // by its full code (e.g. "1103-CUST-001").
+                var custSub = await _accounts.EnsureSubLedgerAsync(companyId, c.Id);
+                _accountIds[custSub.Code] = custSub.Id;
                 _result.CustomersCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Customer {code}: {ex.Message}"); }
@@ -349,7 +405,12 @@ public partial class FullYearSeeder
                 var s = await _contacts.CreateAsync(new CreateContactRequest(
                     companyId, "supplier", code, name, nameAr, null, null, null));
                 _supplierIds[code] = s.Id;
-                await _accounts.EnsureSubLedgerAsync(companyId, s.Id);
+                // Sprint 42 — capture the supplier sub-ledger's
+                // full code (e.g. "2101-SUPP-001") in the
+                // _accountIds dict so the opening balance can
+                // reference it directly.
+                var suppSub = await _accounts.EnsureSubLedgerAsync(companyId, s.Id);
+                _accountIds[suppSub.Code] = suppSub.Id;
                 _result.SuppliersCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Supplier {code}: {ex.Message}"); }
@@ -410,7 +471,15 @@ public partial class FullYearSeeder
     private async Task EnsureCashBankL4Async(Guid companyId)
     {
         using var conn = _db.CreateConnection();
-        foreach (var (parentCode, code) in new[] { ("1101", "1101-CASH-001"), ("1102", "1102-BANK-001") })
+        // Sprint 42 — added a 2nd cash point (Benghazi branch) and a
+        // 2nd bank account (project-loan bank) so the demo can show
+        // intra-company transfers and per-cash-point reporting.
+        foreach (var (parentCode, code, nameAr) in new[] {
+            ("1101", "1101-CASH-001", "الصندوق الرئيسي - طرابلس"),
+            ("1101", "1101-CASH-002", "صندوق فرع بنغازي"),
+            ("1102", "1102-BANK-001", "البنك التجاري - حساب تشغيلي"),
+            ("1102", "1102-BANK-002", "مصرف الجمهورية - حساب قرض المشاريع")
+        })
         {
             var existing = await conn.ExecuteScalarAsync<Guid?>(@"
                 SELECT id FROM accounts
@@ -444,8 +513,8 @@ public partial class FullYearSeeder
                     id = newId,
                     cid = companyId,
                     code,
-                    name = parent.Value.name + " - Main",
-                    nameAr = (parent.Value.name_ar ?? parent.Value.name) + " - الرئيسي",
+                    name = parent.Value.name + " - " + code,
+                    nameAr = nameAr,
                     parentId = parent.Value.id
                 });
             _accountIds[code] = newId;
@@ -471,7 +540,7 @@ public partial class FullYearSeeder
         try
         {
             var fy = await _fiscalYears.CreateYearAsync(new CreateFiscalYearRequest(
-                companyId, "FY2025-2026", FY_START, FY_END));
+                companyId, "FY2026", FY_START, FY_END));
             _result.FiscalYearCreated = true;
             _logger.LogInformation("FullYearSeeder: fiscal year created with {N} periods", fy.Periods.Count);
         }
@@ -484,41 +553,45 @@ public partial class FullYearSeeder
 
     private async Task SeedOpeningBalancesAsync(Guid companyId)
     {
-        // Starting capital (Sep 1, 2025) — sized to cover a full
-        // year of recurring expenses plus a buffer for working
-        // capital. The previous version used Cash=50K + Bank=150K,
-        // which is way too small for a holding company running
-        // 35K/month in salaries alone — the cash account would go
-        // deeply negative by year-end.
+        // Starting capital (Jan 1, 2026) — large company scenario.
+        // Multi-cash + multi-bank setup so the demo can show
+        // intra-company transfers and per-cash-point reporting.
         //
-        //   Cash 1101-CASH-001:  600,000 LYD (covers recurring
-        //                         expenses + small payments)
-        //   Bank 1102-BANK-001:  400,000 LYD (covers larger payments
-        //                         and project billings)
-        //   Prepaid 1106:          9,600 LYD (insurance prepaid for
-        //                         the year, amortizes to 0 by Aug)
-        //   Loan 2201:           84,000 LYD (initial 12-month loan
-        //                         at 4,000/month installment)
-        //   Capital 3101:      1,009,600 LYD (owner's equity, the
-        //                         sum of the above debits)
+        //   Cash 1101-CASH-001:  1,000,000 LYD (Main cash — Tripoli HQ)
+        //   Bank 1102-BANK-001:    500,000 LYD (Bank 1 — operating account)
+        //   Prepaid 1106:            9,600 LYD (insurance prepaid for Q1)
+        //   AR 1103-CUST-001:      150,000 LYD (opening receivable — pre-existing invoice)
+        //   Loan 2201:             200,000 LYD (5-year project loan)
+        //   AP 2101-SUPP-001:       50,000 LYD (opening payable to main subcontractor)
+        //   Capital 3101:        1,409,600 LYD (owner's equity, the
+        //                                  sum of the above debits minus
+        //                                  the AP)
+        //
+        // Balance check:
+        //   Dr: 1,000,000 + 500,000 + 9,600 + 150,000 = 1,659,600
+        //   Cr: 200,000 + 50,000 + 1,409,600 = 1,659,600  ✓
         var lines = new List<CreateJournalLineRequest>();
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash))
-            lines.Add(new CreateJournalLineRequest(cash, 600_000m, 0, "رصيد افتتاحي - صندوق", null));
+            lines.Add(new CreateJournalLineRequest(cash, 1_000_000m, 0, "رصيد افتتاحي - صندوق طرابلس", null));
         if (_accountIds.TryGetValue("1102-BANK-001", out var bank))
-            lines.Add(new CreateJournalLineRequest(bank, 400_000m, 0, "رصيد افتتاحي - بنك", null));
+            lines.Add(new CreateJournalLineRequest(bank, 500_000m, 0, "رصيد افتتاحي - البنك التجاري", null));
         if (_accountIds.TryGetValue("1106", out var prepaid))
             lines.Add(new CreateJournalLineRequest(prepaid, 9_600m, 0, "تأمين مسبق - رصيد افتتاحي", null));
+        if (_accountIds.TryGetValue("1103-CUST-001", out var openingAr))
+            lines.Add(new CreateJournalLineRequest(openingAr, 150_000m, 0, "ذمم مدينة - رصيد افتتاحي (فاتورة سابقة)", null));
         if (_accountIds.TryGetValue("2201", out var loan))
-            lines.Add(new CreateJournalLineRequest(loan, 0, 84_000m, "قرض بنكي - رصيد افتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(loan, 0, 200_000m, "قرض بنكي - رصيد افتتاحي (5 سنوات)", null));
+        if (_accountIds.TryGetValue("2101-SUPP-001", out var openingAp))
+            lines.Add(new CreateJournalLineRequest(openingAp, 0, 50_000m, "ذمم دائنة - رصيد افتتاحي (مقاول باطن)", null));
         if (_accountIds.TryGetValue("3101", out var capital))
-            lines.Add(new CreateJournalLineRequest(capital, 0, 925_600m, "رأس المال الافتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(capital, 0, 1_409_600m, "رأس المال الافتتاحي", null));
 
         if (lines.Count == 0) return;
 
         try
         {
             var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
-                companyId, FY_START, "قيود افتتاحية - السنة المالية 2025-2026",
+                companyId, FY_START, "قيود افتتاحية - السنة المالية 2026",
                 lines, Source: "manual"), _mainUserId);
             await _journal.ApproveAsync(entry.Id, _mainUserId);
             await _journal.PostAsync(entry.Id);

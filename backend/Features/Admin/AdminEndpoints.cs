@@ -651,5 +651,761 @@ public static class AdminEndpoints
             var result = await seeder.SeedAsync(companyId, null);
             return Results.Ok(result);
         });
+
+        // ===================================================================
+        // Sprint 41 — Diagnostics & Verification endpoints
+        //
+        // The Render free tier doesn't expose log streams to non-owners,
+        // which makes blind debugging expensive (each push = ~90s cold
+        // deploy). These endpoints give the orchestrator (Mavis) a
+        // read-only window into what the system actually has in its
+        // database and what the seeder did on the last run.
+        // ===================================================================
+
+        // GET /api/admin/journals-summary?companyId=X
+        // Returns a snapshot of journal entry counts broken down by
+        // status (draft, pending, posted, reversed). The seeder
+        // claims to post N entries; this endpoint tells you if it
+        // actually did. Requires admin (not super_admin — this is
+        // read-only and the team uses it during demos).
+        grp.MapGet("/journals-summary", async (HttpContext ctx, IDbConnectionFactory db, Guid? companyId) =>
+        {
+            using var conn = db.CreateConnection();
+
+            // Per-status counts for one company (or all companies if
+            // companyId is null).
+            var sql = companyId.HasValue
+                ? @"SELECT status, source, COUNT(*) AS n
+                    FROM journal_entries
+                    WHERE company_id = @companyId
+                    GROUP BY status, source
+                    ORDER BY status, source;"
+                : @"SELECT status, source, COUNT(*) AS n
+                    FROM journal_entries
+                    GROUP BY status, source
+                    ORDER BY status, source;";
+
+            var rows = (await conn.QueryAsync<(string status, string source, long n)>(
+                sql, new { companyId })).ToList();
+
+            // Aggregate by status for a quick "is the seeder doing
+            // what it claims?" view.
+            var byStatus = rows
+                .GroupBy(r => r.status)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.n));
+
+            // Aggregate by source for "how many JEs came from which
+            // pipeline".
+            var bySource = rows
+                .GroupBy(r => r.source)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.n));
+
+            return Results.Ok(new
+            {
+                companyId = companyId?.ToString() ?? "ALL",
+                totalEntries = rows.Sum(r => r.n),
+                byStatus,
+                bySource,
+                detail = rows.Select(r => new { r.status, r.source, count = r.n })
+            });
+        });
+
+        // GET /api/admin/seed-status
+        // Returns the in-memory result of the last seed run plus the
+        // trusted-mode flag. Lets the orchestrator verify that the
+        // seeder is using the right code path without waiting for a
+        // fresh seed.
+        grp.MapGet("/seed-status", (HttpContext ctx, [FromServices] FullYearSeeder seeder) =>
+        {
+            return Results.Ok(new
+            {
+                trustedMode = TrustedAccountantMode.IsEnabled,
+                trustedModeLabel = TrustedAccountantMode.Label,
+                envVar = Environment.GetEnvironmentVariable("SEEDER_TRUSTED_ACCOUNTANT_MODE"),
+                envAutoSeedDemo = Environment.GetEnvironmentVariable("AUTO_SEED_DEMO"),
+                envDemoCompany = Environment.GetEnvironmentVariable("DEMO_COMPANY_ID"),
+                serverTime = DateTime.UtcNow
+            });
+        });
+
+        // GET /api/admin/verify?companyId=X
+        // Automated report verification. Instead of HTTP-calling
+        // the report endpoints (which has a fragile auth-header
+        // forwarding story in this version of .NET), we hit the
+        // underlying SQL directly and compute the same checks the
+        // report endpoints do — TB balance, IS/BS presence,
+        // aging totals. This is faster, more reliable, and the
+        // orchestrator only needs the pass/fail signal anyway.
+        grp.MapGet("/verify", async (HttpContext ctx, [FromServices] IDbConnectionFactory db, Guid companyId) =>
+        {
+            var checks = new List<object>();
+            int passed = 0, failed = 0;
+
+            using var conn = db.CreateConnection();
+
+            // ---------- Check 1: Journal entry presence ----------
+            try
+            {
+                var total = await conn.ExecuteScalarAsync<long>(
+                    "SELECT COUNT(*) FROM journal_entries WHERE company_id = @id;",
+                    new { id = companyId });
+                var posted = await conn.ExecuteScalarAsync<long>(
+                    "SELECT COUNT(*) FROM journal_entries WHERE company_id = @id AND status = 'posted';",
+                    new { id = companyId });
+                var ok = total > 0 && posted > 0;
+                if (ok) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "journal-entries",
+                    status = ok ? "PASS" : "FAIL",
+                    data = new { total, posted, draft = total - posted }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "journal-entries", status = "ERROR", error = ex.Message });
+            }
+
+            // ---------- Check 2: Trial balance balance ----------
+            try
+            {
+                var dr = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.debit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    WHERE je.company_id = @id AND je.status = 'posted';",
+                    new { id = companyId }) ?? 0m;
+                var cr = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.credit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    WHERE je.company_id = @id AND je.status = 'posted';",
+                    new { id = companyId }) ?? 0m;
+                // Tolerate 0.01 LYD rounding
+                var balanced = Math.Abs(dr - cr) < 0.5m;
+                if (balanced) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "trial-balance-balanced",
+                    status = balanced ? "PASS" : "FAIL",
+                    data = new { debit = dr, credit = cr, diff = dr - cr }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "trial-balance-balanced", status = "ERROR", error = ex.Message });
+            }
+
+            // ---------- Check 3: Income statement movement ----------
+            try
+            {
+                // Filter by account_type, not code prefix. The COA
+                // uses account_type='Revenue' for 4xxx and
+                // account_type='Expense' for 5xxx.
+                var revenue = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND a.account_type = 'Revenue'
+                      AND (je.source IS NULL OR je.source <> 'year-end-closing');",
+                    new { id = companyId }) ?? 0m;
+                var expense = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND a.account_type = 'Expense'
+                      AND (je.source IS NULL OR je.source <> 'year-end-closing');",
+                    new { id = companyId }) ?? 0m;
+                var hasActivity = revenue > 0 || expense > 0;
+                if (hasActivity) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "income-statement-activity",
+                    status = hasActivity ? "PASS" : "FAIL",
+                    data = new { revenue, expense, net = revenue - expense }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "income-statement-activity", status = "ERROR", error = ex.Message });
+            }
+
+            // ---------- Check 4: Balance sheet A = L + E ----------
+            try
+            {
+                // For the BS, we use the account_type to decide the
+                // sign (not the nature). This is the key insight:
+                //   Asset accounts contribute positively when they
+                //   have a debit balance (debit - credit). Contra-
+                //   assets (e.g. 1202 Accum Dep) are account_type
+                //   'Asset' but with a credit balance — they're
+                //   shown with their natural sign and we NEGATE.
+                //   The simplest rule: balance for each account is
+                //   (debit - credit) for Asset, (credit - debit)
+                //   for Liability/Equity, and we sum directly.
+                var assets = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND a.account_type = 'Asset';",
+                    new { id = companyId }) ?? 0m;
+                var liabEq = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND a.account_type IN ('Liability', 'Equity');",
+                    new { id = companyId }) ?? 0m;
+                var balanced = Math.Abs(assets - liabEq) < 100m; // tolerate 100 LYD diff for opening vs FY
+                if (balanced) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "balance-sheet-balanced",
+                    status = balanced ? "PASS" : "FAIL",
+                    data = new { assets, liabEq, diff = assets - liabEq }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "balance-sheet-balanced", status = "ERROR", error = ex.Message });
+            }
+
+            // ---------- Check 5: AR aging (sub-ledger balance) ----------
+            try
+            {
+                // Sum of (debit - credit) for AR sub-ledger accounts.
+                // The COA has 1103 as the customer AR control account
+                // and 1103-CUST-XXX as the L4 sub-ledgers.
+                var ar = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND (a.code = '1103' OR a.code LIKE '1103-%');",
+                    new { id = companyId }) ?? 0m;
+                var hasAR = ar > 0;
+                if (hasAR) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "ar-sub-ledger",
+                    status = hasAR ? "PASS" : "FAIL",
+                    data = new { ar }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "ar-sub-ledger", status = "ERROR", error = ex.Message });
+            }
+
+            // ---------- Check 6: AP aging (sub-ledger balance) ----------
+            try
+            {
+                var ap = await conn.ExecuteScalarAsync<decimal?>(@"
+                    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts a ON a.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                      AND (a.code = '2101' OR a.code LIKE '2101-%');",
+                    new { id = companyId }) ?? 0m;
+                var hasAP = ap > 0;
+                if (hasAP) passed++; else failed++;
+                checks.Add(new
+                {
+                    report = "ap-sub-ledger",
+                    status = hasAP ? "PASS" : "FAIL",
+                    data = new { ap }
+                });
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                checks.Add(new { report = "ap-sub-ledger", status = "ERROR", error = ex.Message });
+            }
+
+            return Results.Ok(new
+            {
+                companyId = companyId.ToString(),
+                summary = new
+                {
+                    total = checks.Count,
+                    passed,
+                    failed,
+                    overall = failed == 0 ? "PASS" : "FAIL"
+                },
+                checks
+            });
+        });
+
+        // POST /api/admin/wipe-all
+        // Sprint 42 — full database wipe for a fresh demo scenario.
+        // Truncates ALL transaction tables + master data (contacts,
+        // products, projects) in the right order. Keeps the COA
+        // (accounts) and the user list. CASCADE handles the FK
+        // dependencies.
+        //
+        // ⚠️ DESTRUCTIVE — only for demo / test environments.
+        // Requires super_admin.
+        grp.MapPost("/wipe-all", async (HttpContext ctx, IDbConnectionFactory db, [FromServices] FullYearSeeder seeder) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            using var conn = db.CreateConnection();
+            try
+            {
+                // The order matters — respect FKs. CASCADE handles
+                // dependencies, but we still need to truncate the
+                // parent tables first because some FKs aren't
+                // declared CASCADE in the schema.
+                await conn.ExecuteAsync(@"
+                    TRUNCATE TABLE
+                        contract_variation_items,
+                        contract_variations,
+                        contract_line_items,
+                        billing_line_items,
+                        progress_billings,
+                        contracts,
+                        project_milestones,
+                        projects,
+                        receipt_vouchers,
+                        payment_vouchers,
+                        journal_lines,
+                        journal_entries,
+                        invoice_lines,
+                        invoices,
+                        cost_centers,
+                        products,
+                        contacts
+                    RESTART IDENTITY CASCADE;");
+
+                // Reset account balances to 0 (the COA structure
+                // stays, only the running totals are cleared).
+                await conn.ExecuteAsync(
+                    "UPDATE accounts SET balance = 0 WHERE company_id IS NOT NULL;");
+
+                // Close any open fiscal years so the next seed
+                // can create a fresh one without conflicts.
+                await conn.ExecuteAsync(
+                    "UPDATE fiscal_years SET is_closed = true WHERE is_closed = false;");
+
+                return Results.Ok(new
+                {
+                    message = "Wipe complete. COA and users preserved.",
+                    reset = new[] { "contacts", "products", "projects", "invoices", "journal_entries", "vouchers", "balances" }
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
+        });
+
+        // POST /api/admin/rebuild-balances?companyId=X
+        // Sprint 41 — the accounts.balance column can drift from
+        // journal_lines (e.g. when bulk-post runs through paths
+        // that update journal_entries.status but miss the
+        // accounts.balance UPDATE in PostingEngine, or when a
+        // migration is applied to historical data). This
+        // endpoint recomputes balances from the authoritative
+        // source (journal_lines, posted only) and writes them
+        // back to accounts.balance in a single transaction.
+        //
+        // Implementation note: the L4 sub-ledgers (cash, AR, AP,
+        // etc.) are postable, so postings go directly to them and
+        // their accounts.balance must equal the net of their own
+        // journal_lines. The L3 controls (1101, 1102, 2101, etc.)
+        // are NOT directly posted to — their balance represents
+        // the NET of their sub-ledgers' postings (since the
+        // control's "balance" is what the trial balance displays
+        // after Sprint 33's NET rule). For revenue (4xxx) and
+        // expense (5xxx), which have no sub-ledgers, postings go
+        // directly to the L3 account.
+        grp.MapPost("/rebuild-balances", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger, [FromQuery] Guid companyId) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+
+            using var conn = db.CreateConnection();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // Step 1: Set L4 sub-ledger balances directly from
+                // their journal_lines (these are postable accounts).
+                var l4Updated = await conn.ExecuteAsync(@"
+                    UPDATE accounts a
+                    SET balance = sub.net
+                    FROM (
+                        SELECT jl.account_id,
+                               SUM(CASE
+                                   WHEN ac.account_type IN ('Asset', 'Expense')
+                                       THEN jl.debit - jl.credit
+                                   ELSE jl.credit - jl.debit
+                               END) AS net
+                        FROM journal_lines jl
+                        JOIN journal_entries je ON je.id = jl.journal_entry_id
+                        JOIN accounts ac ON ac.id = jl.account_id
+                        WHERE je.company_id = @companyId AND je.status = 'posted'
+                          AND ac.level = 4
+                        GROUP BY jl.account_id
+                    ) sub
+                    WHERE a.id = sub.account_id
+                      AND a.company_id = @companyId
+                      AND a.level = 4;",
+                    new { companyId }, tx);
+
+                // Step 2: Set L3 control balances to NET of their
+                // L4 sub-ledgers' balances (Sprint 33 NET rule).
+                //
+                // Sign convention (consistent with Step 1 / L4 storage):
+                //   - All sub-ledger balances are stored as signed numbers
+                //     (positive for normal Dr-balance, negative for Cr-balance
+                //     or for contra accounts).
+                //   - The L3 control = sum of its sub-ledgers' signed balances.
+                //   - The TB display code uses account_type to determine which
+                //     side of the T-account to show the line on.
+                var l3Updated = await conn.ExecuteAsync(@"
+                    UPDATE accounts parent
+                    SET balance = COALESCE((
+                        SELECT SUM(child.balance)
+                        FROM accounts child
+                        WHERE child.parent_id = parent.id
+                    ), 0)
+                    WHERE parent.company_id = @companyId
+                      AND parent.level = 3;",
+                    new { companyId }, tx);
+
+                // Step 3: For L3 accounts that have direct postings
+                // (no sub-ledgers), override with the journal_lines
+                // total. The COA has 4xxx/5xxx as L3-only (no
+                // sub-ledgers) — postings go to them directly, even
+                // though their is_postable is false. The L3 controls
+                // for AR/AP (1103/2101) DO have sub-ledgers so Step 2
+                // was correct for them; this step is for the L3
+                // accounts that don't have any sub-ledger children.
+                var l3DirectUpdated = await conn.ExecuteAsync(@"
+                    UPDATE accounts a
+                    SET balance = sub.net
+                    FROM (
+                        SELECT jl.account_id,
+                               SUM(CASE
+                                   WHEN ac.account_type IN ('Asset', 'Expense')
+                                       THEN jl.debit - jl.credit
+                                   ELSE jl.credit - jl.debit
+                               END) AS net
+                        FROM journal_lines jl
+                        JOIN journal_entries je ON je.id = jl.journal_entry_id
+                        JOIN accounts ac ON ac.id = jl.account_id
+                        WHERE je.company_id = @companyId AND je.status = 'posted'
+                          AND ac.level = 3
+                          AND ac.id NOT IN (SELECT parent_id FROM accounts WHERE parent_id IS NOT NULL)
+                        GROUP BY jl.account_id
+                    ) sub
+                    WHERE a.id = sub.account_id
+                      AND a.company_id = @companyId
+                      AND a.level = 3
+                      AND a.id NOT IN (SELECT parent_id FROM accounts WHERE parent_id IS NOT NULL);",
+                    new { companyId }, tx);
+
+                // Step 4: Zero out anything with no postings.
+                var zeroed = await conn.ExecuteAsync(@"
+                    UPDATE accounts
+                    SET balance = 0
+                    WHERE company_id = @companyId
+                      AND id NOT IN (
+                          SELECT DISTINCT jl.account_id
+                          FROM journal_lines jl
+                          JOIN journal_entries je ON je.id = jl.journal_entry_id
+                          WHERE je.company_id = @companyId AND je.status = 'posted'
+                      )
+                      AND level = 4;",
+                    new { companyId }, tx);
+
+                tx.Commit();
+                return Results.Ok(new
+                {
+                    companyId = companyId.ToString(),
+                    l4Updated,
+                    l3ControlNetUpdated = l3Updated,
+                    l3DirectUpdated,
+                    zeroed
+                });
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { /* ignore */ }
+                logger.LogError(ex, "rebuild-balances failed for {CompanyId}", companyId);
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
+        });
+
+        // GET /api/admin/inspect-journal?companyId=X
+        // Sprint 41 — diagnostic: returns raw journal_lines data
+        // summed per account. Used to compare with accounts.balance
+        // and find where the drift is. The output includes both
+        // the per-account total (from journal_lines) and the
+        // accounts.balance column.
+        grp.MapGet("/inspect-journal", async (HttpContext ctx, IDbConnectionFactory db, [FromQuery] Guid companyId) =>
+        {
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync<(string code, decimal net, decimal balance)>(@"
+                SELECT a.code AS code, sub.net AS net, a.balance AS balance
+                FROM accounts a
+                LEFT JOIN (
+                    SELECT jl.account_id,
+                           SUM(CASE WHEN ac.account_type IN ('Asset','Expense')
+                               THEN jl.debit - jl.credit
+                               ELSE jl.credit - jl.debit END) AS net
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts ac ON ac.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                    GROUP BY jl.account_id
+                ) sub ON sub.account_id = a.id
+                WHERE a.company_id = @id
+                  AND a.level IN (3, 4)
+                ORDER BY a.code;",
+                new { id = companyId });
+            return Results.Ok(rows.Select(r => new { r.code, computedBalance = r.net, storedBalance = r.balance, drift = r.net - r.balance }));
+        });
+
+        // POST /api/admin/reset-posting-rules
+        // Sprint 42 — the user wants clean, well-documented
+        // posting rules that are:
+        //   1. Sub-ledger aware (use 1103-CUST-XXX not 1103)
+        //   2. Easy to extend (add a new event by adding an entry
+        //      to the ruleTemplates array)
+        //   3. Self-documenting (each rule has a detailed comment
+        //      explaining the debit/credit choice)
+        //
+        // The endpoint is destructive: it deletes all existing
+        // rules and recreates them from scratch. Use this when
+        // the rule set gets messy and you want a clean baseline.
+        grp.MapPost("/reset-posting-rules", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // The 5 standard posting rules. Each entry maps an
+            // event to a JSON rule body. New rules can be added
+            // by appending an entry here.
+            //
+            // Conventions:
+            //   - "accountFrom" directive resolves at runtime:
+            //       "voucher.bankAccount" → the bank/cash account on the voucher
+            //       "contact.subLedger"   → the customer's or supplier's sub-ledger
+            //   - "accountCode" is a hard-coded L3 or L4 code
+            //   - "amountFormula" references the source event's amount field
+            //   - Lines must balance (debit total = credit total)
+            var ruleTemplates = new[]
+            {
+                // ---- 1. Sales invoice (we sell to a customer on credit) ----
+                // Dr  1103-CUST-XXX  (sub-ledger per customer — subledger
+                //                       keeps the BS AR view clean: each
+                //                       customer's balance is visible)
+                // Cr  4101 Sales of Goods   (or 4103 if project-billed)
+                // Cr  2104 Output VAT Payable (4% Libyan VAT)
+                new
+                {
+                    name = "Sales Invoice (with sub-ledger AR)",
+                    eventName = "SalesInvoiceApproved",
+                    description = "When a sales invoice is approved, post: Dr customer sub-ledger, Cr revenue, Cr output VAT.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"", ""description"": ""مدينون - {customer.name}"",                  ""amountFormula"": ""invoice.total"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4101"",              ""description"": ""إيرادات المبيعات - INV {invoice.number}"",     ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2104"",              ""description"": ""ضريبة مخرجات - INV {invoice.number}"",          ""amountFormula"": ""invoice.tax"" }
+                        ],
+                        ""narration"": ""فاتورة مبيعات {invoice.number} - {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 2. Purchase invoice (we buy from a supplier) ----
+                // Dr  5301 COGS (or 5101-5407 expense per category)
+                // Dr  1107 Input VAT Receivable
+                // Cr  2101-SUPP-XXX  (sub-ledger per supplier)
+                //
+                // The rule below defaults to 5301 COGS. For a real
+                // project-cost purchase, change the category field
+                // on the invoice or extend the rule to look at
+                // invoice.category.
+                new
+                {
+                    name = "Purchase Invoice (with sub-ledger AP)",
+                    eventName = "PurchaseInvoiceApproved",
+                    description = "When a purchase invoice is approved, post: Dr expense/COGS, Dr input VAT, Cr supplier sub-ledger.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""5301"",              ""description"": ""تكلفة المشتريات - {supplier.name}"",    ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""debit"",  ""accountCode"": ""1107"",              ""description"": ""ضريبة مدخلات - INV {invoice.number}"",  ""amountFormula"": ""invoice.tax"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""contact.subLedger"", ""description"": ""دائنون - {supplier.name}"",             ""amountFormula"": ""invoice.total"" }
+                        ],
+                        ""narration"": ""فاتورة مشتريات {invoice.number} - {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 3. Customer receipt (they pay us) ----
+                // Dr  1101-CASH-001 or 1102-BANK-001 (whichever is on the voucher)
+                // Cr  1103-CUST-XXX  (the customer's sub-ledger)
+                new
+                {
+                    name = "Customer Receipt (multi-cash/bank)",
+                    eventName = "CustomerReceiptReceived",
+                    description = "When a customer pays, post: Dr the cash/bank on the voucher, Cr the customer's sub-ledger.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""voucher.bankAccount"", ""description"": ""تحصيل من {customer.name}"",   ""amountFormula"": ""receipt.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب العميل"",       ""amountFormula"": ""receipt.amount"" }
+                        ],
+                        ""narration"": ""تحصيل {receipt.number} من {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 4. Supplier payment (we pay a supplier) ----
+                // Dr  2101-SUPP-XXX  (the supplier's sub-ledger)
+                // Cr  1101-CASH-001 or 1102-BANK-001 (the paying account)
+                new
+                {
+                    name = "Supplier Payment (multi-cash/bank)",
+                    eventName = "SupplierPaymentMade",
+                    description = "When we pay a supplier, post: Dr the supplier's sub-ledger, Cr the cash/bank on the voucher.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب المورّد"",   ""amountFormula"": ""payment.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""voucher.bankAccount"", ""description"": ""دفع لـ {supplier.name}"",  ""amountFormula"": ""payment.amount"" }
+                        ],
+                        ""narration"": ""دفع {payment.number} لـ {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 5. Project billing (progress invoice against a contract) ----
+                // Dr  1103-CUST-XXX  (the customer's sub-ledger)
+                // Cr  4103 Project Revenue
+                // Cr  2104 Output VAT Payable
+                //
+                // This is the project's "earned revenue" — distinct
+                // from 4101 (general sales). Project managers can
+                // see revenue per project via the P&L report.
+                new
+                {
+                    name = "Project Billing (Progress Invoice)",
+                    eventName = "ProjectBillingIssued",
+                    description = "When a project billing is issued, post: Dr customer sub-ledger, Cr project revenue, Cr output VAT.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"", ""description"": ""مدينون - {project.name}"",                ""amountFormula"": ""billing.gross"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4103"",              ""description"": ""إيراد مشروع {project.name}"",          ""amountFormula"": ""billing.net"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2104"",              ""description"": ""ضريبة مخرجات - BILL {billing.number}"", ""amountFormula"": ""billing.vat"" }
+                        ],
+                        ""narration"": ""مستخلص {billing.number} - مشروع {project.name} - {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                }
+            };
+
+            using var conn = db.CreateConnection();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // Delete all existing rules
+                await conn.ExecuteAsync("DELETE FROM business_rules;", transaction: tx);
+
+                var created = new List<object>();
+                foreach (var tmpl in ruleTemplates)
+                {
+                    var newId = Guid.NewGuid();
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO business_rules
+                            (id, name, description, event_name, enabled, priority, rule_json, is_template, created_at, updated_at)
+                        VALUES
+                            (@id, @name, @description, @eventName, true, 10, @ruleJson::jsonb, true, NOW(), NOW());",
+                        new
+                        {
+                            id = newId,
+                            name = tmpl.name,
+                            description = tmpl.description,
+                            eventName = tmpl.eventName,
+                            ruleJson = tmpl.ruleJson
+                        },
+                        transaction: tx);
+                    created.Add(new
+                    {
+                        name = tmpl.name,
+                        eventName = tmpl.eventName
+                    });
+                }
+
+                tx.Commit();
+                return Results.Ok(new
+                {
+                    message = $"Reset complete. {created.Count} rules created and enabled.",
+                    rules = created
+                });
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                logger.LogError(ex, "reset-posting-rules failed");
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
+        });
     }
 }

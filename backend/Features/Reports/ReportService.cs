@@ -59,8 +59,18 @@ public class ReportService
         void AddLine(string code, string name, string type, string nature, decimal balance)
         {
             if (Math.Abs(balance) < 0.01m) return;
+            // Sprint 42 — use account_type to determine which side
+            // of the T-account the line goes on. The convention
+            // (matches the rebuild-balances endpoint):
+            //   - Asset / Expense: positive balance → Dr, negative → Cr
+            //   - Liability / Equity / Revenue: positive balance → Cr, negative → Dr
+            // The "nature" field is kept on the line for the UI but
+            // is no longer used for side determination — that broke
+            // contra-assets (e.g. 1202 Accum Dep) which are
+            // account_type=Asset but nature=Credit.
             decimal debitBal = 0, creditBal = 0;
-            if (nature == "Debit")
+            var isDebitNormal = type == "Asset" || type == "Expense";
+            if (isDebitNormal)
             {
                 if (balance >= 0) debitBal = balance;
                 else creditBal = -balance;
@@ -77,21 +87,19 @@ public class ReportService
 
         // L3 controls (with NET adjustment for those that have sub-ledgers)
         //
-        // Sprint 33 fix — same bug as BalanceSheet: the previous formula
-        // (|control| − Σ|sub|) assumed L3 always has the GROSS postings
-        // and L4 has the OFFSET. For Cash/Bank that's wrong: the L3
-        // control sits at 0 and the L4 sub-ledger IS the position. The
-        // correct formula is control + Σ sub (with natural signs).
+        // Sprint 42 fix — r.balance is ALREADY the NET (rebuild wrote
+        // it as sum of L4 sub-ledgers with natural signs). So we just
+        // use r.balance directly — adding subSum again would double-count.
+        // Sign convention is already encoded in the stored value:
+        //   - Asset/Expense: positive = Dr, negative = Cr
+        //   - Liability/Equity/Revenue: positive = Cr, negative = Dr
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal bal = r.balance;
             string name = r.name;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subSum = rows
-                    .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => s.balance);
-                bal = r.balance + subSum;
+                // r.balance is the NET — use it as-is.
                 if (Math.Abs(bal) < 0.01m) bal = 0;
                 name = $"{r.name} (غير مخصص)";
             }
@@ -126,7 +134,9 @@ public class ReportService
                 // Display-only: render the line but don't add to totals
                 if (Math.Abs(r.balance) < 0.01m) continue;
                 decimal d = 0, c = 0;
-                if (r.nature == "Debit")
+                // Sprint 42 — use account_type for side (see AddLine).
+                var isDebitNormal = r.account_type == "Asset" || r.account_type == "Expense";
+                if (isDebitNormal)
                 {
                     if (r.balance >= 0) d = r.balance;
                     else c = -r.balance;
@@ -289,23 +299,20 @@ public class ReportService
         // Process controls first (L3) — show NET balance when they
         // have sub-ledger children, full balance otherwise.
         //
-        // The NET formula (Sprint 33 fix): control.balance + Σsub_ledger.balance
+        // The NET formula (Sprint 42 fix): just use r.balance.
         //
-        // The previous formula (|control| − Σ|sub_ledger|) assumed the
-        // L3 control always carries the GROSS postings and the L4
-        // sub-ledgers always carry the OFFSET. That's true for AR/AP
-        // (invoices hit L3, receipts hit L4), but WRONG for Cash/Bank
-        // (no invoices hit L3 cash; the L4 sub-ledger 1101-CASH-001
-        // IS the actual cash position, with L3 at zero).
+        // The rebuild-balances endpoint sets L3 control = sum of its
+        // L4 sub-ledger balances (with natural signs for the account
+        // type). So r.balance is ALREADY the correct NET — we must
+        // NOT add subSum again or we'd double-count.
         //
-        // The correct NET is L3 + ΣL4 with natural signs:
-        //   AR:  10550 (L3 debit) + (-5800) (L4 credit) = 4750 unallocated ✓
-        //   Cash: 0 (L3) + 4800 (L4 debit) = 4800 actual cash ✓
-        //
-        // We still display the L3 control row with the NET figure
-        // (labelled "غير مخصص" = unallocated) and add each L4
-        // sub-ledger underneath, so the user sees both the gross
-        // picture and the per-contact detail.
+        // Sign convention (matches the rebuild):
+        //   - Asset / Expense accounts: positive balance = Dr magnitude,
+        //     negative balance = Cr (contra-asset like 1202)
+        //   - Liability / Equity: positive balance = Cr magnitude,
+        //     negative = Dr (unusual)
+        // The stored value already has the correct sign — we use it
+        // as-is for the total (no extra negation by nature).
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal amount;
@@ -313,11 +320,9 @@ public class ReportService
             string displayCode = r.code;
             if (subLedgerParentIds.Contains(r.id))
             {
-                // NET = control + Σ sub_ledger (natural signs)
-                var subSum = rows
-                    .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => s.balance);
-                amount = r.balance + subSum;
+                // r.balance is already the NET (rebuild wrote it
+                // as sum of L4 sub-ledgers with natural signs).
+                amount = r.balance;
                 if (Math.Abs(amount) < 0.01m) amount = 0;
                 displayCode = r.code;
                 displayName = $"{r.name} (غير مخصص)";
@@ -331,14 +336,10 @@ public class ReportService
             switch (r.account_type)
             {
                 case "Asset":
-                    // For debit-nature assets (Cash, AR, etc.) the
-                    // natural balance is positive → adds to assets.
-                    // For credit-nature assets (Accumulated Depreciation,
-                    // 1202) the natural balance of 30,000 represents
-                    // a $30,000 credit balance that REDUCES the asset
-                    // total. Negate the amount for credit-nature
-                    // assets so they show as a negative asset.
-                    var assetAmount = r.nature == "Credit" ? -amount : amount;
+                    // Stored sign already encodes the side: positive
+                    // for normal Dr balance, negative for contra-asset
+                    // (e.g. 1202 Accum Dep at -30,000 reduces total).
+                    var assetAmount = amount;
                     assets.Add(new BalanceSheetLine(displayCode, displayName, assetAmount));
                     totalAssets += assetAmount;
                     break;
@@ -364,12 +365,8 @@ public class ReportService
         //
         // IMPORTANT: L4 sub-ledgers are DISPLAY-ONLY. They do NOT
         // contribute to the total. The L3 NET line above already
-        // carries the correct group total (L3 + ΣL4 in natural signs):
-        //   AR:  10550 (L3) + (-5800) (L4) = 4750 → shown as 4750
-        //   Cash: 0 (L3) + 4800 (L4) = 4800 → shown as 4800
-        // If we added L4 amounts to the total separately we'd
-        // double-count for AR (4750 + 5800 = 10550) and would
-        // STILL be wrong for Cash (4800 + 4800 = 9600).
+        // carries the correct group total (rebuild wrote L3 = sum
+        // of L4 sub-ledgers with natural signs).
         foreach (var r in rows.Where(r => r.level == 4))
         {
             if (Math.Abs(r.balance) < 0.01m) continue; // skip zero rows
