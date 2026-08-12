@@ -734,8 +734,15 @@ public static class AdminEndpoints
         // and returns PASS/FAIL per check. Designed so the
         // orchestrator can call it once after a deploy and know
         // exactly what works and what doesn't.
-        grp.MapGet("/verify", async (HttpContext ctx, IDbConnectionFactory db, Guid companyId, HttpClient http) =>
+        grp.MapGet("/verify", async (HttpContext ctx, [FromServices] IDbConnectionFactory db, [FromServices] IHttpClientFactory httpFactory, Guid companyId) =>
         {
+            // The /verify endpoint needs to forward the incoming
+            // bearer token to itself (calling other endpoints on
+            // the same backend). IHttpClientFactory gives us a
+            // properly-configured client; we add the auth header
+            // per request.
+            var http = httpFactory.CreateClient("internal");
+            var auth = ctx.Request.Headers.Authorization.ToString();
             // Build a relative report URL set. We hit the same backend
             // we're running on, so use the request's scheme + host.
             var req = ctx.Request;
@@ -758,7 +765,6 @@ public static class AdminEndpoints
                 {
                     // Forward the bearer token from the incoming
                     // request — these endpoints require auth.
-                    var auth = req.Headers.Authorization.ToString();
                     http.DefaultRequestHeaders.Clear();
                     if (!string.IsNullOrEmpty(auth))
                         http.DefaultRequestHeaders.Add("Authorization", auth);

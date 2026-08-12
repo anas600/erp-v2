@@ -200,6 +200,10 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
+// HTTP client factory — used by /api/admin/verify to call the
+// report endpoints on the same backend.
+builder.Services.AddHttpClient("internal");
+
 // Database + Migrations
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings:Default not configured");
