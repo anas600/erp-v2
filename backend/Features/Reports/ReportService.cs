@@ -925,9 +925,11 @@ public class ReportService
         var opening = (openingInvoices ?? 0) - (openingVouchers ?? 0);
 
         // 3. Period invoices
+        //    NOTE: the invoices table has a `notes` column, not
+        //    `description`. We use notes as the description.
         var invoiceLines = new List<(DateTime date, string docType, string docNumber, string? desc, decimal dr, decimal cr)>();
-        var invRows = await conn.QueryAsync<(DateTime invoice_date, string invoice_number, string? description, decimal total, decimal amount_paid, string status)>(@"
-            SELECT invoice_date, invoice_number, description, total, amount_paid, status
+        var invRows = await conn.QueryAsync<(DateTime invoice_date, string invoice_number, string? notes, decimal total, decimal amount_paid, string status)>(@"
+            SELECT invoice_date, invoice_number, notes, total, amount_paid, status
             FROM invoices
             WHERE company_id = @companyId
               AND party_name = @partyName
@@ -949,7 +951,7 @@ public class ReportService
             if (outstanding <= 0 && inv.status == "paid") continue;
             var dr = isCustomer ? outstanding : 0m;
             var cr = isCustomer ? 0m : outstanding;
-            invoiceLines.Add((inv.invoice_date, invoiceDocType, inv.invoice_number, inv.description, dr, cr));
+            invoiceLines.Add((inv.invoice_date, invoiceDocType, inv.invoice_number, inv.notes, dr, cr));
         }
 
         // 4. Period vouchers
