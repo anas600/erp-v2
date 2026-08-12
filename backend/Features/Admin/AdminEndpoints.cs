@@ -742,7 +742,19 @@ public static class AdminEndpoints
             // properly-configured client; we add the auth header
             // per request.
             var http = httpFactory.CreateClient("internal");
-            var auth = ctx.Request.Headers.Authorization.ToString();
+
+            // Parse the incoming Authorization header once (it's
+            // "Bearer <token>"). The HttpClient is a different
+            // request flow than the incoming one, so we set
+            // AuthenticationHeaderValue directly which is the
+            // type-safe way to do this in .NET.
+            string? bearerToken = null;
+            var incomingAuth = ctx.Request.Headers.Authorization.ToString();
+            if (!string.IsNullOrEmpty(incomingAuth) && incomingAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                bearerToken = incomingAuth.Substring("Bearer ".Length).Trim();
+            }
+
             // Build a relative report URL set. We hit the same backend
             // we're running on, so use the request's scheme + host.
             var req = ctx.Request;
@@ -766,12 +778,13 @@ public static class AdminEndpoints
                     // Forward the bearer token from the incoming
                     // request — these endpoints require auth.
                     // Use HttpRequestMessage so the Authorization
-                    // header is set per-request (DefaultRequestHeaders
-                    // is shared and Clear() doesn't always work
-                    // reliably with IHttpClientFactory).
+                    // header is set per-request via the type-safe
+                    // AuthenticationHeaderValue (Add on the string
+                    // form is rejected by HttpClient for the
+                    // Authorization header).
                     using var msg = new HttpRequestMessage(HttpMethod.Get, url);
-                    if (!string.IsNullOrEmpty(auth))
-                        msg.Headers.Add("Authorization", auth);
+                    if (!string.IsNullOrEmpty(bearerToken))
+                        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
                     var resp = await http.SendAsync(msg);
                     var body = await resp.Content.ReadAsStringAsync();
 
