@@ -949,5 +949,94 @@ public static class AdminEndpoints
                 checks
             });
         });
+
+        // POST /api/admin/rebuild-balances?companyId=X
+        // Sprint 41 — the accounts.balance column can drift from
+        // journal_lines (e.g. when bulk-post runs through paths
+        // that update journal_entries.status but miss the
+        // accounts.balance UPDATE in PostingEngine, or when a
+        // migration is applied to historical data). This
+        // endpoint recomputes balances from the authoritative
+        // source (journal_lines, posted only) and writes them
+        // back to accounts.balance in a single transaction.
+        //
+        // It uses account_type for the sign convention:
+        //   - Asset / Expense: balance = Σ(debit - credit)
+        //   - Liability / Equity / Revenue: balance = Σ(credit - debit)
+        //
+        // This is the "natural" balance the PostingEngine itself
+        // uses, so the result matches what individual PostAsync
+        // calls would have produced.
+        grp.MapPost("/rebuild-balances", async (HttpContext ctx, IDbConnectionFactory db, [FromQuery] Guid companyId) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+
+            using var conn = db.CreateConnection();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // Recompute each account's balance from journal_lines
+                // using account_type for the sign. The previous
+                // value is overwritten (we're rebuilding from scratch).
+                var updated = await conn.ExecuteAsync(@"
+                    UPDATE accounts a
+                    SET balance = COALESCE(sub.net, 0)
+                    FROM (
+                        SELECT jl.account_id,
+                               SUM(CASE
+                                   WHEN ac.account_type IN ('Asset', 'Expense')
+                                       THEN jl.debit - jl.credit
+                                   ELSE jl.credit - jl.debit
+                               END) AS net
+                        FROM journal_lines jl
+                        JOIN journal_entries je ON je.id = jl.journal_entry_id
+                        JOIN accounts ac ON ac.id = jl.account_id
+                        WHERE je.company_id = @companyId AND je.status = 'posted'
+                        GROUP BY jl.account_id
+                    ) sub
+                    WHERE a.id = sub.account_id
+                      AND a.company_id = @companyId;",
+                    new { companyId }, tx);
+
+                // Reset any account with no postings to 0 (in case
+                // it had stale data from a buggy prior run).
+                var zeroed = await conn.ExecuteAsync(@"
+                    UPDATE accounts
+                    SET balance = 0
+                    WHERE company_id = @companyId
+                      AND id NOT IN (
+                          SELECT DISTINCT jl.account_id
+                          FROM journal_lines jl
+                          JOIN journal_entries je ON je.id = jl.journal_entry_id
+                          WHERE je.company_id = @companyId AND je.status = 'posted'
+                      );",
+                    new { companyId }, tx);
+
+                tx.Commit();
+                return Results.Ok(new
+                {
+                    companyId = companyId.ToString(),
+                    accountsUpdated = updated,
+                    accountsZeroed = zeroed
+                });
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { /* ignore */ }
+                logger.LogError(ex, "rebuild-balances failed for {CompanyId}", companyId);
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
+        });
     }
 }
