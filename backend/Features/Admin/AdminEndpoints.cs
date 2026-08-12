@@ -775,17 +775,16 @@ public static class AdminEndpoints
             {
                 try
                 {
-                    // Forward the bearer token from the incoming
-                    // request — these endpoints require auth.
-                    // Use HttpRequestMessage so the Authorization
-                    // header is set per-request via the type-safe
-                    // AuthenticationHeaderValue (Add on the string
-                    // form is rejected by HttpClient for the
-                    // Authorization header).
-                    using var msg = new HttpRequestMessage(HttpMethod.Get, url);
+                    // Set the Authorization header directly on the
+                    // shared client. It's a static auth token
+                    // (no per-request variation) so this is safe.
+                    // (DefaultRequestHeaders.Authorization is the
+                    // type-safe property that works.)
                     if (!string.IsNullOrEmpty(bearerToken))
-                        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
-                    var resp = await http.SendAsync(msg);
+                        http.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
+                    var resp = await http.GetAsync(url);
                     var body = await resp.Content.ReadAsStringAsync();
 
                     object? data = null;
