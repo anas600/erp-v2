@@ -765,11 +765,14 @@ public static class AdminEndpoints
                 {
                     // Forward the bearer token from the incoming
                     // request — these endpoints require auth.
-                    http.DefaultRequestHeaders.Clear();
+                    // Use HttpRequestMessage so the Authorization
+                    // header is set per-request (DefaultRequestHeaders
+                    // is shared and Clear() doesn't always work
+                    // reliably with IHttpClientFactory).
+                    using var msg = new HttpRequestMessage(HttpMethod.Get, url);
                     if (!string.IsNullOrEmpty(auth))
-                        http.DefaultRequestHeaders.Add("Authorization", auth);
-
-                    var resp = await http.GetAsync(url);
+                        msg.Headers.Add("Authorization", auth);
+                    var resp = await http.SendAsync(msg);
                     var body = await resp.Content.ReadAsStringAsync();
 
                     object? data = null;
