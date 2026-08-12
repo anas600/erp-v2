@@ -1196,6 +1196,212 @@ public static class AdminEndpoints
                 ORDER BY a.code;",
                 new { id = companyId });
             return Results.Ok(rows.Select(r => new { r.code, computedBalance = r.net, storedBalance = r.balance, drift = r.net - r.balance }));
+        // POST /api/admin/reset-posting-rules
+        // Sprint 42 — the user wants clean, well-documented
+        // posting rules that are:
+        //   1. Sub-ledger aware (use 1103-CUST-XXX not 1103)
+        //   2. Easy to extend (add a new event by adding an entry
+        //      to the ruleTemplates array)
+        //   3. Self-documenting (each rule has a detailed comment
+        //      explaining the debit/credit choice)
+        //
+        // The endpoint is destructive: it deletes all existing
+        // rules and recreates them from scratch. Use this when
+        // the rule set gets messy and you want a clean baseline.
+        grp.MapPost("/reset-posting-rules", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // The 5 standard posting rules. Each entry maps an
+            // event to a JSON rule body. New rules can be added
+            // by appending an entry here.
+            //
+            // Conventions:
+            //   - "accountFrom" directive resolves at runtime:
+            //       "voucher.bankAccount" → the bank/cash account on the voucher
+            //       "contact.subLedger"   → the customer's or supplier's sub-ledger
+            //   - "accountCode" is a hard-coded L3 or L4 code
+            //   - "amountFormula" references the source event's amount field
+            //   - Lines must balance (debit total = credit total)
+            var ruleTemplates = new[]
+            {
+                // ---- 1. Sales invoice (we sell to a customer on credit) ----
+                // Dr  1103-CUST-XXX  (sub-ledger per customer — subledger
+                //                       keeps the BS AR view clean: each
+                //                       customer's balance is visible)
+                // Cr  4101 Sales of Goods   (or 4103 if project-billed)
+                // Cr  2104 Output VAT Payable (4% Libyan VAT)
+                new
+                {
+                    name = "Sales Invoice (with sub-ledger AR)",
+                    eventName = "SalesInvoiceApproved",
+                    description = "When a sales invoice is approved, post: Dr customer sub-ledger, Cr revenue, Cr output VAT.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"", ""description"": ""مدينون - {customer.name}"",                  ""amountFormula"": ""invoice.total"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4101"",              ""description"": ""إيرادات المبيعات - INV {invoice.number}"",     ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2104"",              ""description"": ""ضريبة مخرجات - INV {invoice.number}"",          ""amountFormula"": ""invoice.tax"" }
+                        ],
+                        ""narration"": ""فاتورة مبيعات {invoice.number} - {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 2. Purchase invoice (we buy from a supplier) ----
+                // Dr  5301 COGS (or 5101-5407 expense per category)
+                // Dr  1107 Input VAT Receivable
+                // Cr  2101-SUPP-XXX  (sub-ledger per supplier)
+                //
+                // The rule below defaults to 5301 COGS. For a real
+                // project-cost purchase, change the category field
+                // on the invoice or extend the rule to look at
+                // invoice.category.
+                new
+                {
+                    name = "Purchase Invoice (with sub-ledger AP)",
+                    eventName = "PurchaseInvoiceApproved",
+                    description = "When a purchase invoice is approved, post: Dr expense/COGS, Dr input VAT, Cr supplier sub-ledger.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountCode"": ""5301"",              ""description"": ""تكلفة المشتريات - {supplier.name}"",    ""amountFormula"": ""invoice.subtotal"" },
+                          { ""nature"": ""debit"",  ""accountCode"": ""1107"",              ""description"": ""ضريبة مدخلات - INV {invoice.number}"",  ""amountFormula"": ""invoice.tax"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""contact.subLedger"", ""description"": ""دائنون - {supplier.name}"",             ""amountFormula"": ""invoice.total"" }
+                        ],
+                        ""narration"": ""فاتورة مشتريات {invoice.number} - {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 3. Customer receipt (they pay us) ----
+                // Dr  1101-CASH-001 or 1102-BANK-001 (whichever is on the voucher)
+                // Cr  1103-CUST-XXX  (the customer's sub-ledger)
+                new
+                {
+                    name = "Customer Receipt (multi-cash/bank)",
+                    eventName = "CustomerReceiptReceived",
+                    description = "When a customer pays, post: Dr the cash/bank on the voucher, Cr the customer's sub-ledger.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""voucher.bankAccount"", ""description"": ""تحصيل من {customer.name}"",   ""amountFormula"": ""receipt.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب العميل"",       ""amountFormula"": ""receipt.amount"" }
+                        ],
+                        ""narration"": ""تحصيل {receipt.number} من {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 4. Supplier payment (we pay a supplier) ----
+                // Dr  2101-SUPP-XXX  (the supplier's sub-ledger)
+                // Cr  1101-CASH-001 or 1102-BANK-001 (the paying account)
+                new
+                {
+                    name = "Supplier Payment (multi-cash/bank)",
+                    eventName = "SupplierPaymentMade",
+                    description = "When we pay a supplier, post: Dr the supplier's sub-ledger, Cr the cash/bank on the voucher.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"",   ""description"": ""تسوية حساب المورّد"",   ""amountFormula"": ""payment.amount"" },
+                          { ""nature"": ""credit"", ""accountFrom"": ""voucher.bankAccount"", ""description"": ""دفع لـ {supplier.name}"",  ""amountFormula"": ""payment.amount"" }
+                        ],
+                        ""narration"": ""دفع {payment.number} لـ {supplier.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                },
+
+                // ---- 5. Project billing (progress invoice against a contract) ----
+                // Dr  1103-CUST-XXX  (the customer's sub-ledger)
+                // Cr  4103 Project Revenue
+                // Cr  2104 Output VAT Payable
+                //
+                // This is the project's "earned revenue" — distinct
+                // from 4101 (general sales). Project managers can
+                // see revenue per project via the P&L report.
+                new
+                {
+                    name = "Project Billing (Progress Invoice)",
+                    eventName = "ProjectBillingIssued",
+                    description = "When a project billing is issued, post: Dr customer sub-ledger, Cr project revenue, Cr output VAT.",
+                    ruleJson = @"{
+                      ""actions"": [{
+                        ""type"": ""PostJournalEntry"",
+                        ""lines"": [
+                          { ""nature"": ""debit"",  ""accountFrom"": ""contact.subLedger"", ""description"": ""مدينون - {project.name}"",                ""amountFormula"": ""billing.gross"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""4103"",              ""description"": ""إيراد مشروع {project.name}"",          ""amountFormula"": ""billing.net"" },
+                          { ""nature"": ""credit"", ""accountCode"": ""2104"",              ""description"": ""ضريبة مخرجات - BILL {billing.number}"", ""amountFormula"": ""billing.vat"" }
+                        ],
+                        ""narration"": ""مستخلص {billing.number} - مشروع {project.name} - {customer.name}""
+                      }],
+                      ""conditions"": { ""all"": [] }
+                    }"
+                }
+            };
+
+            using var conn = db.CreateConnection();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // Delete all existing rules
+                await conn.ExecuteAsync("DELETE FROM business_rules;", transaction: tx);
+
+                var created = new List<object>();
+                foreach (var tmpl in ruleTemplates)
+                {
+                    var newId = Guid.NewGuid();
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO business_rules
+                            (id, name, description, event_name, enabled, priority, rule_json, is_template, created_at, updated_at)
+                        VALUES
+                            (@id, @name, @description, @eventName, true, 10, @ruleJson::jsonb, true, NOW(), NOW());",
+                        new
+                        {
+                            id = newId,
+                            name = tmpl.name,
+                            description = tmpl.description,
+                            eventName = tmpl.eventName,
+                            ruleJson = tmpl.ruleJson
+                        },
+                        transaction: tx);
+                    created.Add(new
+                    {
+                        name = tmpl.name,
+                        event = tmpl.eventName
+                    });
+                }
+
+                tx.Commit();
+                return Results.Ok(new
+                {
+                    message = $"Reset complete. {created.Count} rules created and enabled.",
+                    rules = created
+                });
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                logger.LogError(ex, "reset-posting-rules failed");
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
         });
     }
 }
