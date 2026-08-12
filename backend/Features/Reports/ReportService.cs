@@ -87,21 +87,19 @@ public class ReportService
 
         // L3 controls (with NET adjustment for those that have sub-ledgers)
         //
-        // Sprint 33 fix — same bug as BalanceSheet: the previous formula
-        // (|control| − Σ|sub|) assumed L3 always has the GROSS postings
-        // and L4 has the OFFSET. For Cash/Bank that's wrong: the L3
-        // control sits at 0 and the L4 sub-ledger IS the position. The
-        // correct formula is control + Σ sub (with natural signs).
+        // Sprint 42 fix — r.balance is ALREADY the NET (rebuild wrote
+        // it as sum of L4 sub-ledgers with natural signs). So we just
+        // use r.balance directly — adding subSum again would double-count.
+        // Sign convention is already encoded in the stored value:
+        //   - Asset/Expense: positive = Dr, negative = Cr
+        //   - Liability/Equity/Revenue: positive = Cr, negative = Dr
         foreach (var r in rows.Where(r => r.level == 3))
         {
             decimal bal = r.balance;
             string name = r.name;
             if (subLedgerParentIds.Contains(r.id))
             {
-                var subSum = rows
-                    .Where(s => s.level == 4 && s.parent_id == r.id)
-                    .Sum(s => s.balance);
-                bal = r.balance + subSum;
+                // r.balance is the NET — use it as-is.
                 if (Math.Abs(bal) < 0.01m) bal = 0;
                 name = $"{r.name} (غير مخصص)";
             }
