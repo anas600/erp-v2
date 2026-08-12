@@ -112,6 +112,67 @@ public static class ReportEndpoints
                 : Results.Ok(report);
         });
 
+        // Sprint 44 — Sub-ledger Schedule (كشف الحسابات التحليلية).
+        //
+        // Returns every L4 sub-ledger under an L3 control account
+        // with its current balance. The frontend uses this from the
+        // General Ledger page when the user picks an L3 control
+        // account: instead of "no movements" (which is technically
+        // correct — L3 is not postable), we show a reconciliation
+        // schedule so the reader can verify the L3 control equals
+        // the sum of its sub-ledgers.
+        //
+        // This is also the natural drill-down from the Trial
+        // Balance: the L3 line "1103 = 3,066,327.56" can be
+        // expanded into "1103-CUST-001 + CUST-002 + ...".
+        grp.MapGet("/sub-ledger-schedule", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] Guid accountId,
+            [FromServices] ReportService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            if (accountId == Guid.Empty) return Results.BadRequest(new { error = "accountId required" });
+            var report = await svc.GetSubLedgerScheduleAsync(companyId, accountId);
+            return report is null
+                ? Results.NotFound(new { error = "Account not found or not an L3 control account" })
+                : Results.Ok(report);
+        });
+
+        // Sprint 44 — Contact Statement (كشف حساب عميل/مورد).
+        //
+        // Returns every invoice + voucher for a single contact in a
+        // date range, with a running balance. The frontend uses this
+        // from the Aging pages (Tab 2) and from the contact detail
+        // page to give the user a full ledger-style view of one
+        // contact's financial activity.
+        //
+        // Sign convention: positive = the contact owes us (customer)
+        // or we owe them (supplier). A payment/receipt is a credit
+        // because it reduces the contact's outstanding balance.
+        grp.MapGet("/contact-statement", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] Guid contactId,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
+            [FromServices] ReportService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            if (contactId == Guid.Empty) return Results.BadRequest(new { error = "contactId required" });
+
+            var now = DateTime.UtcNow;
+            var fromDate = from ?? new DateTime(now.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var toDate = to ?? now;
+            if (toDate.TimeOfDay == TimeSpan.Zero && toDate.Kind != DateTimeKind.Utc)
+            {
+                toDate = DateTime.SpecifyKind(toDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+            }
+
+            var report = await svc.GetContactStatementAsync(companyId, contactId, fromDate, toDate);
+            return report is null
+                ? Results.NotFound(new { error = "Contact not found" })
+                : Results.Ok(report);
+        });
+
         // Customer Aging (أعمار المدينين)
         grp.MapGet("/customer-aging", async (
             [FromQuery] Guid companyId,

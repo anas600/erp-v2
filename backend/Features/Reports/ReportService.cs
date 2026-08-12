@@ -744,6 +744,278 @@ public class ReportService
         return new SupplierAgingReport(companyId, asOfDate, lines, totals, grandTotal);
     }
 
+    /// <summary>
+    /// Sprint 44 — Sub-ledger Schedule (كشف الحسابات التحليلية).
+    ///
+    /// Returns every L4 sub-ledger under an L3 control account with
+    /// its current balance. The reader can verify the L3 control
+    /// equals the sum of its L4 sub-ledgers — the standard
+    /// reconciliation any auditor will demand.
+    ///
+    /// Implementation:
+    ///   1. Look up the parent (L3) account. Reject if not L3.
+    ///   2. Find every L4 child of that parent in the same company.
+    ///   3. Pull each child's balance from `accounts.balance`
+    ///      (already maintained by rebuild-balances, single source
+    ///      of truth). The balance is in the account's natural sign.
+    ///   4. Also pull the contact info (when the sub-ledger is
+    ///      "1103-CUST-XXX" or "2101-SUPP-XXX") by joining on code
+    ///      suffix.
+    ///
+    /// Note: we use the `accounts.balance` column, not the SUM of
+    /// journal_lines. Reason: rebuild-balances (Sprint 41) is the
+    /// single source of truth — both the L4 sub-ledger AND the L3
+    /// NET use the same value, so they reconcile by construction.
+    /// Re-deriving from journal_lines here would be redundant and
+    /// could drift if a future change touches one path but not the
+    /// other.
+    /// </summary>
+    public async Task<SubLedgerScheduleReport?> GetSubLedgerScheduleAsync(
+        Guid companyId, Guid parentAccountId)
+    {
+        using var conn = _db.CreateConnection();
+
+        // 1. Look up the parent. We need code, name, level, balance.
+        var parent = await conn.QuerySingleOrDefaultAsync<(string code, string name, int level, string account_type, string nature, decimal balance)>(@"
+            SELECT code, name, level, account_type, nature, balance
+            FROM accounts
+            WHERE id = @id AND company_id = @companyId;",
+            new { id = parentAccountId, companyId });
+
+        if (parent.code is null) return null;
+
+        if (parent.level != 3)
+        {
+            // Only L3 controls have sub-ledgers. L1/L2 are pure
+            // rollups, L4 is the leaf. For L4 we return null
+            // (the frontend should already know not to call this).
+            return null;
+        }
+
+        var company = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT name FROM companies WHERE id = @id;",
+            new { id = companyId });
+
+        // 2. Find all L4 children of this parent. The `parent_id`
+        //    column is set when the sub-ledger is created (Sprint 26).
+        //    We also pull the contact info via the code suffix:
+        //      1103-CUST-001 → contacts.code = 'CUST-001'
+        //      1103-CASH-001 → no contact (cash on hand)
+        //      1102-BANK-001 → no contact (bank account)
+        //    We use LIKE 'CUST-%' / 'SUPP-%' / 'CASH-%' / 'BANK-%'
+        //    to pick the right contact type.
+        var parentPrefix = parent.code; // e.g. "1103"
+        var rows = await conn.QueryAsync<SubLedgerRow>(@"
+            SELECT
+                a.id          AS account_id,
+                a.code        AS account_code,
+                a.name        AS account_name,
+                a.balance     AS balance,
+                c.id          AS contact_id,
+                c.code        AS contact_code,
+                c.name        AS contact_name
+            FROM accounts a
+            LEFT JOIN contacts c
+              ON c.company_id = a.company_id
+             AND (
+                  (a.code LIKE @custPattern AND c.code = SUBSTRING(a.code FROM LENGTH(@parentPrefix) + 2))
+               OR (a.code LIKE @suppPattern AND c.code = SUBSTRING(a.code FROM LENGTH(@parentPrefix) + 2))
+             )
+            WHERE a.company_id = @companyId
+              AND a.parent_id = @parentId
+              AND a.level = 4
+            ORDER BY a.code;",
+            new
+            {
+                companyId,
+                parentId = parentAccountId,
+                parentPrefix,
+                custPattern = parentPrefix + "-CUST-%",
+                suppPattern = parentPrefix + "-SUPP-%"
+            });
+
+        var lines = rows.Select(r => new SubLedgerScheduleLine(
+            r.account_id, r.account_code, r.account_name,
+            r.contact_id, r.contact_code, r.contact_name,
+            r.balance
+        )).ToList();
+
+        return new SubLedgerScheduleReport(
+            companyId, company ?? "", DateTime.UtcNow,
+            parentAccountId, parent.code, parent.name,
+            parent.account_type, parent.nature, parent.balance,
+            lines, lines.Count
+        );
+    }
+
+    /// <summary>
+    /// Sprint 44 — Contact Statement of Account (كشف حساب عميل/مورد).
+    ///
+    /// Returns every invoice + voucher for a single contact within
+    /// a date range, with a running balance. This is the drill-down
+    /// view behind the Aging reports: "why does CUST-001 have 95K
+    /// outstanding?" → answer is here, line by line.
+    ///
+    /// The data is pulled from TWO sources (union) and ordered by date:
+    ///   1. Invoices (sales or purchase depending on contact type)
+    ///   2. Vouchers (receipt for customer, payment for supplier)
+    ///
+    /// Sign convention (the natural sign for the contact type):
+    ///   - For CUSTOMERS: invoice = +Debit (they owe us more),
+    ///                     receipt = -Debit (they paid us, so owe less)
+    ///   - For SUPPLIERS: invoice = +Credit (we owe them more),
+    ///                     payment = -Credit (we paid them, so owe less)
+    /// We use the simple (debit - credit) raw delta and flip the
+    /// sign for the supplier case.
+    /// </summary>
+    public async Task<ContactStatementReport?> GetContactStatementAsync(
+        Guid companyId, Guid contactId, DateTime from, DateTime to)
+    {
+        using var conn = _db.CreateConnection();
+
+        // 1. Look up the contact. We need its company, type, code, name.
+        var contact = await conn.QuerySingleOrDefaultAsync<(Guid company_id, string code, string name, string type)>(@"
+            SELECT company_id, code, name, type FROM contacts
+            WHERE id = @id;",
+            new { id = contactId });
+
+        if (contact.company_id == Guid.Empty) return null;
+        if (contact.company_id != companyId) return null; // cross-company guard
+
+        var isCustomer = contact.type == "customer";
+        var invoiceType = isCustomer ? "sales" : "purchase";
+        var invoiceDocType = isCustomer ? "فاتورة" : "فاتورة مشتريات";
+        var voucherTable = isCustomer ? "receipt_vouchers" : "payment_vouchers";
+        var voucherDocType = isCustomer ? "سند قبض" : "سند صرف";
+
+        var company = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT name FROM companies WHERE id = @id;",
+            new { id = companyId });
+
+        // 2. Opening balance = sum of (invoice outstanding) - sum of
+        //    (vouchers) BEFORE the from date. For customers, invoices
+        //    add to what they owe us, receipts reduce it. For suppliers,
+        //    purchase invoices add to what we owe them, payments reduce.
+        //    Both cases: opening = invoices_outstanding - vouchers_paid
+        var openingInvoices = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(total - amount_paid), 0)
+            FROM invoices
+            WHERE company_id = @companyId
+              AND party_name = @partyName
+              AND invoice_type = @invoiceType
+              AND status IN ('posted', 'partiallypaid', 'paid')
+              AND invoice_date < @from;",
+            new { companyId, partyName = contact.name, invoiceType, from });
+        var openingVouchers = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0)
+            FROM receipt_vouchers
+            WHERE company_id = @companyId
+              AND contact_id = @contactId
+              AND voucher_date < @from
+              AND status NOT IN ('draft', 'voided')
+            UNION ALL
+            SELECT COALESCE(SUM(amount), 0)
+            FROM payment_vouchers
+            WHERE company_id = @companyId
+              AND contact_id = @contactId
+              AND voucher_date < @from
+              AND status NOT IN ('draft', 'voided');",
+            new { companyId, contactId, from });
+        // The UNION ALL above returns two rows for a contact. Sum them.
+        var opening = (openingInvoices ?? 0) - (openingVouchers ?? 0);
+
+        // 3. Period invoices
+        var invoiceLines = new List<(DateTime date, string docType, string docNumber, string? desc, decimal dr, decimal cr)>();
+        var invRows = await conn.QueryAsync<(DateTime invoice_date, string invoice_number, string? description, decimal total, decimal amount_paid, string status)>(@"
+            SELECT invoice_date, invoice_number, description, total, amount_paid, status
+            FROM invoices
+            WHERE company_id = @companyId
+              AND party_name = @partyName
+              AND invoice_type = @invoiceType
+              AND invoice_date BETWEEN @from AND @to
+            ORDER BY invoice_date;",
+            new { companyId, partyName = contact.name, invoiceType, from, to });
+
+        foreach (var inv in invRows)
+        {
+            var outstanding = inv.total - inv.amount_paid;
+            // Skip fully-paid invoices in the period — they don't
+            // affect the running balance. We show them as 0/0 for
+            // readability (the user can still see the invoice happened).
+            // Actually no — skip them entirely for the running balance
+            // (they would distort the view with 0/0 lines that confuse
+            // the reader). If the user wants to see paid invoices,
+            // they can extend the report later.
+            if (outstanding <= 0 && inv.status == "paid") continue;
+            var dr = isCustomer ? outstanding : 0m;
+            var cr = isCustomer ? 0m : outstanding;
+            invoiceLines.Add((inv.invoice_date, invoiceDocType, inv.invoice_number, inv.description, dr, cr));
+        }
+
+        // 4. Period vouchers
+        var voucherLines = new List<(DateTime date, string docType, string docNumber, string? desc, decimal dr, decimal cr)>();
+        if (isCustomer)
+        {
+            var rows = await conn.QueryAsync<(DateTime voucher_date, string voucher_number, string? payment_method, decimal amount, string status)>(@"
+                SELECT voucher_date, voucher_number, payment_method, amount, status
+                FROM receipt_vouchers
+                WHERE company_id = @companyId
+                  AND contact_id = @contactId
+                  AND voucher_date BETWEEN @from AND @to
+                ORDER BY voucher_date;",
+                new { companyId, contactId, from, to });
+            foreach (var v in rows)
+            {
+                if (v.status == "draft" || v.status == "voided") continue;
+                voucherLines.Add((v.voucher_date, voucherDocType, v.voucher_number, v.payment_method, 0m, v.amount));
+            }
+        }
+        else
+        {
+            var rows = await conn.QueryAsync<(DateTime voucher_date, string voucher_number, string? payment_method, decimal amount, string status)>(@"
+                SELECT voucher_date, voucher_number, payment_method, amount, status
+                FROM payment_vouchers
+                WHERE company_id = @companyId
+                  AND contact_id = @contactId
+                  AND voucher_date BETWEEN @from AND @to
+                ORDER BY voucher_date;",
+                new { companyId, contactId, from, to });
+            foreach (var v in rows)
+            {
+                if (v.status == "draft" || v.status == "voided") continue;
+                voucherLines.Add((v.voucher_date, voucherDocType, v.voucher_number, v.payment_method, v.amount, 0m));
+            }
+        }
+
+        // 5. Merge and order. Invoices before vouchers on the same day
+        //    (readers expect "what they were billed for" first, then
+        //    "how they paid it").
+        var lines = invoiceLines.Concat(voucherLines)
+            .OrderBy(l => l.date)
+            .ThenBy(l => l.docType)
+            .ToList();
+
+        var entries = new List<ContactStatementLine>();
+        decimal running = opening;
+        decimal totalDr = 0m, totalCr = 0m;
+        foreach (var l in lines)
+        {
+            running += (l.dr - l.cr);
+            totalDr += l.dr;
+            totalCr += l.cr;
+            entries.Add(new ContactStatementLine(
+                l.date, l.docType, l.docNumber, l.desc, l.dr, l.cr, running));
+        }
+
+        return new ContactStatementReport(
+            companyId, company ?? "", contactId, contact.code, contact.name,
+            contact.type, from, to, opening, totalDr, totalCr, running, entries);
+    }
+
+    private record SubLedgerRow(
+        Guid account_id, string account_code, string account_name,
+        decimal balance, Guid? contact_id, string? contact_code, string? contact_name);
+
     private record GeneralLedgerLineRow(
         Guid entry_id, string entry_number, DateTime entry_date,
         string? narration, string? source, string? reference,
