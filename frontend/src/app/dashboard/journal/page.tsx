@@ -64,6 +64,20 @@ export default function JournalPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Sprint 41 — pagination state. The backend's GET /api/journal
+  // returns {items, total, limit, offset} when ?limit and ?offset
+  // are passed. We use a fixed page size of 50 and let the user
+  // step forward/backward. The page navigator shows page N of
+  // ceil(total / limit).
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(50);
+  const [totalEntries, setTotalEntries] = useState(0);
+  // Sprint 41 — bulk-action state. The two buttons at the top of
+  // the table trigger POST /api/journal/bulk-approve and
+  // POST /api/journal/bulk-post. The backend returns
+  // {approved, posted, failed, succeededIds, failures}.
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const [form, setForm] = useState({
     entryDate: new Date().toISOString().slice(0, 10),
@@ -86,12 +100,28 @@ export default function JournalPage() {
     if (!activeCompany) return;
     try {
       setLoading(true);
+      // Sprint 41 — paginated journal fetch. The backend's
+      // GET /api/journal accepts ?limit= and ?offset= query
+      // params and returns {items, total, limit, offset}.
+      // We only show the active page; the page navigator at
+      // the bottom uses total to know how many pages there are.
+      const offset = page * pageSize;
+      const statusQuery = statusFilter === "all" ? "" : `&status=${statusFilter}`;
       const [entriesRes, accountsRes, ccRes] = await Promise.all([
-        api.get(`/journal?companyId=${activeCompany.id}`),
+        api.get(`/journal?companyId=${activeCompany.id}&limit=${pageSize}&offset=${offset}${statusQuery}`),
         api.get(`/accounts?companyId=${activeCompany.id}`),
         api.get(`/cost-centers?companyId=${activeCompany.id}`).catch(() => ({ data: [] }))
       ]);
-      setEntries(entriesRes.data);
+      // The backend returns either a flat array (legacy) or
+      // {items, total, ...} (Sprint 41). Handle both.
+      const data = entriesRes.data;
+      if (Array.isArray(data)) {
+        setEntries(data);
+        setTotalEntries(data.length);
+      } else {
+        setEntries(data.items || []);
+        setTotalEntries(data.total || 0);
+      }
       setAccounts(accountsRes.data);
       setCostCenters(ccRes.data);
     } catch (err) {
@@ -101,7 +131,51 @@ export default function JournalPage() {
     }
   };
 
-  useEffect(() => { load(); }, [activeCompany]);
+  useEffect(() => { load(); }, [activeCompany, page, statusFilter]);
+
+  // Sprint 41 — bulk approve all draft entries. Calls
+  // POST /api/journal/bulk-approve?companyId=X which returns
+  // {approved, failed, succeededIds, failures}. Useful when
+  // the seeder has stacked up dozens of drafts (e.g. on first
+  // deploy or after a migration).
+  const bulkApproveAll = async () => {
+    if (!activeCompany) return;
+    if (!confirm("موافقة كل القيود المعلّقة لهذه الشركة؟")) return;
+    try {
+      setBulkProcessing(true);
+      const res = await api.post(`/journal/bulk-approve?companyId=${activeCompany.id}`);
+      const data = res.data;
+      setSuccessMessage(`تمت الموافقة على ${data.approved} قيد${data.failed > 0 ? `، فشل ${data.failed}` : ""}`);
+      await load();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setBulkProcessing(false);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    }
+  };
+
+  // Sprint 41 — bulk post all approved entries. Calls
+  // POST /api/journal/bulk-post?companyId=X. With the
+  // trusted-accountant flow + auto-seed, this is rarely
+  // needed; useful when migrating from a state where lots
+  // of drafts accumulated (e.g. from a faulty old run).
+  const bulkPostAll = async () => {
+    if (!activeCompany) return;
+    if (!confirm("ترحيل كل القيود المعلّقة لهذه الشركة؟ هذا الإجراء نهائي.")) return;
+    try {
+      setBulkProcessing(true);
+      const res = await api.post(`/journal/bulk-post?companyId=${activeCompany.id}`);
+      const data = res.data;
+      setSuccessMessage(`تم ترحيل ${data.posted} قيد${data.failed > 0 ? `، فشل ${data.failed}` : ""}`);
+      await load();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setBulkProcessing(false);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    }
+  };
 
   // Auto-refresh every 30s. The user reported a manual draft
   // they saved that "didn't appear" — in their case the row
@@ -245,10 +319,35 @@ export default function JournalPage() {
           <h1 className="text-2xl font-bold text-ink-strong">القيود اليومية</h1>
           <p className="text-sm text-ink-muted mt-1">إنشاء وإدارة و ترحيل القيود المحاسبية</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary">
-          <Plus size={18} />
-          قيد جديد
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Sprint 41 — bulk actions. The two buttons trigger
+              the bulk-approve and bulk-post endpoints. They
+              only show when the user has at least one entry
+              to act on (the backend returns 0 if nothing to
+              do, but we still let the user try). */}
+          <button
+            onClick={bulkApproveAll}
+            disabled={bulkProcessing}
+            className="btn-secondary"
+            title="موافقة كل القيود المعلّقة دفعة واحدة"
+          >
+            {bulkProcessing ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle size={18} />}
+            موافقة الكل
+          </button>
+          <button
+            onClick={bulkPostAll}
+            disabled={bulkProcessing}
+            className="btn-secondary"
+            title="ترحيل كل القيود المعلّقة دفعة واحدة"
+          >
+            {bulkProcessing ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            ترحيل الكل
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn-primary">
+            <Plus size={18} />
+            قيد جديد
+          </button>
+        </div>
       </div>
 
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
@@ -405,6 +504,52 @@ export default function JournalPage() {
               )}
             </tbody>
           </table>
+        )}
+
+        {/* Sprint 41 — pagination + status filter. The page
+            navigator shows the current page and total count
+            (from the backend's `total` field), with prev/next
+            buttons. The status filter lets the user drill
+            down to draft-only or posted-only without leaving
+            the page. */}
+        {!loading && totalEntries > 0 && (
+          <div className="mt-4 flex items-center justify-between border-t border-ink-border pt-3">
+            <div className="flex items-center gap-2 text-sm text-ink-muted">
+              <label>تصفية:</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => { setPage(0); setStatusFilter(e.target.value); }}
+                className="input py-1 text-sm"
+              >
+                <option value="all">الكل</option>
+                <option value="draft">مسودة</option>
+                <option value="posted">مرحّل</option>
+                <option value="pending">معلّق</option>
+                <option value="reversed">معكوس</option>
+              </select>
+              <span className="text-ink-subtle">|</span>
+              <span>إجمالي: <span className="font-mono font-semibold text-ink-strong">{totalEntries}</span> قيد</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0}
+                className="btn-secondary py-1 px-3 text-sm"
+              >
+                السابق
+              </button>
+              <span className="text-sm text-ink-muted">
+                صفحة <span className="font-mono font-semibold">{page + 1}</span> / {Math.max(1, Math.ceil(totalEntries / pageSize))}
+              </span>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={(page + 1) * pageSize >= totalEntries}
+                className="btn-secondary py-1 px-3 text-sm"
+              >
+                التالي
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
