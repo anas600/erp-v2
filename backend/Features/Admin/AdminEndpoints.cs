@@ -960,13 +960,16 @@ public static class AdminEndpoints
         // source (journal_lines, posted only) and writes them
         // back to accounts.balance in a single transaction.
         //
-        // It uses account_type for the sign convention:
-        //   - Asset / Expense: balance = Σ(debit - credit)
-        //   - Liability / Equity / Revenue: balance = Σ(credit - debit)
-        //
-        // This is the "natural" balance the PostingEngine itself
-        // uses, so the result matches what individual PostAsync
-        // calls would have produced.
+        // Implementation note: the L4 sub-ledgers (cash, AR, AP,
+        // etc.) are postable, so postings go directly to them and
+        // their accounts.balance must equal the net of their own
+        // journal_lines. The L3 controls (1101, 1102, 2101, etc.)
+        // are NOT directly posted to — their balance represents
+        // the NET of their sub-ledgers' postings (since the
+        // control's "balance" is what the trial balance displays
+        // after Sprint 33's NET rule). For revenue (4xxx) and
+        // expense (5xxx), which have no sub-ledgers, postings go
+        // directly to the L3 account.
         grp.MapPost("/rebuild-balances", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger, [FromQuery] Guid companyId) =>
         {
             if (!ctx.IsSuperAdmin())
@@ -982,12 +985,11 @@ public static class AdminEndpoints
             using var tx = conn.BeginTransaction();
             try
             {
-                // Recompute each account's balance from journal_lines
-                // using account_type for the sign. The previous
-                // value is overwritten (we're rebuilding from scratch).
-                var updated = await conn.ExecuteAsync(@"
+                // Step 1: Set L4 sub-ledger balances directly from
+                // their journal_lines (these are postable accounts).
+                var l4Updated = await conn.ExecuteAsync(@"
                     UPDATE accounts a
-                    SET balance = COALESCE(sub.net, 0)
+                    SET balance = sub.net
                     FROM (
                         SELECT jl.account_id,
                                SUM(CASE
@@ -999,14 +1001,64 @@ public static class AdminEndpoints
                         JOIN journal_entries je ON je.id = jl.journal_entry_id
                         JOIN accounts ac ON ac.id = jl.account_id
                         WHERE je.company_id = @companyId AND je.status = 'posted'
+                          AND ac.level = 4
                         GROUP BY jl.account_id
                     ) sub
                     WHERE a.id = sub.account_id
-                      AND a.company_id = @companyId;",
+                      AND a.company_id = @companyId
+                      AND a.level = 4;",
                     new { companyId }, tx);
 
-                // Reset any account with no postings to 0 (in case
-                // it had stale data from a buggy prior run).
+                // Step 2: Set L3 control balances to NET of their
+                // L4 sub-ledgers' balances (Sprint 33 NET rule).
+                // We compute: L3.balance = Σ (sub_ledger.balance with
+                // natural signs) — this is the "غير مخصص" (unallocated)
+                // figure the trial balance displays.
+                var l3Updated = await conn.ExecuteAsync(@"
+                    UPDATE accounts parent
+                    SET balance = COALESCE((
+                        SELECT SUM(CASE
+                            WHEN child.nature = 'Debit' THEN child.balance
+                            ELSE -child.balance
+                        END)
+                        FROM accounts child
+                        WHERE child.parent_id = parent.id
+                    ), 0)
+                    WHERE parent.company_id = @companyId
+                      AND parent.level = 3;",
+                    new { companyId }, tx);
+
+                // Step 3: For L3 accounts that are themselves
+                // postable (revenue 4xxx, expense 5xxx), the postings
+                // go directly to them — but Step 2 may have just set
+                // their balance to NET of sub-ledgers, which is wrong
+                // for them since they don't have sub-ledgers.
+                // Override with the direct journal_lines total.
+                var l3PostableUpdated = await conn.ExecuteAsync(@"
+                    UPDATE accounts a
+                    SET balance = sub.net
+                    FROM (
+                        SELECT jl.account_id,
+                               SUM(CASE
+                                   WHEN ac.account_type IN ('Asset', 'Expense')
+                                       THEN jl.debit - jl.credit
+                                   ELSE jl.credit - jl.debit
+                               END) AS net
+                        FROM journal_lines jl
+                        JOIN journal_entries je ON je.id = jl.journal_entry_id
+                        JOIN accounts ac ON ac.id = jl.account_id
+                        WHERE je.company_id = @companyId AND je.status = 'posted'
+                          AND ac.level = 3
+                          AND ac.is_postable = true
+                        GROUP BY jl.account_id
+                    ) sub
+                    WHERE a.id = sub.account_id
+                      AND a.company_id = @companyId
+                      AND a.level = 3
+                      AND a.is_postable = true;",
+                    new { companyId }, tx);
+
+                // Step 4: Zero out anything with no postings.
                 var zeroed = await conn.ExecuteAsync(@"
                     UPDATE accounts
                     SET balance = 0
@@ -1016,15 +1068,18 @@ public static class AdminEndpoints
                           FROM journal_lines jl
                           JOIN journal_entries je ON je.id = jl.journal_entry_id
                           WHERE je.company_id = @companyId AND je.status = 'posted'
-                      );",
+                      )
+                      AND level = 4;",
                     new { companyId }, tx);
 
                 tx.Commit();
                 return Results.Ok(new
                 {
                     companyId = companyId.ToString(),
-                    accountsUpdated = updated,
-                    accountsZeroed = zeroed
+                    l4Updated,
+                    l3ControlNetUpdated = l3Updated,
+                    l3PostableUpdated,
+                    zeroed
                 });
             }
             catch (Exception ex)
