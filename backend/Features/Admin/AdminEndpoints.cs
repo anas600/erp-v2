@@ -1094,6 +1094,8 @@ public static class AdminEndpoints
                     type = ex.GetType().Name
                 });
             }
+        });
+
         // GET /api/admin/inspect-journal?companyId=X
         // Sprint 41 — diagnostic: returns raw journal_lines data
         // summed per account. Used to compare with accounts.balance
