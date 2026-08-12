@@ -1094,6 +1094,34 @@ public static class AdminEndpoints
                     type = ex.GetType().Name
                 });
             }
+        // GET /api/admin/inspect-journal?companyId=X
+        // Sprint 41 — diagnostic: returns raw journal_lines data
+        // summed per account. Used to compare with accounts.balance
+        // and find where the drift is. The output includes both
+        // the per-account total (from journal_lines) and the
+        // accounts.balance column.
+        grp.MapGet("/inspect-journal", async (HttpContext ctx, IDbConnectionFactory db, [FromQuery] Guid companyId) =>
+        {
+            using var conn = db.CreateConnection();
+            var rows = await conn.QueryAsync<(string code, decimal net, decimal balance)>(@"
+                SELECT a.code AS code, sub.net AS net, a.balance AS balance
+                FROM accounts a
+                LEFT JOIN (
+                    SELECT jl.account_id,
+                           SUM(CASE WHEN ac.account_type IN ('Asset','Expense')
+                               THEN jl.debit - jl.credit
+                               ELSE jl.credit - jl.debit END) AS net
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounts ac ON ac.id = jl.account_id
+                    WHERE je.company_id = @id AND je.status = 'posted'
+                    GROUP BY jl.account_id
+                ) sub ON sub.account_id = a.id
+                WHERE a.company_id = @id
+                  AND a.level IN (3, 4)
+                ORDER BY a.code;",
+                new { id = companyId });
+            return Results.Ok(rows.Select(r => new { r.code, computedBalance = r.net, storedBalance = r.balance, drift = r.net - r.balance }));
         });
     }
 }
