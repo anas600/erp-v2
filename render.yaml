@@ -46,6 +46,16 @@ services:
         value: Production
       - key: DOTNET_USE_POLLING_FILE_WATCHER
         value: "true"
+      # Sprint 41 — Trusted accountant mode flag.
+      # When "true", the FullYearSeeder auto-approves and auto-posts
+      # every journal entry it creates (Mavis signs as the accountant
+      # for the demo data). When unset/false, the seeder writes
+      # entries as DRAFT and the human accountant must approve +
+      # post them through the Journal page. The default is the
+      # strict path — the seeder would otherwise bypass the
+      # accountant's review for any future seed run.
+      - key: SEEDER_TRUSTED_ACCOUNTANT_MODE
+        value: "true"
       # NOTE on ConnectionStrings__Default:
       #
       # We use `fromDatabase` to bind to the database defined in this

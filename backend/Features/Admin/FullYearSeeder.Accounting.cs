@@ -118,7 +118,7 @@ public partial class FullYearSeeder
             lines,
             Source: "invoice:sales",
             ProjectId: projectId);
-        await _journal.CreateAndPostAsync(jeReq, userId);
+        await CreateAndConditionallyPostAsync(jeReq, userId);
         _result.JournalEntriesCreated++;
         return jeReq == null ? Guid.Empty : Guid.Empty; // not used; caller already has invoice id
     }
@@ -276,7 +276,7 @@ public partial class FullYearSeeder
             lines,
             Source: "project:billing",
             ProjectId: projectId);
-        await _journal.CreateAndPostAsync(jeReq, userId);
+        await CreateAndConditionallyPostAsync(jeReq, userId);
         _result.JournalEntriesCreated++;
     }
 
@@ -332,7 +332,49 @@ public partial class FullYearSeeder
             lines,
             Source: "project:cost",
             ProjectId: projectId);
-        await _journal.CreateAndPostAsync(jeReq, userId);
+        await CreateAndConditionallyPostAsync(jeReq, userId);
         _result.JournalEntriesCreated++;
+    }
+
+    // ----------------------------------------------------------------
+    // Trusted-accountant gate (Sprint 41)
+    // ----------------------------------------------------------------
+
+    /// <summary>
+    /// Creates a draft journal entry, then posts it ONLY if the
+    /// trusted-accountant mode is enabled. In the strict (default)
+    /// mode the JE stays as draft, exactly as a human accountant
+    /// would leave it after typing it into the Journal page.
+    ///
+    /// The split into Create → Approve → Post also makes the
+    /// approve/post counters in the seeder result meaningful for
+    /// observability — operators can see how many JEs the trusted
+    /// path took responsibility for in a given run.
+    /// </summary>
+    private async Task CreateAndConditionallyPostAsync(
+        CreateJournalEntryRequest req, Guid? userId)
+    {
+        var draft = await _journal.CreateDraftAsync(req, userId);
+
+        if (!TrustedAccountantMode.IsEnabled)
+        {
+            // Strict path: the seeder writes the draft and stops.
+            // The human accountant (or a follow-up auto-approve
+            // run) must explicitly approve + post the JE.
+            _logger.LogInformation(
+                "FullYearSeeder: drafted JE {Number} (strict mode, awaiting accountant review)",
+                draft.EntryNumber);
+            return;
+        }
+
+        // Trusted path: Mavis signs as the accountant.
+        var approved = await _journal.ApproveAsync(draft.Id, userId);
+        if (approved is null)
+            throw new InvalidOperationException(
+                $"Auto-approve failed for {draft.EntryNumber} — period may be closed");
+
+        await _journal.PostAsync(draft.Id);
+        _result.EntriesApproved++;
+        _result.EntriesPosted++;
     }
 }

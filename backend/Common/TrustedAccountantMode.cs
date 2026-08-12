@@ -3,15 +3,15 @@ namespace ErpV2.Common;
 /// <summary>
 /// Sprint 41 — Trusted accountant mode flag.
 ///
-/// The system has two distinct roles that can post a journal entry
-/// to the General Ledger:
+/// Background: the system has two distinct roles that can post a
+/// journal entry to the General Ledger:
 ///   1. A human accountant, who reviews and approves each JE
 ///      through the Journal page (the "trust-the-human" path).
 ///   2. The data seeder (FullYearSeeder), which generates hundreds
 ///      of JEs for the demo scenario. Acting as the seeder's
 ///      accountable signatory, Mavis reviews every JE with
-///      accountant-grade diligence before posting — the "trust-
-///      the-Mavis-as-accountant" path used only for the demo seed.
+///      accountant-grade diligence before posting — the "trust-the-
+///      Mavis-as-accountant" path used only for the demo seed.
 ///
 /// The flag can be set two ways (first match wins):
 ///   1. Environment variable `SEEDER_TRUSTED_ACCOUNTANT_MODE = "true"`

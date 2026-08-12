@@ -11,17 +11,20 @@ public class ReceiptService
     private readonly IDbConnectionFactory _db;
     private readonly AccountService _accounts;
     private readonly JournalService _journal;
+    private readonly PostingEngine _posting;
     private readonly InvoiceService _invoices;
 
     public ReceiptService(
         IDbConnectionFactory db,
         AccountService accounts,
         JournalService journal,
+        PostingEngine posting,
         InvoiceService invoices)
     {
         _db = db;
         _accounts = accounts;
         _journal = journal;
+        _posting = posting;
         _invoices = invoices;
     }
 
@@ -241,6 +244,14 @@ public class ReceiptService
         {
             // 1) Create the journal entry on the open connection/tx.
             var journalEntryId = await _journal.CreateDraftInTxAsync(conn2, tx, jeReq, userId);
+
+            // Sprint 41 — Post the JE on the same transaction so the
+            // account balances (Cash/Bank, AR sub-ledger) actually move.
+            // Without this, the receipt was marked "posted" but the
+            // linked JE stayed in "draft" forever and the financial
+            // reports ignored the receipt. The seeder relies on the
+            // balances being correct in order to demo the BS / aging.
+            await _posting.PostDraftInTxAsync(conn2, tx, journalEntryId);
 
             // 2) Stamp the receipt as posted.
             await conn2.ExecuteAsync(@"
