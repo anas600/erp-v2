@@ -31,6 +31,12 @@ export default function TrialBalancePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sprint 42 — let the user pick the detail level:
+  //   3 = L3 controls only (the classic TB view, 10-12 lines)
+  //   4 = L3 + L4 sub-ledgers (expanded view, 50+ lines)
+  // Defaults to 3 because the L3 view is what the accountant usually
+  // looks at; they can flip to 4 for sub-ledger detail.
+  const [level, setLevel] = useState<3 | 4>(3);
   // Code → accountId map for the GL drill-down. The TB lines
   // don't include the id, so we look it up here.
   const [accountIdByCode, setAccountIdByCode] = useState<Record<string, string>>({});
@@ -40,7 +46,7 @@ export default function TrialBalancePage() {
     try {
       if (isManualRefresh) setRefreshing(true);
       else setLoading(true);
-      const res = await api.get(`/reports/trial-balance?companyId=${activeCompany.id}`);
+      const res = await api.get(`/reports/trial-balance?companyId=${activeCompany.id}&level=${level}`);
       setReport(res.data);
       setError(null);
 
@@ -66,7 +72,7 @@ export default function TrialBalancePage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeCompany]);
+  }, [activeCompany, level]);
 
   /**
    * Sprint 33: clicking a TB row navigates to the General Ledger
@@ -120,6 +126,23 @@ export default function TrialBalancePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Sprint 42 — level selector: 3 = controls, 4 = controls + sub-ledgers */}
+          <div className="flex items-center bg-raised rounded-md p-0.5">
+            <button
+              onClick={() => setLevel(3)}
+              className={`px-3 py-1 text-xs rounded ${level === 3 ? "bg-primary-600 text-canvas" : "text-ink-muted hover:text-ink"}`}
+              title="الحسابات التحكمية فقط (L3)"
+            >
+              L3 - تحكم
+            </button>
+            <button
+              onClick={() => setLevel(4)}
+              className={`px-3 py-1 text-xs rounded ${level === 4 ? "bg-primary-600 text-canvas" : "text-ink-muted hover:text-ink"}`}
+              title="يشمل الحسابات التفصيلية (L4 sub-ledgers)"
+            >
+              L4 - تفصيلي
+            </button>
+          </div>
           <button
             onClick={() => load(true)}
             disabled={refreshing}
@@ -215,6 +238,12 @@ export default function TrialBalancePage() {
         <p>
           📖 <strong>للتدقيق:</strong> اضغط على أي صف به رصيد (الأيقونة <BookOpen size={11} className="inline mx-1" />)
           لفتح <em>دفتر الأستاذ</em> الخاص بهذا الحساب وعرض الحركات التفصيلية.
+        </p>
+        <p>
+          🔍 <strong>المستوى:</strong> أنت تشاهد الآن <strong>L{level}</strong>.
+          {level === 3
+            ? " اعرض L4 لمشاهدة الـ sub-ledgers (العملاء/الموردين بالاسم)."
+            : " هذا يبيّن كل عميل/مورد على حدة."}
         </p>
       </div>
     </div>
