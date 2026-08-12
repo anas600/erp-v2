@@ -373,7 +373,12 @@ public partial class FullYearSeeder
                 var c = await _contacts.CreateAsync(new CreateContactRequest(
                     companyId, "customer", code, name, nameAr, null, null, null));
                 _customerIds[code] = c.Id;
-                await _accounts.EnsureSubLedgerAsync(companyId, c.Id);
+                // Sprint 42 — capture the sub-ledger's id AND code
+                // so the opening balance and the rest of the
+                // seeder can reference the customer's AR account
+                // by its full code (e.g. "1103-CUST-001").
+                var custSub = await _accounts.EnsureSubLedgerAsync(companyId, c.Id);
+                _accountIds[custSub.Code] = custSub.Id;
                 _result.CustomersCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Customer {code}: {ex.Message}"); }
@@ -400,7 +405,12 @@ public partial class FullYearSeeder
                 var s = await _contacts.CreateAsync(new CreateContactRequest(
                     companyId, "supplier", code, name, nameAr, null, null, null));
                 _supplierIds[code] = s.Id;
-                await _accounts.EnsureSubLedgerAsync(companyId, s.Id);
+                // Sprint 42 — capture the supplier sub-ledger's
+                // full code (e.g. "2101-SUPP-001") in the
+                // _accountIds dict so the opening balance can
+                // reference it directly.
+                var suppSub = await _accounts.EnsureSubLedgerAsync(companyId, s.Id);
+                _accountIds[suppSub.Code] = suppSub.Id;
                 _result.SuppliersCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Supplier {code}: {ex.Message}"); }
