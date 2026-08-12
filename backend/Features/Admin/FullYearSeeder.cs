@@ -2,10 +2,12 @@ using Dapper;
 using ErpV2.Common;
 using ErpV2.Features.Accounts;
 using ErpV2.Features.Contacts;
+using ErpV2.Features.CostCenters;
 using ErpV2.Features.FiscalYears;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Journal;
 using ErpV2.Features.Payments;
+using ErpV2.Features.Products;
 using ErpV2.Features.Projects;
 using ErpV2.Features.Receipts;
 
@@ -104,7 +106,9 @@ public partial class FullYearSeeder
     private readonly ReceiptService _receipts;
     private readonly PaymentService _payments;
     private readonly JournalService _journal;
+    private readonly ProductService _productsSvc;
     private readonly ProjectService _projects;
+    private readonly CostCenterService _costCenters;
     private readonly BillingService _billings;
     private readonly ContractService _contracts;
     private readonly LineItemService _lineItems;
@@ -120,12 +124,14 @@ public partial class FullYearSeeder
         ReceiptService receipts,
         PaymentService payments,
         JournalService journal,
+        ProductService productsSvc,
         ProjectService projects,
         BillingService billings,
         ContractService contracts,
         LineItemService lineItems,
         VariationService variations,
         FiscalYearService fiscalYears,
+        CostCenterService costCenters,
         ILogger<FullYearSeeder> logger)
     {
         _db = db;
@@ -135,12 +141,14 @@ public partial class FullYearSeeder
         _receipts = receipts;
         _payments = payments;
         _journal = journal;
+        _productsSvc = productsSvc;
         _projects = projects;
         _billings = billings;
         _contracts = contracts;
         _lineItems = lineItems;
         _variations = variations;
         _fiscalYears = fiscalYears;
+        _costCenters = costCenters;
         _logger = logger;
     }
 
@@ -153,6 +161,7 @@ public partial class FullYearSeeder
     private Dictionary<string, Guid> _productIds = new();
     private Dictionary<string, Guid> _accountIds = new();
     private Dictionary<string, Guid> _userIds = new();
+    private Dictionary<string, Guid> _costCenterIds = new();
     private Guid _mainUserId;
     private Random _rng = new(42); // deterministic for repeatability
     private FullYearSeedResult _result = new();
@@ -174,28 +183,43 @@ public partial class FullYearSeeder
 
             // Phase 1: Master data (accounts cache, customers, suppliers, products)
             await SeedMasterDataAsync(companyId);
+            _logger.LogInformation("FullYearSeeder: phase 1 (master) done");
 
             // Phase 2: Fiscal year + periods
-            await SeedFiscalYearAsync(companyId);
+            try { await SeedFiscalYearAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 2 (fiscal) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 2 (fiscal): {ex.Message}"); return _result; }
 
             // Phase 3: Opening balance journal entry (cash, bank, AR, AP)
-            await SeedOpeningBalancesAsync(companyId);
+            try { await SeedOpeningBalancesAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 3 (opening) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 3 (opening): {ex.Message}"); return _result; }
+
+            // Phase 3b: Cost centers (departments + activities)
+            try { await SeedCostCentersAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 3b (cost centers) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 3b (cost centers): {ex.Message}"); }
 
             // Phase 4: Monthly recurring + transactions
-            for (var month = 0; month < 12; month++)
+            try
             {
-                var monthDate = FY_START.AddMonths(month);
-                await SeedMonthAsync(companyId, monthDate, userId);
+                for (var month = 0; month < 12; month++)
+                {
+                    var monthDate = FY_START.AddMonths(month);
+                    await SeedMonthAsync(companyId, monthDate, userId);
+                }
+                _logger.LogInformation("FullYearSeeder: phase 4 (12 months) done");
             }
+            catch (Exception ex) { _result.Errors.Add($"Phase 4: {ex.Message}"); return _result; }
 
             // Phase 5: Projects with full lifecycle
-            await SeedProjectsAsync(companyId, userId);
+            try { await SeedProjectsAsync(companyId, userId); _logger.LogInformation("FullYearSeeder: phase 5 (projects) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 5: {ex.Message}"); return _result; }
 
             // Phase 6: Year-end closing
-            await SeedYearEndClosingAsync(companyId, userId);
+            try { await SeedYearEndClosingAsync(companyId, userId); _logger.LogInformation("FullYearSeeder: phase 6 (closing) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 6: {ex.Message}"); return _result; }
 
             // Phase 7: Bulk approve all pending journal entries
-            await BulkApprovePendingAsync(companyId);
+            try { await BulkApprovePendingAsync(companyId); _logger.LogInformation("FullYearSeeder: phase 7 (approve) done"); }
+            catch (Exception ex) { _result.Errors.Add($"Phase 7: {ex.Message}"); return _result; }
 
             sw.Stop();
             _result.ElapsedSeconds = sw.Elapsed.TotalSeconds;
@@ -206,7 +230,7 @@ public partial class FullYearSeeder
         }
         catch (Exception ex)
         {
-            _result.Errors.Add($"Fatal: {ex.Message}");
+            _result.Errors.Add($"Fatal: {ex.Message} | Inner: {ex.InnerException?.Message}");
             _logger.LogError(ex, "FullYearSeeder failed");
         }
 
@@ -229,7 +253,6 @@ public partial class FullYearSeeder
                 billing_line_items,
                 progress_billings,
                 contracts,
-                project_allocations,
                 project_milestones,
                 projects,
                 journal_lines,
@@ -240,7 +263,9 @@ public partial class FullYearSeeder
                 invoices,
                 intercompany_pairs,
                 account_contact_links,
-                products
+                products,
+                contacts,
+                cost_centers
             CASCADE;
             DELETE FROM accounts WHERE level = 4;
             UPDATE accounts SET balance = 0;
@@ -288,6 +313,8 @@ public partial class FullYearSeeder
             ("CUST-009", "Al-Sarraj Trading & Services",          "الصرج للتجارة والخدمات",  30_000m, "fast"),
             ("CUST-010", "Al-Waha Retail",                        "الواحة للتجزئة",           15_000m, "fast")
         };
+        // Create L4 cash + bank sub-ledgers FIRST so receipts/payments can post to them
+        await EnsureCashBankL4Async(companyId);
         foreach (var (code, name, nameAr, limit, behavior) in customerDefs)
         {
             try
@@ -351,8 +378,9 @@ public partial class FullYearSeeder
         {
             try
             {
-                var pid = await conn_InsertProduct(companyId, code, name, nameAr, price, cost, category);
-                _productIds[code] = pid;
+                var p = await _productsSvc.CreateAsync(new CreateProductRequest(
+                    companyId, code, name, nameAr, price, VAT_RATE));
+                _productIds[code] = p.Id;
                 _result.ProductsCreated++;
             }
             catch (Exception ex) { _result.Errors.Add($"Product {code}: {ex.Message}"); }
@@ -367,17 +395,62 @@ public partial class FullYearSeeder
         Guid companyId, string code, string name, string nameAr,
         decimal price, decimal cost, string category)
     {
+        // Use ProductService for consistent schema handling
+        var p = await _productsSvc.CreateAsync(new CreateProductRequest(
+            companyId, code, name, nameAr, price, VAT_RATE));
+        return p.Id;
+    }
+
+    /// <summary>
+    /// Sprint 33 — Create L4 sub-ledgers for Cash (1101) and Bank (1102) so
+    /// receipts and payments have a postable account to debit/credit.
+    /// Without these, "لا يوجد حساب صندوق أو بنك قابل للترحيل" errors.
+    /// Idempotent: skip if already exists.
+    /// </summary>
+    private async Task EnsureCashBankL4Async(Guid companyId)
+    {
         using var conn = _db.CreateConnection();
-        var id = Guid.NewGuid();
-        await conn.ExecuteAsync(@"
-            INSERT INTO products
-                (id, company_id, code, name, name_ar, sale_price, cost_price,
-                 category, is_active, track_inventory, created_at, updated_at)
-            VALUES
-                (@id, @cid, @code, @name, @nameAr, @price, @cost,
-                 @category, true, false, NOW(), NOW());",
-            new { id, cid = companyId, code, name, nameAr, price, cost, category });
-        return id;
+        foreach (var (parentCode, code) in new[] { ("1101", "1101-CASH-001"), ("1102", "1102-BANK-001") })
+        {
+            var existing = await conn.ExecuteScalarAsync<Guid?>(@"
+                SELECT id FROM accounts
+                WHERE company_id = @cid AND code = @code
+                LIMIT 1;",
+                new { cid = companyId, code });
+            if (existing is not null) { _accountIds[code] = existing.Value; continue; }
+
+            var parent = await conn.QuerySingleOrDefaultAsync<(Guid id, string name, string name_ar, string nature)?>(@"
+                SELECT id, name, name_ar, nature
+                FROM accounts
+                WHERE company_id = @cid AND code = @parentCode
+                LIMIT 1;",
+                new { cid = companyId, parentCode });
+            if (parent is null) continue;
+
+            var newId = Guid.NewGuid();
+            await conn.ExecuteAsync(@"
+                INSERT INTO accounts
+                    (id, company_id, code, name, name_ar, parent_id,
+                     account_type, nature, level, account_class,
+                     is_control_account, cost_center_required,
+                     is_postable, is_active, balance)
+                VALUES
+                    (@id, @cid, @code, @name, @nameAr, @parentId,
+                     'Asset', 'Debit', 4, 'detail',
+                     false, false,
+                     true, true, 0);",
+                new
+                {
+                    id = newId,
+                    cid = companyId,
+                    code,
+                    name = parent.Value.name + " - Main",
+                    nameAr = (parent.Value.name_ar ?? parent.Value.name) + " - الرئيسي",
+                    parentId = parent.Value.id
+                });
+            _accountIds[code] = newId;
+            _result.SubLedgersCreated++;
+        }
     }
 
     // ----------------------------------------------------------------
@@ -386,14 +459,14 @@ public partial class FullYearSeeder
 
     private async Task SeedFiscalYearAsync(Guid companyId)
     {
-        // Check if year already exists
+        // Delete any pre-existing FY (idempotent re-seed) and create fresh.
         using var conn = _db.CreateConnection();
-        var exists = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS (
-                SELECT 1 FROM fiscal_years
-                WHERE company_id = @cid AND name = 'FY 2025-2026'
-            );", new { cid = companyId });
-        if (exists) { _result.FiscalYearCreated = false; return; }
+        await conn.ExecuteAsync(
+            "DELETE FROM fiscal_periods WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id = @cid);",
+            new { cid = companyId });
+        await conn.ExecuteAsync(
+            "DELETE FROM fiscal_years WHERE company_id = @cid;",
+            new { cid = companyId });
 
         try
         {
@@ -411,17 +484,34 @@ public partial class FullYearSeeder
 
     private async Task SeedOpeningBalancesAsync(Guid companyId)
     {
-        // Starting capital (Sep 1, 2025):
-        //   Cash 1101-CASH-001:    50,000 LYD
-        //   Bank 1102-BANK-001:   150,000 LYD
-        //   Capital 3101:         200,000 LYD (owner's equity)
+        // Starting capital (Sep 1, 2025) — sized to cover a full
+        // year of recurring expenses plus a buffer for working
+        // capital. The previous version used Cash=50K + Bank=150K,
+        // which is way too small for a holding company running
+        // 35K/month in salaries alone — the cash account would go
+        // deeply negative by year-end.
+        //
+        //   Cash 1101-CASH-001:  600,000 LYD (covers recurring
+        //                         expenses + small payments)
+        //   Bank 1102-BANK-001:  400,000 LYD (covers larger payments
+        //                         and project billings)
+        //   Prepaid 1106:          9,600 LYD (insurance prepaid for
+        //                         the year, amortizes to 0 by Aug)
+        //   Loan 2201:           84,000 LYD (initial 12-month loan
+        //                         at 4,000/month installment)
+        //   Capital 3101:      1,009,600 LYD (owner's equity, the
+        //                         sum of the above debits)
         var lines = new List<CreateJournalLineRequest>();
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash))
-            lines.Add(new CreateJournalLineRequest(cash, 50_000m, 0, "رصيد افتتاحي - صندوق", null));
+            lines.Add(new CreateJournalLineRequest(cash, 600_000m, 0, "رصيد افتتاحي - صندوق", null));
         if (_accountIds.TryGetValue("1102-BANK-001", out var bank))
-            lines.Add(new CreateJournalLineRequest(bank, 150_000m, 0, "رصيد افتتاحي - بنك", null));
+            lines.Add(new CreateJournalLineRequest(bank, 400_000m, 0, "رصيد افتتاحي - بنك", null));
+        if (_accountIds.TryGetValue("1106", out var prepaid))
+            lines.Add(new CreateJournalLineRequest(prepaid, 9_600m, 0, "تأمين مسبق - رصيد افتتاحي", null));
+        if (_accountIds.TryGetValue("2201", out var loan))
+            lines.Add(new CreateJournalLineRequest(loan, 0, 84_000m, "قرض بنكي - رصيد افتتاحي", null));
         if (_accountIds.TryGetValue("3101", out var capital))
-            lines.Add(new CreateJournalLineRequest(capital, 0, 200_000m, "رأس المال الافتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(capital, 0, 925_600m, "رأس المال الافتتاحي", null));
 
         if (lines.Count == 0) return;
 
@@ -435,5 +525,58 @@ public partial class FullYearSeeder
             _result.JournalEntriesCreated++;
         }
         catch (Exception ex) { _result.Errors.Add($"Opening: {ex.Message}"); }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 3b: Cost centers (departments, activities)
+    // ----------------------------------------------------------------
+    // Realistic cost center tree for a Libyan company with mixed
+    // operations (construction + services + admin).
+    // Type: 'project' (linked to project) | 'department' | 'activity'
+    // ----------------------------------------------------------------
+    private async Task SeedCostCentersAsync(Guid companyId)
+    {
+        var defs = new (string Code, string Name, string NameAr, string Type, Guid? ProjectId, Guid? ParentId)[]
+        {
+            // Departments
+            ("DPT-ADMIN",   "Administration",       "الإدارة العامة",          "department", null, null),
+            ("DPT-FIN",     "Finance & Accounting", "المالية والمحاسبة",        "department", null, null),
+            ("DPT-SALES",   "Sales & Marketing",    "المبيعات والتسويق",        "department", null, null),
+            ("DPT-OPS",     "Operations",            "العمليات",                  "department", null, null),
+            ("DPT-HR",      "Human Resources",       "الموارد البشرية",          "department", null, null),
+            ("DPT-IT",      "IT",                    "تقنية المعلومات",          "department", null, null),
+            // Sub-departments
+            ("DPT-OPS-CONST", "Construction Operations", "عمليات المقاولات",       "department", null, null), // parent: DPT-OPS
+            ("DPT-OPS-SUP",   "Supply Operations",       "عمليات التوريد",         "department", null, null),
+            ("DPT-OPS-SVC",   "Service Operations",      "عمليات الخدمات",         "department", null, null),
+            // Activities (operational)
+            ("ACT-TRAVEL",   "Travel",                "السفر",                    "activity", null, null),
+            ("ACT-TRAINING", "Training & Development","التدريب والتطوير",          "activity", null, null),
+            ("ACT-AUDIT",    "External Audit",        "التدقيق الخارجي",          "activity", null, null),
+            ("ACT-MARKET",   "Marketing Campaigns",   "الحملات التسويقية",         "activity", null, null),
+            ("ACT-OFFICE",   "Office Supplies",       "اللوازم المكتبية",          "activity", null, null),
+            ("ACT-MAINT",    "Maintenance & Repairs", "الصيانة والإصلاحات",         "activity", null, null),
+            ("ACT-PROF",     "Professional Services", "الخدمات المهنية",            "activity", null, null),
+        };
+
+        var parentMap = new Dictionary<string, Guid>();
+        foreach (var (code, name, nameAr, type, projectId, parentId) in defs)
+        {
+            try
+            {
+                // Resolve parent ID if code references it
+                Guid? resolvedParent = parentId;
+                if (resolvedParent == null && code == "DPT-OPS-CONST") resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+                if (resolvedParent == null && code == "DPT-OPS-SUP")   resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+                if (resolvedParent == null && code == "DPT-OPS-SVC")   resolvedParent = parentMap.GetValueOrDefault("DPT-OPS");
+
+                var cc = await _costCenters.CreateAsync(new CreateCostCenterRequest(
+                    companyId, code, name, nameAr, type, projectId, resolvedParent));
+                parentMap[code] = cc.Id;
+                _costCenterIds[code] = cc.Id;
+                _result.CostCentersCreated++;
+            }
+            catch (Exception ex) { _result.Errors.Add($"CostCenter {code}: {ex.Message}"); }
+        }
     }
 }

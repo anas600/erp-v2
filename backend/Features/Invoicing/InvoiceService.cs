@@ -578,6 +578,34 @@ public class InvoiceService
         return result;
     }
 
+    /// <summary>
+    /// Sprint 40 — Manual posting path. Marks the invoice as
+    /// "posted" without firing the business rule engine. The caller
+    /// is responsible for creating the corresponding journal entry
+    /// with the correct sub-ledger accounts (typically via
+    /// <see cref="ErpV2.Features.Journal.JournalService.CreateAndPostAsync"/>).
+    ///
+    /// Used by <c>FullYearSeeder</c> which builds JEs with the
+    /// proper customer / supplier sub-ledger detail accounts. The
+    /// standard <see cref="PostAsync"/> path (which fires rules) is
+    /// preserved for human-driven posting from the UI.
+    /// </summary>
+    public async Task<InvoiceDto> MarkAsPostedAsync(Guid invoiceId)
+    {
+        var inv = await GetByIdAsync(invoiceId)
+            ?? throw new InvalidOperationException("الفاتورة غير موجودة");
+        if (inv.Status == "posted")
+            return inv;
+        if (inv.Status == "cancelled")
+            throw new InvalidOperationException("الفاتورة ملغاة — لا يمكن ترحيلها");
+
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE invoices SET status = 'posted', posted_at = NOW() WHERE id = @id;",
+            new { id = invoiceId });
+        return await GetByIdAsync(invoiceId);
+    }
+
     public async Task<bool> CancelAsync(Guid invoiceId)
     {
         using var conn = _db.CreateConnection();

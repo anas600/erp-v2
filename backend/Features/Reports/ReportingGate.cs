@@ -34,17 +34,24 @@ public class ReportingGate
     {
         using var conn = _db.CreateConnection();
 
-        // Sum ALL movements (debit - credit) grouped by L3.
-        // The total of all (debit - credit) should be ZERO.
-        // (Each posted JE is internally balanced, so the sum of all
-        // movements across all accounts must also be zero.)
+        // Sprint 40 — sum ALL movements across ALL levels (L1-L4).
+        // The previous version filtered to level = 3 which assumed
+        // every JE posts to the L3 control accounts. But with the
+        // 4-level COA + sub-ledgers, AR / AP / cash / bank all post
+        // to L4 sub-ledgers (e.g. 1103-CUST-001, 2101-SUPP-001,
+        // 1101-CASH-001). L3 controls stay at zero for those, so a
+        // level-3 sum was guaranteed to be unbalanced.
+        //
+        // The actual accounting invariant: every posted JE has
+        // Σdebits = Σcredits, so the sum across the entire ledger
+        // (L1-L4) is also zero. We verify that here, regardless of
+        // level.
         var totalDebit = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(jl.debit), 0)
             FROM journal_lines jl
             JOIN journal_entries je ON je.id = jl.journal_entry_id
             JOIN accounts a ON a.id = jl.account_id
             WHERE a.company_id = @companyId
-              AND a.level = 3
               AND je.status = 'posted'
               AND je.entry_date <= @asOf;",
             new { companyId, asOf }) ?? 0m;
@@ -55,7 +62,6 @@ public class ReportingGate
             JOIN journal_entries je ON je.id = jl.journal_entry_id
             JOIN accounts a ON a.id = jl.account_id
             WHERE a.company_id = @companyId
-              AND a.level = 3
               AND je.status = 'posted'
               AND je.entry_date <= @asOf;",
             new { companyId, asOf }) ?? 0m;

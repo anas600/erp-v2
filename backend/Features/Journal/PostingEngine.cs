@@ -49,7 +49,7 @@ public class PostingEngine
         {
             // Load entry
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
 
@@ -57,46 +57,7 @@ public class PostingEngine
             if (entry.status == "posted") throw new InvalidOperationException("Entry already posted");
             if (entry.status == "reversed") throw new InvalidOperationException("Entry is reversed");
 
-            // Load lines
-            var lines = (await conn.QueryAsync<JournalLineRow>(@"
-                SELECT id, journal_entry_id, account_id, debit, credit, description, line_number
-                FROM journal_lines WHERE journal_entry_id = @id ORDER BY line_number;",
-                new { id = entryId }, tx)).ToList();
-
-            if (lines.Count == 0) throw new InvalidOperationException("Entry has no lines");
-
-            // Validate balance: total debit == total credit
-            var totalDebit = lines.Sum(l => l.debit);
-            var totalCredit = lines.Sum(l => l.credit);
-            if (totalDebit != totalCredit)
-                throw new InvalidOperationException(
-                    $"القيد غير متوازن: إجمالي المدين = {totalDebit:N2}, إجمالي الدائن = {totalCredit:N2}");
-
-            // Update account balances based on Nature Logic.
-            // This is the single place where the accounting equation is enforced.
-            for (int lineIdx = 0; lineIdx < lines.Count; lineIdx++)
-            {
-                var line = lines[lineIdx];
-                var account = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
-                    SELECT id, account_type, nature FROM accounts WHERE id = @id;",
-                    new { id = line.account_id }, tx);
-
-                if (account is null)
-                    throw new InvalidOperationException($"Account {line.account_id} not found (line {lineIdx})");
-
-                var netChange = account.nature == "Debit"
-                    ? line.debit - line.credit
-                    : line.credit - line.debit;
-
-                await conn.ExecuteAsync(@"
-                    UPDATE accounts SET balance = balance + @netChange WHERE id = @id;",
-                    new { netChange, id = account.id }, tx);
-            }
-
-            // Mark as posted
-            await conn.ExecuteAsync(@"
-                UPDATE journal_entries SET status = 'posted', posted_at = NOW() WHERE id = @id;",
-                new { id = entryId }, tx);
+            await PostDraftInternalAsync(conn, tx, entryId);
 
             tx.Commit();
 
@@ -111,6 +72,72 @@ public class PostingEngine
                 $"PostAsync({entryId}) failed at {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}: {ex.GetType().Name}: {ex.Message}",
                 ex);
         }
+    }
+
+    /// <summary>
+    /// Sprint 41 — Posts a draft JE on the caller-owned
+    /// connection/transaction. Same validation and balance updates
+    /// as <see cref="PostAsync(Guid)"/>, but the caller controls
+    /// the commit/rollback so a voucher (receipt/payment) can
+    /// post the JE, mark itself as posted, and apply the payment
+    /// to the linked invoice atomically.
+    /// </summary>
+    public async Task PostDraftInTxAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction tx, Guid entryId)
+    {
+        var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
+            FROM journal_entries WHERE id = @id;",
+            new { id = entryId }, tx);
+
+        if (entry is null) throw new InvalidOperationException("Entry not found");
+        if (entry.status == "posted") throw new InvalidOperationException("Entry already posted");
+        if (entry.status == "reversed") throw new InvalidOperationException("Entry is reversed");
+
+        await PostDraftInternalAsync(conn, tx, entryId);
+    }
+
+    private async Task PostDraftInternalAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction tx, Guid entryId)
+    {
+        // Load lines
+        var lines = (await conn.QueryAsync<JournalLineRow>(@"
+            SELECT id, journal_entry_id, account_id, debit, credit, description, line_number
+            FROM journal_lines WHERE journal_entry_id = @id ORDER BY line_number;",
+            new { id = entryId }, tx)).ToList();
+
+        if (lines.Count == 0) throw new InvalidOperationException("Entry has no lines");
+
+        // Validate balance: total debit == total credit
+        var totalDebit = lines.Sum(l => l.debit);
+        var totalCredit = lines.Sum(l => l.credit);
+        if (totalDebit != totalCredit)
+            throw new InvalidOperationException(
+                $"القيد غير متوازن: إجمالي المدين = {totalDebit:N2}, إجمالي الدائن = {totalCredit:N2}");
+
+        // Update account balances based on Nature Logic.
+        // This is the single place where the accounting equation is enforced.
+        for (int lineIdx = 0; lineIdx < lines.Count; lineIdx++)
+        {
+            var line = lines[lineIdx];
+            var account = await conn.QuerySingleOrDefaultAsync<AccountRow>(@"
+                SELECT id, account_type, nature FROM accounts WHERE id = @id;",
+                new { id = line.account_id }, tx);
+
+            if (account is null)
+                throw new InvalidOperationException($"Account {line.account_id} not found (line {lineIdx})");
+
+            var netChange = account.nature == "Debit"
+                ? line.debit - line.credit
+                : line.credit - line.debit;
+
+            await conn.ExecuteAsync(@"
+                UPDATE accounts SET balance = balance + @netChange WHERE id = @id;",
+                new { netChange, id = account.id }, tx);
+        }
+
+        // Mark as posted
+        await conn.ExecuteAsync(@"
+            UPDATE journal_entries SET status = 'posted', posted_at = NOW() WHERE id = @id;",
+            new { id = entryId }, tx);
     }
 
     /// <summary>

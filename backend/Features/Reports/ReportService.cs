@@ -6,8 +6,13 @@ namespace ErpV2.Features.Reports;
 public class ReportService
 {
     private readonly IDbConnectionFactory _db;
+    private readonly ILogger<ReportService> _log;
 
-    public ReportService(IDbConnectionFactory db) => _db = db;
+    public ReportService(IDbConnectionFactory db, ILogger<ReportService> log)
+    {
+        _db = db;
+        _log = log;
+    }
 
     /// <summary>
     /// Trial balance. `level` filter:
@@ -152,19 +157,45 @@ public class ReportService
             "SELECT name FROM companies WHERE id = @id;",
             new { id = companyId });
 
-        // Sum movements (debit - credit) for each account over the period
+        _log.LogInformation("IS: company={CompanyId} from={From} to={To}", companyId, fromDate, toDate);
+
+        // Sprint 40 — RESTRUCTURE to inner join (not left join) so the
+        // date filter on journal_entries actually excludes out-of-range
+        // postings. The previous LEFT JOIN placed the date filter in
+        // the ON clause, which kept accounts-with-no-matching-JE
+        // visible but did NOT filter the matched rows by date when
+        // those rows already satisfied the LEFT JOIN's id match.
+        //
+        // Wait — that's not how SQL works. The ON filter SHOULD
+        // exclude out-of-range JEs. But the symptom is that 2020-01-01
+        // to 2020-12-31 still shows the full year. So something is
+        // bypassing the filter.
+        //
+        // Hypothesis: PostgreSQL's BETWEEN on TIMESTAMP requires the
+        // comparison type to match. Dapper passes DateTime, Npgsql
+        // sends it as 'timestamp' which compares correctly. BUT the
+        // entry_date column is timestamp without time zone, and
+        // the parameter is being sent as DateTime (Kind=Utc). The
+        // mismatch might silently coerce the parameter to NULL.
+        //
+        // Fix: send the parameter as Date only (cast to date), which
+        // matches the column semantics and avoids any tz shenanigans.
         var movements = await conn.QueryAsync<IncomeMovementRow>(@"
             SELECT a.code, a.name, a.account_type,
                    COALESCE(SUM(jl.debit - jl.credit), 0) AS net
             FROM accounts a
-            LEFT JOIN journal_lines jl ON jl.account_id = a.id
-            LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+            INNER JOIN journal_lines jl ON jl.account_id = a.id
+            INNER JOIN journal_entries je ON je.id = jl.journal_entry_id
                 AND je.status = 'posted'
-                AND je.entry_date BETWEEN @from AND @to
+                AND je.entry_date::date BETWEEN @fromDate AND @toDate
+                AND (je.source IS NULL OR je.source <> 'year-end-closing')
             WHERE a.company_id = @companyId AND a.account_type IN ('Revenue', 'Expense')
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code;",
-            new { companyId, from = fromDate, to = toDate });
+            new { companyId, fromDate = fromDate.Date, toDate = toDate.Date });
+
+        foreach (var m in movements)
+            _log.LogInformation("IS movement: {Code} {Type} {Net}", m.code, m.account_type, m.net);
 
         var revenues = new List<IncomeStatementLine>();
         var expenses = new List<IncomeStatementLine>();
@@ -208,7 +239,7 @@ public class ReportService
         // We need `level` to detect sub-ledgers (L4) and `parent_id` to
         // find their control account (L3) — see the de-dup logic below.
         var rows = await conn.QueryAsync<BalanceRowEx>(@"
-            SELECT id, code, name, account_type, balance, level, parent_id
+            SELECT id, code, name, account_type, nature, balance, level, parent_id
             FROM accounts
             WHERE company_id = @companyId AND is_active = true
               AND account_type IN ('Asset', 'Liability', 'Equity')
@@ -300,8 +331,16 @@ public class ReportService
             switch (r.account_type)
             {
                 case "Asset":
-                    assets.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
-                    totalAssets += Math.Abs(amount);
+                    // For debit-nature assets (Cash, AR, etc.) the
+                    // natural balance is positive → adds to assets.
+                    // For credit-nature assets (Accumulated Depreciation,
+                    // 1202) the natural balance of 30,000 represents
+                    // a $30,000 credit balance that REDUCES the asset
+                    // total. Negate the amount for credit-nature
+                    // assets so they show as a negative asset.
+                    var assetAmount = r.nature == "Credit" ? -amount : amount;
+                    assets.Add(new BalanceSheetLine(displayCode, displayName, assetAmount));
+                    totalAssets += assetAmount;
                     break;
                 case "Liability":
                     liabilities.Add(new BalanceSheetLine(displayCode, displayName, Math.Abs(amount)));
@@ -350,7 +389,24 @@ public class ReportService
             }
         }
 
-        if (Math.Abs(netIncome) > 0.01m)
+        // Sprint 40 — only add the year-to-date NET line if the
+        // books have NOT been year-end-closed. Once the closing
+        // entry posts, the net income lives in 3201 (Retained
+        // Earnings) and 3202 (Current Year P&L) is cleared — the
+        // "صافي الدخل" line would then double-count. We detect the
+        // close by checking whether 3202 carries a non-zero balance
+        // (the closing credits it; the next period starts at 0).
+        var isYearEndClosed = false;
+        foreach (var r in rows.Where(r => r.level == 3))
+        {
+            if (r.code == "3202" && Math.Abs(r.balance) > 0.01m)
+            {
+                isYearEndClosed = true;
+                break;
+            }
+        }
+
+        if (Math.Abs(netIncome) > 0.01m && !isYearEndClosed)
         {
             equity.Add(new BalanceSheetLine("NET", "صافي الدخل (السنة الحالية)", netIncome));
             totalEquity += netIncome;
@@ -367,7 +423,7 @@ public class ReportService
     private record TrialBalanceRow(string code, string name, string account_type, string nature, decimal balance);
     private record TrialBalanceRowEx(Guid id, string code, string name, string account_type, string nature, decimal balance, int level, Guid? parent_id);
     private record BalanceRow(string code, string name, string account_type, decimal balance);
-    private record BalanceRowEx(Guid id, string code, string name, string account_type, decimal balance, int level, Guid? parent_id);
+    private record BalanceRowEx(Guid id, string code, string name, string account_type, string? nature, decimal balance, int level, Guid? parent_id);
     private record IncomeMovementRow(string code, string name, string account_type, decimal net);
 
     /// <summary>
@@ -541,7 +597,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
@@ -627,7 +683,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'

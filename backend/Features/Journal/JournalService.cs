@@ -18,7 +18,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries
             WHERE company_id = @companyId
             ORDER BY entry_date DESC, created_at DESC
@@ -35,6 +35,119 @@ public class JournalService
     }
 
     /// <summary>
+    /// Sprint 41 — Paged listing. Same shape as GetByCompanyAsync
+    /// but takes a stable offset+limit and an optional status filter.
+    /// The frontend uses this for the Journal page (50/page + a
+    /// page navigator). Returns full DTOs (with lines) by calling
+    /// PostingEngine.GetByIdAsync for each row.
+    /// </summary>
+    public async Task<List<JournalEntryDto>> GetByCompanyPagedAsync(
+        Guid companyId, int limit, int offset, string? status)
+    {
+        using var conn = _db.CreateConnection();
+        var entries = (await conn.QueryAsync<JournalEntryRow>(@"
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
+            FROM journal_entries
+            WHERE company_id = @companyId
+              AND (@status::text IS NULL OR status = @status)
+            ORDER BY entry_date DESC, created_at DESC
+            LIMIT @limit OFFSET @offset;",
+            new { companyId, status, limit, offset })).ToList();
+
+        var result = new List<JournalEntryDto>();
+        foreach (var e in entries)
+        {
+            var dto = await _posting.GetByIdAsync(e.id);
+            if (dto is not null) result.Add(dto);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Sprint 41 — Count of journal entries for a company, optionally
+    /// filtered by status. The frontend uses this to render the
+    /// total page count next to the page navigator.
+    /// </summary>
+    public async Task<int> CountByCompanyAsync(Guid companyId, string? status)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(*)::int
+            FROM journal_entries
+            WHERE company_id = @companyId
+              AND (@status::text IS NULL OR status = @status);",
+            new { companyId, status });
+    }
+
+    /// <summary>
+    /// Sprint 41 — Approve every PENDING entry for the company.
+    /// Returns the IDs that successfully moved to DRAFT and a
+    /// dictionary of (id → reason) for entries that failed (period
+    /// closed, missing line, etc.) so the UI can show the operator
+    /// exactly which ones still need attention.
+    /// </summary>
+    public async Task<(List<Guid> Succeeded, Dictionary<Guid, string> Failed)>
+        BulkApproveByCompanyAsync(Guid companyId, Guid? userId)
+    {
+        var succeeded = new List<Guid>();
+        var failed = new Dictionary<Guid, string>();
+        using var conn = _db.CreateConnection();
+        var pending = (await conn.QueryAsync<Guid>(@"
+            SELECT id FROM journal_entries
+            WHERE company_id = @companyId AND status = 'pending'
+            ORDER BY entry_date ASC;",
+            new { companyId })).ToList();
+
+        foreach (var id in pending)
+        {
+            try
+            {
+                var entry = await ApproveAsync(id, userId);
+                if (entry is not null) succeeded.Add(id);
+                else failed[id] = "Approve returned null";
+            }
+            catch (Exception ex)
+            {
+                failed[id] = ex.Message;
+            }
+        }
+        return (succeeded, failed);
+    }
+
+    /// <summary>
+    /// Sprint 41 — Post every DRAFT entry for the company.
+    /// The same per-row resilience as BulkApproveByCompanyAsync:
+    /// a single bad row does not stop the rest.
+    /// </summary>
+    public async Task<(List<Guid> Succeeded, Dictionary<Guid, string> Failed)>
+        BulkPostByCompanyAsync(Guid companyId)
+    {
+        var succeeded = new List<Guid>();
+        var failed = new Dictionary<Guid, string>();
+        using var conn = _db.CreateConnection();
+        var drafts = (await conn.QueryAsync<Guid>(@"
+            SELECT id FROM journal_entries
+            WHERE company_id = @companyId AND status = 'draft'
+            ORDER BY entry_date ASC;",
+            new { companyId })).ToList();
+
+        foreach (var id in drafts)
+        {
+            try
+            {
+                var entry = await PostAsync(id);
+                if (entry is not null) succeeded.Add(id);
+                else failed[id] = "Post returned null";
+            }
+            catch (Exception ex)
+            {
+                failed[id] = ex.Message;
+            }
+        }
+        return (succeeded, failed);
+    }
+
+    /// <summary>
     /// Lists all PENDING entries for a company — the ones that need the
     /// accountant's review. Used by the "Pending Entries" page (Sprint 15).
     /// Ordered oldest-first so the accountant drains the queue in arrival
@@ -44,7 +157,7 @@ public class JournalService
     {
         using var conn = _db.CreateConnection();
         var entries = (await conn.QueryAsync<JournalEntryRow>(@"
-            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries
             WHERE company_id = @companyId AND status = 'pending'
             ORDER BY created_at ASC;",
@@ -66,6 +179,31 @@ public class JournalService
         // Manual draft — editable, requires a separate PostAsync to be
         // promoted to "posted". Used by the human "New journal entry" UI.
         return await CreateInternalAsync(req, createdBy, "draft");
+    }
+
+    /// <summary>
+    /// Sprint 40 — Trust path. Creates a draft, approves it, and posts
+    /// it in one call. Used by the FullYearSeeder and any other caller
+    /// that has already validated the journal entry (debits = credits,
+    /// period is open, accounts are postable) and wants the entry
+    /// to land directly in the General Ledger without the manual
+    /// review step.
+    ///
+    /// Production-grade safety: still runs the same validation as the
+    /// three-step path (period check, balance check, account
+    /// postability check) — we just collapse the three round-trips
+    /// into one. If anything throws, no half-posted state is left
+    /// behind.
+    /// </summary>
+    public async Task<JournalEntryDto> CreateAndPostAsync(CreateJournalEntryRequest req, Guid? userId)
+    {
+        var draft = await CreateDraftAsync(req, userId);
+        var approved = await ApproveAsync(draft.Id, userId);
+        if (approved is null)
+            throw new InvalidOperationException(
+                $"Failed to approve entry {draft.EntryNumber} — check period status and balance");
+        var posted = await PostAsync(draft.Id);
+        return posted;
     }
 
     /// <summary>
@@ -271,7 +409,7 @@ public class JournalService
         try
         {
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
-                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId }, tx);
             if (entry is null) return false;
@@ -437,7 +575,7 @@ public class JournalService
             // status check before opening a tx)
             var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
                 SELECT id, company_id, entry_number, entry_date, narration,
-                       status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                       status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
                 FROM journal_entries WHERE id = @id;",
                 new { id = entryId });
 
@@ -494,7 +632,7 @@ public class JournalService
 
         var entry = await conn.QuerySingleOrDefaultAsync<JournalEntryRow>(@"
             SELECT id, company_id, entry_number, entry_date, narration,
-                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at
+                   status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
             FROM journal_entries WHERE id = @id;",
             new { id = entryId });
 
@@ -812,7 +950,9 @@ public class JournalService
     private record JournalEntryRow(
         Guid id, Guid company_id, string entry_number, DateTime entry_date, string? narration,
         string status, string? source, Guid? rule_id, Guid? reverses_entry_id,
-        Guid? created_by, DateTime created_at, DateTime? posted_at);
+        Guid? created_by, DateTime created_at, DateTime? posted_at,
+        // Sprint 35: project tag.
+        Guid? project_id);
 
     private record JournalLineRow(
         Guid id, Guid journal_entry_id, Guid account_id, decimal debit, decimal credit,

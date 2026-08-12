@@ -119,9 +119,9 @@ public partial class FullYearSeeder
         var lastDay = new DateTime(month.Year, month.Month, DateTime.DaysInMonth(month.Year, month.Month));
         var entries = new List<(string desc, List<CreateJournalLineRequest> lines)>();
 
-        // 1) Rent — 5,000 LYD (Cash → Rent Expense 5303)
+        // 1) Rent — 5,000 LYD (Cash → Rent Expense 5102)
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash) &&
-            _accountIds.TryGetValue("5303", out var rent))
+            _accountIds.TryGetValue("5102", out var rent))
         {
             entries.Add(("إيجار شهري", new List<CreateJournalLineRequest>
             {
@@ -131,10 +131,9 @@ public partial class FullYearSeeder
         }
 
         // 2) Salaries — 35,000 LYD total (5 employees × 7,000)
-        // Dr Salaries Expense 5301, Cr Cash
-        if (_accountIds.TryGetValue("5301", out var salaries) && _accountIds.TryGetValue("1101-CASH-001", out cash))
+        // Dr Salaries Expense 5101, Cr Cash
+        if (_accountIds.TryGetValue("5101", out var salaries) && _accountIds.TryGetValue("1101-CASH-001", out cash))
         {
-            var employeeIds = _userIds.Values.Take(5).ToList();
             var salaryLines = new List<CreateJournalLineRequest>
             {
                 new(salaries, 35_000m, 0, "رواتب الشهر", null)
@@ -143,8 +142,8 @@ public partial class FullYearSeeder
             entries.Add(("رواتب شهرية", salaryLines));
         }
 
-        // 3) Electricity — 1,200 LYD (Utilities 5304)
-        if (_accountIds.TryGetValue("5304", out var utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank1))
+        // 3) Electricity — 1,200 LYD (Utilities 5103)
+        if (_accountIds.TryGetValue("5103", out var utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank1))
         {
             entries.Add(("فاتورة كهرباء", new List<CreateJournalLineRequest>
             {
@@ -154,7 +153,7 @@ public partial class FullYearSeeder
         }
 
         // 4) Water — 300 LYD
-        if (_accountIds.TryGetValue("5304", out utilities) && _accountIds.TryGetValue("1101-CASH-001", out cash))
+        if (_accountIds.TryGetValue("5103", out utilities) && _accountIds.TryGetValue("1101-CASH-001", out cash))
         {
             entries.Add(("فاتورة ماء", new List<CreateJournalLineRequest>
             {
@@ -164,7 +163,7 @@ public partial class FullYearSeeder
         }
 
         // 5) Internet + Phone — 500 LYD
-        if (_accountIds.TryGetValue("5304", out utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank2))
+        if (_accountIds.TryGetValue("5103", out utilities) && _accountIds.TryGetValue("1102-BANK-001", out var bank2))
         {
             entries.Add(("إنترنت وهاتف", new List<CreateJournalLineRequest>
             {
@@ -173,8 +172,8 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 6) Depreciation — 2,500 LYD (Accumulated Depreciation 1202 / Depreciation Expense 5302)
-        if (_accountIds.TryGetValue("5302", out var depExp) &&
+        // 6) Depreciation — 2,500 LYD (Accumulated Depreciation 1202 / Depreciation Expense 5106)
+        if (_accountIds.TryGetValue("5106", out var depExp) &&
             _accountIds.TryGetValue("1202", out var accDep))
         {
             entries.Add(("إهلاك شهري", new List<CreateJournalLineRequest>
@@ -184,10 +183,14 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 7) Loan installment — 4,000 LYD (3,500 principal + 500 interest)
-        // Dr Loan Payable 2201 (3,500), Dr Interest Expense 5305 (500), Cr Bank (4,000)
+        // 7) Loan installment — 4,000 LYD (3,500 principal + 500 interest).
+        //    Note: the standard COA has no specific "interest expense"
+        //    account — we map both the interest and the bank fees
+        //    onto 5203 (Hospitality) as a generic admin-expense
+        //    bucket. A real chart would add 5206 "Bank Charges &
+        //    Interest" — out of scope for the demo.
         if (_accountIds.TryGetValue("2201", out var loan) &&
-            _accountIds.TryGetValue("5305", out var intExp) &&
+            _accountIds.TryGetValue("5203", out var intExp) &&
             _accountIds.TryGetValue("1102-BANK-001", out var bank3))
         {
             entries.Add(("قسط قرض بنكي", new List<CreateJournalLineRequest>
@@ -198,8 +201,9 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 8) Bank service charges — 50 LYD
-        if (_accountIds.TryGetValue("5306", out var bankChg) &&
+        // 8) Bank service charges — 50 LYD (mapped to 5203 for the
+        //    same reason as the loan interest above).
+        if (_accountIds.TryGetValue("5203", out var bankChg) &&
             _accountIds.TryGetValue("1102-BANK-001", out var bank4))
         {
             entries.Add(("رسوم بنكية", new List<CreateJournalLineRequest>
@@ -209,9 +213,9 @@ public partial class FullYearSeeder
             }));
         }
 
-        // 9) Insurance prepaid amortization — 800 LYD
-        if (_accountIds.TryGetValue("1205", out var prepaidIns) &&
-            _accountIds.TryGetValue("5307", out var insExp))
+        // 9) Insurance prepaid amortization — 800 LYD (1205 Intangible/Prepaid → 5104 Insurance)
+        if (_accountIds.TryGetValue("1106", out var prepaidIns) &&
+            _accountIds.TryGetValue("5104", out var insExp))
         {
             entries.Add(("إطفاء تأمين", new List<CreateJournalLineRequest>
             {
@@ -228,8 +232,21 @@ public partial class FullYearSeeder
                 var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
                     companyId, lastDay, $"{desc} - {monthLabel}",
                     lines, Source: "manual"), _mainUserId);
-                await _journal.ApproveAsync(entry.Id, _mainUserId);
-                await _journal.PostAsync(entry.Id);
+
+                // Recurring JEs (rent, salaries, utilities, etc.) sit
+                // as DRAFT in strict mode. In trusted-accountant mode
+                // Mavis signs as the accountant and posts them so the
+                // financial reports reflect the full year of activity.
+                if (TrustedAccountantMode.IsEnabled)
+                {
+                    var approved = await _journal.ApproveAsync(entry.Id, _mainUserId);
+                    if (approved is not null)
+                    {
+                        await _journal.PostAsync(entry.Id);
+                        _result.EntriesApproved++;
+                        _result.EntriesPosted++;
+                    }
+                }
                 _result.JournalEntriesCreated++;
                 _result.RecurringEntriesCreated++;
             }
@@ -298,10 +315,29 @@ public partial class FullYearSeeder
                         contact.Name, contact.NameAr, null,
                         $"فاتورة مبيعات - {monthLabel}",
                         taxRate, IntercompanyCompanyId: null, Lines: mainLines);
+                    // Sprint 40 — manual posting. MarkAsPostedAsync skips
+                    // the rules engine; we then build the proper
+                    // sub-ledger journal entry by hand.
                     var draft = await _invoices.CreateDraftAsync(req, userId);
-                    var posted = await _invoices.PostAsync(draft.Id);
+                    await _invoices.MarkAsPostedAsync(draft.Id);
+
+                    // Use the exact subtotal / taxAmount / total that
+                    // InvoiceService already computed (it does per-line
+                    // rounding to 2dp that we must mirror exactly, or
+                    // the JE will be off-pence and PostingEngine will
+                    // reject it as "القيد غير متوازن").
+                    var (subtotal, taxAmount, total) = (draft.SubTotal, draft.TaxAmount, draft.Total);
+
+                    await PostSalesInvoiceAsync(
+                        companyId, invoiceDate, draft.InvoiceNumber,
+                        code, contact.NameAr,
+                        subtotal, taxAmount, total,
+                        projectId: null,
+                        costCenterId: _costCenterIds.GetValueOrDefault("DPT-SALES"),
+                        userId: userId);
+
                     if (!byCustomer.ContainsKey(code)) byCustomer[code] = new List<Guid>();
-                    byCustomer[code].Add(posted.Id);
+                    byCustomer[code].Add(draft.Id);
                     _result.InvoicesCreated++;
                 }
                 catch (Exception ex)
@@ -357,10 +393,40 @@ public partial class FullYearSeeder
                         contact.Name, contact.NameAr, null,
                         $"فاتورة مشتريات - {monthLabel}",
                         taxRate, IntercompanyCompanyId: null, Lines: lines);
+                    // Sprint 40 — manual posting with proper sub-ledger
+                    // distribution. The previous code called PostAsync
+                    // which fired the rules engine and posted to L3
+                    // "2101 Accounts Payable" instead of "2101-SUPP-XXX".
                     var draft = await _invoices.CreateDraftAsync(req, userId);
-                    var posted = await _invoices.PostAsync(draft.Id);
+                    await _invoices.MarkAsPostedAsync(draft.Id);
+
+                    // Use the invoice's own rounded totals (see
+                    // sales-invoice comment for why we can't compute
+                    // them ourselves).
+                    var (subtotal, taxAmount, total) = (draft.SubTotal, draft.TaxAmount, draft.Total);
+
+                    // Pick the cost center that matches the supplier
+                    // category — services go to "ACT-PROF", admin to
+                    // "ACT-OFFICE", materials/equipment to "DPT-OPS-SUP".
+                    var costCenterCode = category switch
+                    {
+                        "services"  => "ACT-PROF",
+                        "admin"     => "ACT-OFFICE",
+                        "materials" => "DPT-OPS-SUP",
+                        "equipment" => "DPT-OPS-SUP",
+                        _           => "DPT-OPS"
+                    };
+
+                    await PostPurchaseInvoiceAsync(
+                        companyId, invoiceDate, draft.InvoiceNumber,
+                        code, contact.NameAr,
+                        subtotal, taxAmount, total,
+                        category, projectId: null,
+                        costCenterId: _costCenterIds.GetValueOrDefault(costCenterCode),
+                        userId: userId);
+
                     if (!bySupplier.ContainsKey(code)) bySupplier[code] = new List<Guid>();
-                    bySupplier[code].Add(posted.Id);
+                    bySupplier[code].Add(draft.Id);
                     _result.InvoicesCreated++;
                 }
                 catch (Exception ex)
@@ -395,6 +461,9 @@ public partial class FullYearSeeder
             try
             {
                 // Get unpaid invoices for this customer up to this month
+                // Note: invoices table uses party_name (free text), not contact_id
+                var contact = await _contacts.GetByIdAsync(contactId);
+                if (contact is null) continue;
                 using var conn = _db.CreateConnection();
                 var openInvoices = (await conn.QueryAsync<(Guid id, decimal total, decimal paid, DateTime date)>(@"
                     SELECT i.id, i.total, COALESCE((SELECT SUM(amount) FROM receipt_vouchers
@@ -402,14 +471,14 @@ public partial class FullYearSeeder
                         i.invoice_date
                     FROM invoices i
                     WHERE i.company_id = @cid AND i.invoice_type = 'sales'
-                      AND i.contact_id = @contactId
+                      AND (i.party_name = @partyName OR i.party_name_ar = @partyName)
                       AND i.status = 'posted'
                       AND i.invoice_date < @asOf
                       AND (i.total - COALESCE((SELECT SUM(amount) FROM receipt_vouchers
                           WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0)) > 0
                     ORDER BY i.invoice_date
                     LIMIT 5;",
-                    new { cid = companyId, contactId, asOf = month.AddDays(15) })).ToList();
+                    new { cid = companyId, partyName = contact.Name, asOf = month.AddDays(15) })).ToList();
 
                 if (openInvoices.Count == 0) continue;
 
@@ -468,20 +537,22 @@ public partial class FullYearSeeder
             try
             {
                 using var conn = _db.CreateConnection();
+                var supContact = await _contacts.GetByIdAsync(contactId);
+                if (supContact is null) continue;
                 var openInvoices = (await conn.QueryAsync<(Guid id, decimal total, decimal paid, DateTime date)>(@"
                     SELECT i.id, i.total, COALESCE((SELECT SUM(amount) FROM payment_vouchers
                         WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0) as paid,
                         i.invoice_date
                     FROM invoices i
                     WHERE i.company_id = @cid AND i.invoice_type = 'purchase'
-                      AND i.contact_id = @contactId
+                      AND (i.party_name = @partyName OR i.party_name_ar = @partyName)
                       AND i.status = 'posted'
                       AND i.invoice_date < @asOf
                       AND (i.total - COALESCE((SELECT SUM(amount) FROM payment_vouchers
                           WHERE invoice_id = i.id AND status IN ('posted', 'approved')), 0)) > 0
                     ORDER BY i.invoice_date
                     LIMIT 5;",
-                    new { cid = companyId, contactId, asOf = month.AddDays(15) })).ToList();
+                    new { cid = companyId, partyName = supContact.Name, asOf = month.AddDays(15) })).ToList();
 
                 if (openInvoices.Count == 0) continue;
 
@@ -540,43 +611,84 @@ public partial class FullYearSeeder
                   AND (code LIKE '51%' OR code LIKE '52%' OR code LIKE '53%' OR code LIKE '54%')
                   AND balance != 0;",
                 new { cid = companyId })).ToList();
-            var retained = _accountIds.GetValueOrDefault("3301");
+            // Closing destination: 3202 (Current Year P&L). The
+            // balance sheet detects a year-end-closed period by
+            // checking whether 3202 carries a non-zero balance; in
+            // that case it suppresses the auto-generated "صافي
+            // الدخل" line to avoid double-counting.
+            //
+            // The previous version wrote to 3301 (Statutory Reserve)
+            // which inflated equity incorrectly, and 3201 (Retained
+            // Earnings) which left 3202 stranded.
+            var currentYearPL = _accountIds.GetValueOrDefault("3202");
+            if (currentYearPL == Guid.Empty)
+            {
+                // Fall back to 3201 if 3202 is missing
+                currentYearPL = _accountIds.GetValueOrDefault("3201");
+            }
 
-            if (retained == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
+            if (currentYearPL == Guid.Empty || (!revenueAccounts.Any() && !expenseAccounts.Any()))
             {
                 _logger.LogInformation("FullYearSeeder: no closing entries needed");
                 return;
             }
 
             var lines = new List<CreateJournalLineRequest>();
-            // Revenue balances are credit (negative in our convention), so debit them
+            // Close revenue: revenue accounts have Credit nature, so
+            // a positive balance value represents a credit balance
+            // (which is the normal state for a Revenue account). We
+            // debit it to zero it out. The previous version checked
+            // `r.balance < 0` which never matched because PostingEngine
+            // stores Credit-nature balances as positive — leaving
+            // revenue un-closed and the year-end transfer short.
             foreach (var r in revenueAccounts)
             {
-                if (r.balance < 0) // credit balance → debit to close
+                if (r.balance != 0)
                     lines.Add(new CreateJournalLineRequest(r.id, Math.Abs(r.balance), 0, "إقفال إيرادات", null));
             }
-            // Expense balances are debit (positive), so credit them
+            // Close expenses: expense accounts have Debit nature, so
+            // a positive balance is a debit balance. Credit to zero.
             foreach (var e in expenseAccounts)
             {
                 if (e.balance > 0)
                     lines.Add(new CreateJournalLineRequest(e.id, 0, e.balance, "إقفال مصروفات", null));
             }
-            // Net to retained earnings
-            var totalRevenue = revenueAccounts.Sum(r => Math.Abs(Math.Min(r.balance, 0)));
-            var totalExpense = expenseAccounts.Sum(e => Math.Max(e.balance, 0));
+            // Net to current year P&L. PostingEngine stores the
+            // natural balance: positive for both debit-nature
+            // (expenses) and credit-nature (revenue) accounts when
+            // they have a normal balance. So we take the balance
+            // directly for both. The previous code used
+            // `Math.Min(r.balance, 0)` which would zero out any
+            // positive (credit) balance — never matching real
+            // revenue numbers.
+            var totalRevenue = revenueAccounts.Sum(r => Math.Abs(r.balance));
+            var totalExpense = expenseAccounts.Sum(e => Math.Abs(e.balance));
             var netIncome = totalRevenue - totalExpense;
             if (netIncome > 0)
-                lines.Add(new CreateJournalLineRequest(retained, 0, netIncome, "صافي الدخل", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, 0, netIncome, "صافي الدخل", null));
             else if (netIncome < 0)
-                lines.Add(new CreateJournalLineRequest(retained, Math.Abs(netIncome), 0, "صافي خسارة", null));
+                lines.Add(new CreateJournalLineRequest(currentYearPL, Math.Abs(netIncome), 0, "صافي خسارة", null));
 
             if (lines.Count < 2) return;
 
             var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
-                companyId, FY_END, "إقفال السنة المالية - قيود الإقفال",
-                lines, Source: "manual"), _mainUserId);
-            await _journal.ApproveAsync(entry.Id, _mainUserId);
-            await _journal.PostAsync(entry.Id);
+                companyId, DateTime.UtcNow.Date, "إقفال السنة المالية - قيود الإقفال",
+                lines, Source: "year-end-closing"), _mainUserId);
+
+            // Year-end closing sits as DRAFT in strict mode. In
+            // trusted-accountant mode Mavis signs and posts so the
+            // P&L accounts are zeroed out and the net income flows
+            // to 3202 (current year P&L) for the BS to display.
+            if (TrustedAccountantMode.IsEnabled)
+            {
+                var approved = await _journal.ApproveAsync(entry.Id, _mainUserId);
+                if (approved is not null)
+                {
+                    await _journal.PostAsync(entry.Id);
+                    _result.EntriesApproved++;
+                    _result.EntriesPosted++;
+                }
+            }
             _result.JournalEntriesCreated++;
             _result.YearEndClosingCreated = true;
         }
