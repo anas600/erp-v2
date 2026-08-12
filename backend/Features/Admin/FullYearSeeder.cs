@@ -85,11 +85,11 @@ public partial class FullYearSeeder
     // Constants
     // ----------------------------------------------------------------
 
-    /// <summary>Fiscal year start (Sept 1, 2025).</summary>
-    public static readonly DateTime FY_START = new(2025, 9, 1);
+    /// <summary>Fiscal year start (Jan 1, 2026) — calendar-year FY.</summary>
+    public static readonly DateTime FY_START = new(2026, 1, 1);
 
-    /// <summary>Fiscal year end (Aug 31, 2026).</summary>
-    public static readonly DateTime FY_END = new(2026, 8, 31);
+    /// <summary>Fiscal year end (Dec 31, 2026).</summary>
+    public static readonly DateTime FY_END = new(2026, 12, 31);
 
     /// <summary>Libyan VAT rate (4% on most goods and services).</summary>
     public const decimal VAT_RATE = 0.04m;
@@ -522,7 +522,7 @@ public partial class FullYearSeeder
         try
         {
             var fy = await _fiscalYears.CreateYearAsync(new CreateFiscalYearRequest(
-                companyId, "FY2025-2026", FY_START, FY_END));
+                companyId, "FY2026", FY_START, FY_END));
             _result.FiscalYearCreated = true;
             _logger.LogInformation("FullYearSeeder: fiscal year created with {N} periods", fy.Periods.Count);
         }
@@ -535,41 +535,45 @@ public partial class FullYearSeeder
 
     private async Task SeedOpeningBalancesAsync(Guid companyId)
     {
-        // Starting capital (Sep 1, 2025) — sized to cover a full
-        // year of recurring expenses plus a buffer for working
-        // capital. The previous version used Cash=50K + Bank=150K,
-        // which is way too small for a holding company running
-        // 35K/month in salaries alone — the cash account would go
-        // deeply negative by year-end.
+        // Starting capital (Jan 1, 2026) — large company scenario.
+        // Multi-cash + multi-bank setup so the demo can show
+        // intra-company transfers and per-cash-point reporting.
         //
-        //   Cash 1101-CASH-001:  600,000 LYD (covers recurring
-        //                         expenses + small payments)
-        //   Bank 1102-BANK-001:  400,000 LYD (covers larger payments
-        //                         and project billings)
-        //   Prepaid 1106:          9,600 LYD (insurance prepaid for
-        //                         the year, amortizes to 0 by Aug)
-        //   Loan 2201:           84,000 LYD (initial 12-month loan
-        //                         at 4,000/month installment)
-        //   Capital 3101:      1,009,600 LYD (owner's equity, the
-        //                         sum of the above debits)
+        //   Cash 1101-CASH-001:  1,000,000 LYD (Main cash — Tripoli HQ)
+        //   Bank 1102-BANK-001:    500,000 LYD (Bank 1 — operating account)
+        //   Prepaid 1106:            9,600 LYD (insurance prepaid for Q1)
+        //   AR 1103-CUST-001:      150,000 LYD (opening receivable — pre-existing invoice)
+        //   Loan 2201:             200,000 LYD (5-year project loan)
+        //   AP 2101-SUPP-001:       50,000 LYD (opening payable to main subcontractor)
+        //   Capital 3101:        1,409,600 LYD (owner's equity, the
+        //                                  sum of the above debits minus
+        //                                  the AP)
+        //
+        // Balance check:
+        //   Dr: 1,000,000 + 500,000 + 9,600 + 150,000 = 1,659,600
+        //   Cr: 200,000 + 50,000 + 1,409,600 = 1,659,600  ✓
         var lines = new List<CreateJournalLineRequest>();
         if (_accountIds.TryGetValue("1101-CASH-001", out var cash))
-            lines.Add(new CreateJournalLineRequest(cash, 600_000m, 0, "رصيد افتتاحي - صندوق", null));
+            lines.Add(new CreateJournalLineRequest(cash, 1_000_000m, 0, "رصيد افتتاحي - صندوق طرابلس", null));
         if (_accountIds.TryGetValue("1102-BANK-001", out var bank))
-            lines.Add(new CreateJournalLineRequest(bank, 400_000m, 0, "رصيد افتتاحي - بنك", null));
+            lines.Add(new CreateJournalLineRequest(bank, 500_000m, 0, "رصيد افتتاحي - البنك التجاري", null));
         if (_accountIds.TryGetValue("1106", out var prepaid))
             lines.Add(new CreateJournalLineRequest(prepaid, 9_600m, 0, "تأمين مسبق - رصيد افتتاحي", null));
+        if (_accountIds.TryGetValue("1103-CUST-001", out var openingAr))
+            lines.Add(new CreateJournalLineRequest(openingAr, 150_000m, 0, "ذمم مدينة - رصيد افتتاحي (فاتورة سابقة)", null));
         if (_accountIds.TryGetValue("2201", out var loan))
-            lines.Add(new CreateJournalLineRequest(loan, 0, 84_000m, "قرض بنكي - رصيد افتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(loan, 0, 200_000m, "قرض بنكي - رصيد افتتاحي (5 سنوات)", null));
+        if (_accountIds.TryGetValue("2101-SUPP-001", out var openingAp))
+            lines.Add(new CreateJournalLineRequest(openingAp, 0, 50_000m, "ذمم دائنة - رصيد افتتاحي (مقاول باطن)", null));
         if (_accountIds.TryGetValue("3101", out var capital))
-            lines.Add(new CreateJournalLineRequest(capital, 0, 925_600m, "رأس المال الافتتاحي", null));
+            lines.Add(new CreateJournalLineRequest(capital, 0, 1_409_600m, "رأس المال الافتتاحي", null));
 
         if (lines.Count == 0) return;
 
         try
         {
             var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
-                companyId, FY_START, "قيود افتتاحية - السنة المالية 2025-2026",
+                companyId, FY_START, "قيود افتتاحية - السنة المالية 2026",
                 lines, Source: "manual"), _mainUserId);
             await _journal.ApproveAsync(entry.Id, _mainUserId);
             await _journal.PostAsync(entry.Id);

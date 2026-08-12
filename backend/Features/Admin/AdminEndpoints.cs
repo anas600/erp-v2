@@ -950,6 +950,79 @@ public static class AdminEndpoints
             });
         });
 
+        // POST /api/admin/wipe-all
+        // Sprint 42 — full database wipe for a fresh demo scenario.
+        // Truncates ALL transaction tables + master data (contacts,
+        // products, projects) in the right order. Keeps the COA
+        // (accounts) and the user list. CASCADE handles the FK
+        // dependencies.
+        //
+        // ⚠️ DESTRUCTIVE — only for demo / test environments.
+        // Requires super_admin.
+        grp.MapPost("/wipe-all", async (HttpContext ctx, IDbConnectionFactory db, [FromServices] FullYearSeeder seeder) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            using var conn = db.CreateConnection();
+            try
+            {
+                // The order matters — respect FKs. CASCADE handles
+                // dependencies, but we still need to truncate the
+                // parent tables first because some FKs aren't
+                // declared CASCADE in the schema.
+                await conn.ExecuteAsync(@"
+                    TRUNCATE TABLE
+                        contract_variation_items,
+                        contract_variations,
+                        contract_line_items,
+                        billing_line_items,
+                        progress_billings,
+                        contracts,
+                        project_milestones,
+                        projects,
+                        receipt_vouchers,
+                        payment_vouchers,
+                        journal_lines,
+                        journal_entries,
+                        invoice_lines,
+                        invoices,
+                        project_allocations,
+                        cost_centers,
+                        products,
+                        contacts
+                    RESTART IDENTITY CASCADE;");
+
+                // Reset account balances to 0 (the COA structure
+                // stays, only the running totals are cleared).
+                await conn.ExecuteAsync(
+                    "UPDATE accounts SET balance = 0 WHERE company_id IS NOT NULL;");
+
+                // Close any open fiscal years so the next seed
+                // can create a fresh one without conflicts.
+                await conn.ExecuteAsync(
+                    "UPDATE fiscal_years SET is_closed = true WHERE is_closed = false;");
+
+                return Results.Ok(new
+                {
+                    message = "Wipe complete. COA and users preserved.",
+                    reset = new[] { "contacts", "products", "projects", "invoices", "journal_entries", "vouchers", "balances" }
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name
+                });
+            }
+        });
+
         // POST /api/admin/rebuild-balances?companyId=X
         // Sprint 41 — the accounts.balance column can drift from
         // journal_lines (e.g. when bulk-post runs through paths
