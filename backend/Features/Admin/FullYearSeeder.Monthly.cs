@@ -232,8 +232,21 @@ public partial class FullYearSeeder
                 var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
                     companyId, lastDay, $"{desc} - {monthLabel}",
                     lines, Source: "manual"), _mainUserId);
-                await _journal.ApproveAsync(entry.Id, _mainUserId);
-                await _journal.PostAsync(entry.Id);
+
+                // Recurring JEs (rent, salaries, utilities, etc.) sit
+                // as DRAFT in strict mode. In trusted-accountant mode
+                // Mavis signs as the accountant and posts them so the
+                // financial reports reflect the full year of activity.
+                if (TrustedAccountantMode.IsEnabled)
+                {
+                    var approved = await _journal.ApproveAsync(entry.Id, _mainUserId);
+                    if (approved is not null)
+                    {
+                        await _journal.PostAsync(entry.Id);
+                        _result.EntriesApproved++;
+                        _result.EntriesPosted++;
+                    }
+                }
                 _result.JournalEntriesCreated++;
                 _result.RecurringEntriesCreated++;
             }
@@ -661,8 +674,21 @@ public partial class FullYearSeeder
             var entry = await _journal.CreateDraftAsync(new CreateJournalEntryRequest(
                 companyId, DateTime.UtcNow.Date, "إقفال السنة المالية - قيود الإقفال",
                 lines, Source: "year-end-closing"), _mainUserId);
-            await _journal.ApproveAsync(entry.Id, _mainUserId);
-            await _journal.PostAsync(entry.Id);
+
+            // Year-end closing sits as DRAFT in strict mode. In
+            // trusted-accountant mode Mavis signs and posts so the
+            // P&L accounts are zeroed out and the net income flows
+            // to 3202 (current year P&L) for the BS to display.
+            if (TrustedAccountantMode.IsEnabled)
+            {
+                var approved = await _journal.ApproveAsync(entry.Id, _mainUserId);
+                if (approved is not null)
+                {
+                    await _journal.PostAsync(entry.Id);
+                    _result.EntriesApproved++;
+                    _result.EntriesPosted++;
+                }
+            }
             _result.JournalEntriesCreated++;
             _result.YearEndClosingCreated = true;
         }

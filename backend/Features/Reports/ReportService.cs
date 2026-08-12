@@ -597,7 +597,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
@@ -683,7 +683,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
-             AND (je.source LIKE 'rule:%' OR je.source = 'invoice:' || i.id::text)
+             AND (je.source LIKE 'rule:%' OR je.source LIKE 'invoice:%' OR je.source = 'manual')
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'
