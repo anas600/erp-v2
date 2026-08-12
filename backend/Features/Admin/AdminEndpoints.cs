@@ -1028,13 +1028,15 @@ public static class AdminEndpoints
                       AND parent.level = 3;",
                     new { companyId }, tx);
 
-                // Step 3: For L3 accounts that are themselves
-                // postable (revenue 4xxx, expense 5xxx), the postings
-                // go directly to them — but Step 2 may have just set
-                // their balance to NET of sub-ledgers, which is wrong
-                // for them since they don't have sub-ledgers.
-                // Override with the direct journal_lines total.
-                var l3PostableUpdated = await conn.ExecuteAsync(@"
+                // Step 3: For L3 accounts that have direct postings
+                // (no sub-ledgers), override with the journal_lines
+                // total. The COA has 4xxx/5xxx as L3-only (no
+                // sub-ledgers) — postings go to them directly, even
+                // though their is_postable is false. The L3 controls
+                // for AR/AP (1103/2101) DO have sub-ledgers so Step 2
+                // was correct for them; this step is for the L3
+                // accounts that don't have any sub-ledger children.
+                var l3DirectUpdated = await conn.ExecuteAsync(@"
                     UPDATE accounts a
                     SET balance = sub.net
                     FROM (
@@ -1049,13 +1051,13 @@ public static class AdminEndpoints
                         JOIN accounts ac ON ac.id = jl.account_id
                         WHERE je.company_id = @companyId AND je.status = 'posted'
                           AND ac.level = 3
-                          AND ac.is_postable = true
+                          AND ac.id NOT IN (SELECT parent_id FROM accounts WHERE parent_id IS NOT NULL)
                         GROUP BY jl.account_id
                     ) sub
                     WHERE a.id = sub.account_id
                       AND a.company_id = @companyId
                       AND a.level = 3
-                      AND a.is_postable = true;",
+                      AND a.id NOT IN (SELECT parent_id FROM accounts WHERE parent_id IS NOT NULL);",
                     new { companyId }, tx);
 
                 // Step 4: Zero out anything with no postings.
@@ -1078,7 +1080,7 @@ public static class AdminEndpoints
                     companyId = companyId.ToString(),
                     l4Updated,
                     l3ControlNetUpdated = l3Updated,
-                    l3PostableUpdated,
+                    l3DirectUpdated,
                     zeroed
                 });
             }
