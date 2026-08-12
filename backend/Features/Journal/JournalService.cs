@@ -35,6 +35,114 @@ public class JournalService
     }
 
     /// <summary>
+    /// Sprint 41 — paginated variant of GetByCompanyAsync. Returns
+    /// {items, total, limit, offset} so the frontend's journal
+    /// page can show a page navigator with total count and prev/next
+    /// buttons. The optional status filter narrows to one
+    /// lifecycle state (draft, posted, pending, reversed).
+    /// </summary>
+    public async Task<(List<JournalEntryDto> items, int total)> GetByCompanyPagedAsync(
+        Guid companyId, int limit, int offset, string? status = null)
+    {
+        using var conn = _db.CreateConnection();
+
+        // Build the WHERE clause once and reuse for both queries.
+        var whereSql = "WHERE company_id = @companyId";
+        if (!string.IsNullOrEmpty(status)) whereSql += " AND status = @status";
+
+        // Total count first (cheap query, used by the page navigator).
+        var totalSql = $"SELECT COUNT(*) FROM journal_entries {whereSql};";
+        var total = await conn.ExecuteScalarAsync<int>(
+            totalSql,
+            new { companyId, status });
+
+        // The page of items.
+        var pageSql = $@"
+            SELECT id, company_id, entry_number, entry_date, narration, status, source, rule_id, reverses_entry_id, created_by, created_at, posted_at, project_id
+            FROM journal_entries
+            {whereSql}
+            ORDER BY entry_date DESC, created_at DESC
+            LIMIT @limit OFFSET @offset;";
+        var entries = (await conn.QueryAsync<JournalEntryRow>(
+            pageSql,
+            new { companyId, status, limit, offset })).ToList();
+
+        var items = new List<JournalEntryDto>();
+        foreach (var e in entries)
+        {
+            var dto = await _posting.GetByIdAsync(e.id);
+            if (dto is not null) items.Add(dto);
+        }
+        return (items, total);
+    }
+
+    /// <summary>
+    /// Sprint 41 — bulk-approve all draft entries for a company.
+    /// Returns succeededIds (entries that moved PENDING→DRAFT, or
+    /// stayed DRAFT if they were already there) and failures
+    /// (entries that threw — e.g. closed period, invalid state).
+    /// </summary>
+    public async Task<(List<Guid> succeededIds, Dictionary<Guid, string> failures)> BulkApproveByCompanyAsync(Guid companyId, Guid? userId)
+    {
+        using var conn = _db.CreateConnection();
+        var drafts = (await conn.QueryAsync<(Guid id, string status)>(@"
+            SELECT id, status
+            FROM journal_entries
+            WHERE company_id = @companyId AND status = 'pending';",
+            new { companyId })).ToList();
+
+        var succeeded = new List<Guid>();
+        var failures = new Dictionary<Guid, string>();
+        foreach (var d in drafts)
+        {
+            try
+            {
+                var approved = await ApproveAsync(d.id, userId);
+                if (approved is not null) succeeded.Add(d.id);
+                else failures[d.id] = "Approve returned null (period may be closed)";
+            }
+            catch (Exception ex)
+            {
+                failures[d.id] = ex.Message;
+            }
+        }
+        return (succeeded, failures);
+    }
+
+    /// <summary>
+    /// Sprint 41 — bulk-post all entries that are eligible (status = 'draft'
+    /// or 'pending'). Wraps each PostAsync in try/catch so one bad
+    /// entry doesn't block the rest. Returns succeeded + failures
+    /// (same shape as BulkApproveByCompanyAsync).
+    /// </summary>
+    public async Task<(List<Guid> succeededIds, Dictionary<Guid, string> failures)> BulkPostByCompanyAsync(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        var eligible = (await conn.QueryAsync<Guid>(@"
+            SELECT id
+            FROM journal_entries
+            WHERE company_id = @companyId AND status IN ('draft', 'pending');",
+            new { companyId })).ToList();
+
+        var succeeded = new List<Guid>();
+        var failures = new Dictionary<Guid, string>();
+        foreach (var id in eligible)
+        {
+            try
+            {
+                var posted = await PostAsync(id);
+                if (posted is not null) succeeded.Add(id);
+                else failures[id] = "Post returned null";
+            }
+            catch (Exception ex)
+            {
+                failures[id] = ex.Message;
+            }
+        }
+        return (succeeded, failures);
+    }
+
+    /// <summary>
     /// Lists all PENDING entries for a company — the ones that need the
     /// accountant's review. Used by the "Pending Entries" page (Sprint 15).
     /// Ordered oldest-first so the accountant drains the queue in arrival

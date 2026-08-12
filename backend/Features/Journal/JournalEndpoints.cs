@@ -9,11 +9,69 @@ public static class JournalEndpoints
     {
         var grp = app.MapGroup("/api/journal").WithTags("Journal").RequireAuthorization();
 
-        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, [FromServices] JournalService svc) =>
+        grp.MapGet("/", async ([FromQuery] Guid companyId, [FromQuery] int? limit, [FromQuery] int? offset, [FromQuery] string? status, [FromServices] JournalService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+
+            // Sprint 41 — pagination. The frontend passes
+            // ?limit=50&offset=0 (or ?offset=50, 100, ...) to step
+            // through pages. We return {items, total, limit, offset}
+            // so the page navigator can show "page N of M" and the
+            // total count.
+            //
+            // Backwards compat: if no offset is passed, fall back to
+            // the legacy flat-list response so any older client
+            // (e.g. direct Swagger calls) keeps working.
+            if (offset.HasValue || status is not null)
+            {
+                var pageSize = limit ?? 50;
+                var off = offset ?? 0;
+                var (items, total) = await svc.GetByCompanyPagedAsync(companyId, pageSize, off, status);
+                return Results.Ok(new
+                {
+                    items,
+                    total,
+                    limit = pageSize,
+                    offset = off
+                });
+            }
+
             var data = await svc.GetByCompanyAsync(companyId, limit ?? 50);
             return Results.Ok(data);
+        });
+
+        // Sprint 41 — bulk approve every PENDING entry in a
+        // company. Returns a per-company summary suitable for the
+        // frontend's "موافقة الكل" button or admin recovery.
+        grp.MapPost("/bulk-approve", async (HttpContext ctx, [FromServices] JournalService svc, [FromQuery] Guid companyId) =>
+        {
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+            var userId = ctx.GetUserId();
+            var (succeeded, failures) = await svc.BulkApproveByCompanyAsync(companyId, userId);
+            return Results.Ok(new
+            {
+                approved = succeeded.Count,
+                failed = failures.Count,
+                succeededIds = succeeded,
+                failures = failures.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value)
+            });
+        });
+
+        // Sprint 41 — bulk post every DRAFT or PENDING entry in a
+        // company. Same shape as bulk-approve.
+        grp.MapPost("/bulk-post", async ([FromServices] JournalService svc, [FromQuery] Guid companyId) =>
+        {
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+            var (succeeded, failures) = await svc.BulkPostByCompanyAsync(companyId);
+            return Results.Ok(new
+            {
+                posted = succeeded.Count,
+                failed = failures.Count,
+                succeededIds = succeeded,
+                failures = failures.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value)
+            });
         });
 
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] JournalService svc) =>
