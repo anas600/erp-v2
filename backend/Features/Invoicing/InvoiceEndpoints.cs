@@ -12,8 +12,10 @@ public static class InvoiceEndpoints
         grp.MapGet("/", async (
             [FromQuery] Guid companyId,
             [FromQuery] int? limit,
+            [FromQuery] int? offset,
             [FromQuery] Guid? contactId,
             [FromQuery] string? status,
+            [FromQuery] string? invoiceType,
             [FromServices] InvoiceService svc) =>
         {
             if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
@@ -28,11 +30,21 @@ public static class InvoiceEndpoints
                 return Results.Ok(await svc.GetByContactAsync(companyId, contactId.Value, filter, asOf));
             }
 
-            // Backwards-compatible: company-wide list. The status filter
-            // is ignored for this path (the company-wide view shows
-            // everything; the contact-scoped view is the filtered one).
-            var data = await svc.GetByCompanyAsync(companyId, limit ?? 100);
-            return Results.Ok(data);
+            // Sprint 45 — company-wide list with server-side filtering
+            // and pagination. Supports ?invoiceType=purchase|sales,
+            // ?status=draft|posted|paid|partiallypaid|cancelled, and
+            // ?limit=N&offset=M. Returns {items, total} so the
+            // frontend can show "page N of M" + total count.
+            var effectiveLimit = limit ?? 100;
+            var effectiveOffset = offset ?? 0;
+            var items = await svc.GetByCompanyAsync(
+                companyId,
+                effectiveLimit,
+                effectiveOffset,
+                invoiceType,
+                status);
+            var total = await svc.CountByCompanyAsync(companyId, invoiceType, status);
+            return Results.Ok(new { items, total, limit = effectiveLimit, offset = effectiveOffset });
         });
 
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] InvoiceService svc) =>

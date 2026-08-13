@@ -142,16 +142,47 @@ export default function InvoicesPage() {
     lines: [emptyFormLine] as FormLine[]
   });
 
+  // Sprint 45 — server-side filter + pagination state.
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(50);
+  const [totalInvoices, setTotalInvoices] = useState(0);
+
+  // Reset to page 0 whenever the filter changes — otherwise the user
+  // can be stranded on a non-existent page after filtering.
+  useEffect(() => { setPage(0); }, [filter, statusFilter, activeCompany]);
+
   const load = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
+      // Build query params for server-side filtering. The status
+      // filter is sent to the backend (server-side) so drafts are
+      // actually findable — the old client-side filter could only
+      // see whatever the limited ?limit=100 returned.
+      const params = new URLSearchParams({
+        companyId: activeCompany.id,
+        limit: String(pageSize),
+        offset: String(page * pageSize),
+      });
+      if (filter !== "all") params.set("invoiceType", filter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       const [invoicesRes, productsRes, contactsRes] = await Promise.all([
-        api.get(`/invoices?companyId=${activeCompany.id}&limit=100`),
+        api.get(`/invoices?${params.toString()}`),
         api.get(`/products?companyId=${activeCompany.id}`),
         api.get(`/contacts?companyId=${activeCompany.id}`)
       ]);
-      setInvoices(invoicesRes.data);
+      // Sprint 45 — backend now returns {items, total, limit, offset}.
+      // Older backends return a flat array — accept both for
+      // backwards compatibility (and the existing invoice pages
+      // built before this change).
+      const data = invoicesRes.data;
+      if (Array.isArray(data)) {
+        setInvoices(data);
+        setTotalInvoices(data.length);
+      } else {
+        setInvoices(data.items || []);
+        setTotalInvoices(data.total || 0);
+      }
       setProducts(productsRes.data);
       setContacts(contactsRes.data);
     } catch (err) {
@@ -161,7 +192,11 @@ export default function InvoicesPage() {
     }
   };
 
-  useEffect(() => { load(); }, [activeCompany]);
+  // Re-fetch when activeCompany, filter, statusFilter, or page changes.
+  // The page-state dependency is what makes the pagination work —
+  // when the user clicks "next", we setPage(n+1) and the effect
+  // re-runs with the new offset.
+  useEffect(() => { load(); }, [activeCompany, filter, statusFilter, page]);
 
   const productMap = useMemo(() => {
     const m = new Map<string, Product>();
@@ -427,6 +462,35 @@ export default function InvoicesPage() {
               )}
             </tbody>
           </table>
+        )}
+
+        {/* Sprint 45 — server-side pagination controls. The user wanted
+            to browse old invoices (Aug 2026 had 30+ invoices alone),
+            so 50/page with prev/next gives them quick navigation. */}
+        {totalInvoices > pageSize && (
+          <div className="mt-4 flex items-center justify-between text-sm">
+            <div className="text-ink-muted">
+              إجمالي: <span className="font-mono font-semibold">{totalInvoices.toLocaleString('ar-LY')}</span> فاتورة
+              {" — "}
+              صفحة <span className="font-mono">{page + 1}</span> من <span className="font-mono">{Math.ceil(totalInvoices / pageSize)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0}
+                className="btn-secondary text-xs disabled:opacity-40"
+              >
+                → السابق
+              </button>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={(page + 1) * pageSize >= totalInvoices}
+                className="btn-secondary text-xs disabled:opacity-40"
+              >
+                التالي ←
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
