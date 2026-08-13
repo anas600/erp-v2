@@ -721,10 +721,50 @@ public static class AdminEndpoints
             {
                 trustedMode = TrustedAccountantMode.IsEnabled,
                 trustedModeLabel = TrustedAccountantMode.Label,
+                trustedModeSource = TrustedAccountantMode.Source,
+                trustedModeOverrideSet = TrustedAccountantMode.HasOverride,
                 envVar = Environment.GetEnvironmentVariable("SEEDER_TRUSTED_ACCOUNTANT_MODE"),
                 envAutoSeedDemo = Environment.GetEnvironmentVariable("AUTO_SEED_DEMO"),
                 envDemoCompany = Environment.GetEnvironmentVariable("DEMO_COMPANY_ID"),
                 serverTime = DateTime.UtcNow
+            });
+        });
+
+        // Sprint 45 — Runtime trusted-mode switcher.
+        //
+        // POST /api/admin/trusted-mode?enabled=true|false
+        //   - enabled=true  → force TRUSTED-ACCOUNTANT (Mavis as accountant)
+        //   - enabled=false → force HUMAN-ONLY (real accountant reviews each JE)
+        //   - (no param)    → clear override, fall back to env var
+        //
+        // The user wanted a fast way to switch modes without waiting
+        // for a redeploy. The override is process-local — it resets
+        // on cold start, but Render's free tier only cold-starts
+        // after ~15 min of inactivity, so the override persists for
+        // the duration of a normal session.
+        //
+        // Use cases:
+        //   - User is in demo mode (TRUSTED) and wants to test
+        //     "production" behavior → POST enabled=false
+        //   - User ran the seeder (needs TRUSTED) and now wants
+        //     to do real accounting → POST enabled=true (or clear)
+        //   - User wants to verify the default (env var) → POST no param
+        grp.MapPost("/trusted-mode", (HttpContext ctx, [FromQuery] bool? enabled) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            TrustedAccountantMode.SetOverride(enabled);
+            return Results.Ok(new
+            {
+                trustedMode = TrustedAccountantMode.IsEnabled,
+                trustedModeLabel = TrustedAccountantMode.Label,
+                trustedModeSource = TrustedAccountantMode.Source,
+                trustedModeOverrideSet = TrustedAccountantMode.HasOverride,
+                effective = enabled?.ToString() ?? "fall through to env var"
             });
         });
 
