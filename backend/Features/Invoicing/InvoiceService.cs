@@ -497,6 +497,39 @@ public class InvoiceService
         if (inv.Lines.Count == 0)
             throw new InvalidOperationException("الفاتورة بدون بنود");
 
+        // Sprint 45 — look up the contact id (if any) by name match
+        // so the rule engine can resolve the contact's sub-ledger
+        // directly. Without this, the rule's contact.subLedger
+        // directive always falls back to the L3 control account
+        // (1103 for AR) because partyDict has no id.
+        //
+        // The match is fuzzy on name because the invoices table
+        // stores the party name as plain text (no FK to contacts).
+        // A future migration should add a contact_id FK + a
+        // uniqueness constraint, but for now this is the only
+        // way to wire the rule engine up to the sub-ledger.
+        Guid? partyContactId = null;
+        string? partyContactType = null;
+        try
+        {
+            using var conn = _db.CreateConnection();
+            // Try exact match on name first; fall back to nameAr
+            var match = await conn.QuerySingleOrDefaultAsync<(Guid id, string type)?>(@"
+                SELECT id, type FROM contacts
+                WHERE company_id = @companyId
+                  AND is_active = true
+                  AND (name = @partyName OR name_ar = @partyName)
+                ORDER BY CASE WHEN name = @partyName THEN 0 ELSE 1 END
+                LIMIT 1;",
+                new { companyId = inv.CompanyId, partyName = inv.PartyName });
+            if (match.HasValue)
+            {
+                partyContactId = match.Value.id;
+                partyContactType = match.Value.type;
+            }
+        }
+        catch { /* best-effort lookup; rule engine has its own fallback */ }
+
         // Self-company guard. Defensive — the same check runs in
         // CreateDraftAsync, but a malicious caller could PATCH the
         // column directly in the DB and bypass it. Better to fail
@@ -522,7 +555,18 @@ public class InvoiceService
         {
             ["name"] = inv.PartyName,
             ["nameAr"] = inv.PartyNameAr ?? inv.PartyName,
-            ["taxId"] = inv.PartyTaxId
+            ["taxId"] = inv.PartyTaxId,
+            // Sprint 45 — wire the rule engine up to the actual
+            // sub-ledger. The contact id (looked up by name) lets
+            // the rule's `contact.subLedger` directive resolve to
+            // the L4 sub-ledger via account_contact_links. The
+            // type is the contact's stored type (customer / supplier)
+            // — which is the source of truth, NOT the invoice_type.
+            // The fallback below uses invoice_type only if the
+            // contact lookup failed.
+            ["id"] = partyContactId ?? (object)Guid.Empty,
+            ["type"] = partyContactType
+                ?? (inv.InvoiceType == "sales" ? "customer" : "supplier")
         };
         var payload = new Dictionary<string, object>
         {
