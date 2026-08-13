@@ -40,15 +40,57 @@ public class InvoiceService
         _log = log;
     }
 
-    public async Task<List<InvoiceDto>> GetByCompanyAsync(Guid companyId, int limit = 100)
+    /// <summary>
+    /// Sprint 45 — server-side filtering + pagination for the invoice list.
+    ///
+    /// Returns invoices for a company, optionally filtered by type
+    /// (purchase/sales) and/or status (draft/posted/paid/...). The
+    /// previous version only supported <c>limit</c> and pulled the
+    /// top N by date — which silently hid drafts (the draft invoice
+    /// is the newest but the user couldn't see it because the date-
+    /// DESC sort had a fixed limit of 100, and the contact detail
+    /// page has been the only place to find a draft). With this
+    /// change, the company-wide list supports the same filters as
+    /// the contact-scoped list, and pagination lets the user browse
+    /// historical months (the seeder puts ~365 invoices in FY 2026
+    /// alone, so 100/page is not enough).
+    /// </summary>
+    public async Task<List<InvoiceDto>> GetByCompanyAsync(
+        Guid companyId,
+        int limit = 500,
+        int offset = 0,
+        string? invoiceType = null,
+        string? status = null)
     {
         using var conn = _db.CreateConnection();
-        var invoiceIds = (await conn.QueryAsync<Guid>(@"
+
+        // Build the WHERE clause dynamically. Parameterized — no
+        // SQL injection risk.
+        var whereClauses = new List<string> { "company_id = @companyId" };
+        var parameters = new DynamicParameters();
+        parameters.Add("companyId", companyId);
+        parameters.Add("limit", limit);
+        parameters.Add("offset", offset);
+
+        if (!string.IsNullOrEmpty(invoiceType))
+        {
+            whereClauses.Add("invoice_type = @invoiceType");
+            parameters.Add("invoiceType", invoiceType);
+        }
+        if (!string.IsNullOrEmpty(status))
+        {
+            whereClauses.Add("status = @status");
+            parameters.Add("status", status);
+        }
+
+        var whereSql = "WHERE " + string.Join(" AND ", whereClauses);
+        var sql = $@"
             SELECT id FROM invoices
-            WHERE company_id = @companyId
+            {whereSql}
             ORDER BY invoice_date DESC, created_at DESC
-            LIMIT @limit;",
-            new { companyId, limit })).ToList();
+            LIMIT @limit OFFSET @offset;";
+
+        var invoiceIds = (await conn.QueryAsync<Guid>(sql, parameters)).ToList();
 
         var result = new List<InvoiceDto>();
         foreach (var id in invoiceIds)
@@ -57,6 +99,39 @@ public class InvoiceService
             if (inv is not null) result.Add(inv);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Total count of invoices matching the same filter as
+    /// <see cref="GetByCompanyAsync"/>. Used by the frontend to
+    /// compute pagination (page N of M, total records).
+    /// </summary>
+    public async Task<int> CountByCompanyAsync(
+        Guid companyId,
+        string? invoiceType = null,
+        string? status = null)
+    {
+        using var conn = _db.CreateConnection();
+
+        var whereClauses = new List<string> { "company_id = @companyId" };
+        var parameters = new DynamicParameters();
+        parameters.Add("companyId", companyId);
+
+        if (!string.IsNullOrEmpty(invoiceType))
+        {
+            whereClauses.Add("invoice_type = @invoiceType");
+            parameters.Add("invoiceType", invoiceType);
+        }
+        if (!string.IsNullOrEmpty(status))
+        {
+            whereClauses.Add("status = @status");
+            parameters.Add("status", status);
+        }
+
+        var whereSql = "WHERE " + string.Join(" AND ", whereClauses);
+        var sql = $"SELECT COUNT(*) FROM invoices {whereSql};";
+
+        return await conn.ExecuteScalarAsync<int>(sql, parameters);
     }
 
     public async Task<InvoiceDto?> GetByIdAsync(Guid id)
