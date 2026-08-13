@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { FileText, Plus, Loader2, X, Send, XCircle, Eye, Pencil, FolderKanban } from "lucide-react";
@@ -115,7 +115,15 @@ export default function InvoicesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Sprint 45 — added status filter alongside the type filter. The user
+  // had created an invoice (INV-P-2026-0118, SUPP-009, 13-08-2026) that
+  // was in 'draft' state but the default view didn't show drafts — so the
+  // user thought the invoice had disappeared. Status filter + a column
+  // make it visible without having to open the detail.
   const [filter, setFilter] = useState<"all" | "purchase" | "sales">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "draft" | "posted" | "partiallypaid" | "paid" | "cancelled"
+  >("all");
   // Sprint 29 — null = create mode, object = edit mode
   const [editing, setEditing] = useState<Invoice | null>(null);
 
@@ -301,12 +309,21 @@ export default function InvoicesPage() {
     }
   };
 
-  const filteredInvoices = invoices.filter((inv) =>
-    filter === "all" ? true : inv.invoiceType === filter
-  );
+  // Sprint 45 — combined filter (type + status). Both must match.
+  const filteredInvoices = invoices.filter((inv) => {
+    if (filter !== "all" && inv.invoiceType !== filter) return false;
+    if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+    return true;
+  });
 
   return (
     <div>
+      {/* Sprint 45 — Mode banner. Shows the user what mode the
+          system is in right now (HUMAN-ONLY vs TRUSTED-ACCOUNTANT)
+          and offers a one-click toggle. Mirrors the admin page
+          banner so the user always knows what flow they're in. */}
+      <ModeBanner />
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-ink-strong flex items-center gap-2">
@@ -325,8 +342,8 @@ export default function InvoicesPage() {
 
       {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>}
 
-      {/* Filter tabs */}
-      <div className="flex gap-2 mb-4">
+      {/* Filter tabs — by type (purchase/sales) */}
+      <div className="flex gap-2 mb-3">
         {[
           { v: "all", l: "الكل" },
           { v: "purchase", l: "مشتريات" },
@@ -342,6 +359,33 @@ export default function InvoicesPage() {
             }`}
           >
             {t.l}
+          </button>
+        ))}
+      </div>
+
+      {/* Sprint 45 — filter by status (draft/posted/paid/cancelled).
+          Drafts are the most-need-to-see state because the user
+          often creates an invoice, walks away, then wonders where
+          it went. Surfacing them in the filter makes them findable. */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {[
+          { v: "all", l: "كل الحالات", cls: "bg-canvas dark:bg-neutral-900 text-ink-muted border border-edge" },
+          { v: "draft", l: "مسودة", cls: "bg-amber-100 text-amber-700 border border-amber-200" },
+          { v: "posted", l: "مرحّلة", cls: "bg-blue-100 text-blue-700 border border-blue-200" },
+          { v: "partiallypaid", l: "مدفوعة جزئياً", cls: "bg-violet-100 text-violet-700 border border-violet-200" },
+          { v: "paid", l: "مدفوعة", cls: "bg-emerald-100 text-emerald-700 border border-emerald-200" },
+          { v: "cancelled", l: "ملغية", cls: "bg-rose-100 text-rose-700 border border-rose-200" }
+        ].map((s) => (
+          <button
+            key={s.v}
+            onClick={() => setStatusFilter(s.v as any)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium ${
+              statusFilter === s.v
+                ? "ring-2 ring-primary-500 " + s.cls
+                : s.cls + " opacity-60 hover:opacity-100"
+            }`}
+          >
+            {s.l}
           </button>
         ))}
       </div>
@@ -821,6 +865,95 @@ function InvoiceForm({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Sprint 45 — Mode banner with one-click toggle.
+ *
+ * Shows the user the current mode (HUMAN-ONLY vs TRUSTED-ACCOUNTANT)
+ * and lets them switch without going to the admin page. The
+ * "اكتشف" link goes to the journal page so the user can see the
+ * effect of the mode on existing draft JEs.
+ */
+function ModeBanner() {
+  const [info, setInfo] = useState<{
+    trustedMode: boolean;
+    source: string;
+    label: string;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const refresh = useCallback(async () => {
+    try {
+      const r = await api.get("/admin/seed-status");
+      setInfo({
+        trustedMode: r.data.trustedMode,
+        source: r.data.trustedModeSource,
+        label: r.data.trustedModeLabel,
+      });
+    } catch {
+      // Backend unreachable — fail silent, the banner just won't show
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const switchTo = async (enabled: boolean | null) => {
+    setBusy(true);
+    try {
+      const url = enabled === null
+        ? "/admin/trusted-mode"
+        : `/admin/trusted-mode?enabled=${enabled}`;
+      await api.post(url);
+      await refresh();
+    } catch (err) {
+      alert(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!info) return null;
+  const isTrusted = info.trustedMode;
+
+  return (
+    <div
+      className={`mb-4 p-3 rounded-md flex items-center gap-3 text-sm ${
+        isTrusted
+          ? "bg-violet-50 text-violet-800 border border-violet-200"
+          : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+      }`}
+    >
+      <div className="flex-1">
+        <div className="font-semibold flex items-center gap-2">
+          {isTrusted ? "⚡ وضع Mavis كمحاسب" : "👤 وضع المحاسب البشري"}
+          <span className="text-xs font-normal opacity-75">({info.source})</span>
+        </div>
+        <div className="text-xs mt-0.5">
+          {isTrusted
+            ? "القيود تُوافق وتُرحّل تلقائياً (تجريبي / Demo فقط)"
+            : "كل قيد لازم توافق عليه وترحّله يدوياً (وضع الإنتاج الفعلي)"}
+        </div>
+      </div>
+      {isTrusted ? (
+        <button
+          onClick={() => switchTo(false)}
+          disabled={busy}
+          className="px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {busy ? "..." : "← تحوّل للإنتاج البشري"}
+        </button>
+      ) : (
+        <button
+          onClick={() => switchTo(true)}
+          disabled={busy}
+          className="px-3 py-1.5 rounded bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
+        >
+          {busy ? "..." : "تحوّل للوضع التلقائي →"}
+        </button>
+      )}
     </div>
   );
 }
