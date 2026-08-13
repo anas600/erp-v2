@@ -383,7 +383,17 @@ using (var scope = app.Services.CreateScope())
 // demo data. Without this, every redeploy leaves the previous
 // broken/partial state in place. With it, the moment the backend
 // is reachable, the system is in a known-good demo state.
+//
+// Sprint 45 — DISABLED. The user wanted the Render free-tier server
+// to sleep naturally (15 min idle → cold start). The auto-seed made
+// 1 SQL query on every cold start, which counted as activity and
+// kept the server from sleeping. The user can still re-seed manually
+// via POST /api/admin/seed-full-year if needed.
 // ============================================================
+// Sprint 45: disabled auto-seed to let the server sleep. To re-enable,
+// uncomment the block below AND set AUTO_SEED_DEMO=true in env.
+if (false)
+{
 var autoSeedFlag = Environment.GetEnvironmentVariable("AUTO_SEED_DEMO");
 var demoCompanyId = Environment.GetEnvironmentVariable("DEMO_COMPANY_ID");
 if (string.Equals(autoSeedFlag, "true", StringComparison.OrdinalIgnoreCase)
@@ -434,6 +444,7 @@ if (string.Equals(autoSeedFlag, "true", StringComparison.OrdinalIgnoreCase)
             logger.LogError(ex, "AUTO_SEED: background seed failed");
         }
     });
+}
 }
 
 app.Run();
