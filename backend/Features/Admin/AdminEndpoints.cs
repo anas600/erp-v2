@@ -1210,6 +1210,76 @@ public static class AdminEndpoints
             }
         });
 
+        // POST /api/admin/relink-contacts?companyId=X
+        // Sprint 45 — fixes the empty account_contact_links table.
+        // The seeder creates L4 sub-ledger accounts (1103-CUST-XXX,
+        // 2101-SUPP-XXX) but the link table can end up empty if the
+        // seeder crashed mid-way or an older version ran. The rule
+        // engine's "contact.subLedger" directive then falls back to
+        // the L3 control (1103) for every contact — which causes the
+        // purchase-invoice credit to land in AR instead of AP.
+        //
+        // This endpoint re-creates the links for every contact that
+        // has an L4 sub-ledger account but no link. It's idempotent:
+        // already-linked contacts are skipped. Safe to re-run.
+        grp.MapPost("/relink-contacts", async (HttpContext ctx, IDbConnectionFactory db, ILogger<Program> logger, [FromQuery] Guid companyId) =>
+        {
+            using var conn = db.CreateConnection();
+            var linked = 0;
+            var alreadyLinked = 0;
+            var unmatched = 0;
+
+            // 1. Find all L4 sub-ledger accounts (level=4 + parent L3 control)
+            var subLedgers = (await conn.QueryAsync<(Guid id, string code, string nature)>(@"
+                SELECT id, code, nature FROM accounts
+                WHERE company_id = @companyId AND level = 4 AND is_active = true;",
+                new { companyId })).ToList();
+
+            // 2. For each sub-ledger, try to infer the contact from the code suffix
+            //    e.g. "1103-CUST-001" → CUST-001, "2101-SUPP-009" → SUPP-009
+            foreach (var sl in subLedgers)
+            {
+                // Code format: "1103-CUST-001" or "2101-SUPP-009"
+                var parts = sl.code.Split('-');
+                if (parts.Length < 3) { unmatched++; continue; }
+                var contactCode = parts[1] + "-" + parts[2];  // "CUST-001"
+
+                // Find the contact
+                var contact = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
+                    SELECT id FROM contacts
+                    WHERE company_id = @companyId AND code = @code AND is_active = true
+                    LIMIT 1;",
+                    new { companyId, code = contactCode });
+                if (contact is null) { unmatched++; continue; }
+
+                // Check if a link already exists (either as primary or non-primary)
+                var existing = await conn.QuerySingleOrDefaultAsync<int>(@"
+                    SELECT COUNT(*) FROM account_contact_links
+                    WHERE account_id = @accountId OR contact_id = @contactId;",
+                    new { accountId = sl.id, contactId = contact });
+                if (existing > 0) { alreadyLinked++; continue; }
+
+                // Create the link
+                await conn.ExecuteAsync(@"
+                    INSERT INTO account_contact_links
+                        (id, account_id, contact_id, company_id, is_primary, created_at)
+                    VALUES
+                        (@id, @accountId, @contactId, @companyId, true, NOW());",
+                    new { id = Guid.NewGuid(), accountId = sl.id, contactId = contact, companyId });
+                linked++;
+            }
+
+            logger.LogInformation("relink-contacts: {Linked} linked, {Already} already linked, {Unmatched} unmatched",
+                linked, alreadyLinked, unmatched);
+            return Results.Ok(new
+            {
+                linked,
+                alreadyLinked,
+                unmatched,
+                total = subLedgers.Count
+            });
+        });
+
         // GET /api/admin/inspect-journal?companyId=X
         // Sprint 41 — diagnostic: returns raw journal_lines data
         // summed per account. Used to compare with accounts.balance
