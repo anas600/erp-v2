@@ -35,7 +35,7 @@
  *   body: {
  *     contractId, billingNumber, billingDate, periodFrom, periodTo,
  *     notes,
- *     items: [{ lineItemId, thisPeriodQuantity }, ...]
+ *     items: [{ lineItemId, quantityThisPeriod }, ...]
  *   }
  * The backend computes gross/advance/retention/net from the items
  * — we don't pass those pre-computed.
@@ -653,7 +653,15 @@ export default function BillingModal({
     setSuccess(null);
 
     // Validate quantities
-    const items: Array<{ lineItemId: string; thisPeriodQuantity: number }> = [];
+    // Sprint 45: send `lineItems` (the backend's PascalCase → camelCase
+    // convention) and `quantityThisPeriod` (matches the backend record
+    // exactly). Previously we sent `items` + `thisPeriodQuantity` which
+    // .NET's case-insensitive deserializer did NOT match, so billings
+    // silently failed with "يجب تحديد نسبة الإنجاز أو بنود المستخلص".
+    // The backend now ALSO accepts the old spellings via [JsonPropertyName]
+    // aliases — see ContractModels.cs. We update the frontend too so we
+    // use the canonical names going forward.
+    const items: Array<{ lineItemId: string; quantityThisPeriod: number }> = [];
     for (const li of selectedItems) {
       const tp = Number(thisPeriod[li.id]) || 0;
       const prev = previousQtyByItem[li.id] || 0;
@@ -667,7 +675,7 @@ export default function BillingModal({
         return;
       }
       if (tp > 0) {
-        items.push({ lineItemId: li.id, thisPeriodQuantity: tp });
+        items.push({ lineItemId: li.id, quantityThisPeriod: tp });
       }
     }
     if (items.length === 0) {
