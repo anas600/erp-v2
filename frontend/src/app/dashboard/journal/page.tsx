@@ -182,14 +182,19 @@ export default function JournalPage() {
   // was in the DB, but the list state was stale because they
   // hadn't tabbed back to the journal page. Polling eliminates
   // that ambiguity: any change made elsewhere (e.g. another
-  // tab, or the rule engine auto-creating entries) shows up
-  // within 30s without a manual refresh.
-  useEffect(() => {
-    if (!activeCompany) return;
-    const interval = setInterval(() => load(), 30_000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCompany]);
+  // Sprint 45: removed the 30s polling. The user reported the auto-refresh
+  // was annoying AND kept the server awake (preventing Render's free
+  // tier from sleeping naturally). The user can refresh manually with
+  // the browser refresh button or by clicking a row / filter.
+  //
+  // Background: Render free tier sleeps after ~15 min of inactivity.
+  // The 30s poll from this page (plus journal, payments, receipts)
+  // was waking the server every 30s and burning API quota. We removed
+  // all three polls so the server can sleep naturally.
+  //
+  // If the user needs fresh data, they refresh the page (F5) or
+  // navigate away and back. This is the same model as the rest of
+  // the app (no polling anywhere).
 
   const addLine = () => {
     setForm({

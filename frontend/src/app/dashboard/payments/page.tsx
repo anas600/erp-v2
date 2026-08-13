@@ -166,10 +166,8 @@ function PaymentsPageInner() {
   }, [activeCompany]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const i = setInterval(load, 30_000);
-    return () => clearInterval(i);
-  }, [load]);
+  // Sprint 45: removed 30s polling — see journal/page.tsx for the
+  // full rationale (Render free tier + annoying auto-refresh).
 
   const loadOutstanding = useCallback(async (contactId: string) => {
     if (!contactId) {

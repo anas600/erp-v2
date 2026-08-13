@@ -175,10 +175,8 @@ function ReceiptsPageInner() {
   }, [activeCompany]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const i = setInterval(load, 30_000);
-    return () => clearInterval(i);
-  }, [load]);
+  // Sprint 45: removed 30s polling — see journal/page.tsx for the
+  // full rationale (Render free tier + annoying auto-refresh).
 
   // Fetch outstanding invoices for the selected customer. Re-runs when
   // the contact dropdown changes. Wrapped in try/catch so a 4xx (e.g. the
