@@ -116,6 +116,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       icon: BarChart3,
       collapsible: true,
       items: [
+        // Cycle 1: index page — entry point for the reports section.
+        // Same group, so users see it right above the per-report links.
+        { href: "/dashboard/reports", label: "فهرس التقارير", icon: BarChart3, exact: true },
         { href: "/dashboard/reports/trial-balance", label: "ميزان المراجعة", icon: Scale },
         { href: "/dashboard/reports/general-ledger", label: "دفتر الأستاذ", icon: BookOpen },
         { href: "/dashboard/reports/customer-aging", label: "أعمار المدينين", icon: Users },
