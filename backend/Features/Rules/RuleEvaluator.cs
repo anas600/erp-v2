@@ -371,6 +371,7 @@ public class RuleEvaluator
                     {
                         // Look for the contact id in the payload, then find their primary sub-ledger
                         var contactId = ResolveField("contact.id", payload)
+                                     ?? ResolveField("party.id", payload)        // Sprint 45 — invoice/receipt payloads use 'party'
                                      ?? ResolveField("customer.id", payload)
                                      ?? ResolveField("supplier.id", payload)
                                      ?? ResolveField("voucher.contactId", payload)
@@ -389,9 +390,32 @@ public class RuleEvaluator
                                 LIMIT 1;",
                                 new { cid, companyId });
                         }
-                        // Fallback: AR for customers, AP for suppliers
-                        var isSupplier = ResolveField("voucher.contactType", payload)?.ToString() == "supplier"
-                                      || ResolveField("contact.type", payload)?.ToString() == "supplier";
+                        // Fallback: AR for customers, AP for suppliers.
+                        //
+                        // Sprint 45 — extended the type-probing chain. The
+                        // previous version only checked 'voucher.contactType'
+                        // and 'contact.type', but the invoice-posting
+                        // payload uses 'party.type' (and exposes 'customer'
+                        // + 'supplier' as legacy aliases). When neither
+                        // matched, the fallback always returned 1103
+                        // (AR) — which is why every PURCHASE invoice since
+                        // Sprint 40 ended up with the credit on the AR
+                        // control account instead of the AP sub-ledger.
+                        // That bug surfaced 2026-08-13 when the user
+                        // posted INV-P-2026-0118 and saw a doubled-up
+                        // debit-side JE.
+                        //
+                        // The fix: also probe party.type, customer.type,
+                        // and supplier.type. The check is order-insensitive
+                        // (any one matching "supplier" → AP).
+                        var typeProbe = ResolveField("voucher.contactType", payload)
+                                    ?? ResolveField("party.type", payload)
+                                    ?? ResolveField("contact.type", payload)
+                                    ?? ResolveField("customer.type", payload)
+                                    ?? ResolveField("supplier.type", payload)
+                                    ?? ResolveField("payment.contactType", payload)
+                                    ?? ResolveField("receipt.contactType", payload);
+                        var isSupplier = typeProbe?.ToString() == "supplier";
                         var fallbackCode = isSupplier ? "2101" : "1103";
                         return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
                             SELECT id, nature FROM accounts
