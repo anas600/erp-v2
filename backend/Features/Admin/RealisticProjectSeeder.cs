@@ -91,31 +91,42 @@ public class RealisticProjectSeeder
             }
         }
 
-        // ---- 1. Project (triggers auto-create of 7 L4 sub-ledgers) ----
-        var projectId = await CreateProjectAsync(companyId);
+        // ---- 1. Customer (needed before project for CustomerId link) ----
+        // Sprint 52 — the project's CustomerId is required by the
+        // BillingService.ApproveAsync (it throws "لا يوجد عميل مرتبط
+        // بالمشروع" if the project has no customer). The previous
+        // order created the project first, then created the customer
+        // later in CreateRegularSalesInvoicesAsync — but by then the
+        // billings step had already failed. Move the customer
+        // creation to step 1 so the project can reference it.
+        var customerId = await EnsureCustomerAsync(companyId);
+
+        // ---- 2. Project (triggers auto-create of 7 L4 sub-ledgers) ----
+        var projectId = await CreateProjectAsync(companyId, customerId);
         result.ProjectId = projectId;
 
-        // ---- 2. Suppliers (with sub-ledgers via service) ----
+        // ---- 3. Suppliers (with sub-ledgers via service) ----
         var suppliers = await CreateSuppliersAsync(companyId);
         result.SuppliersCreated = suppliers.Count;
 
-        // ---- 3. Products (categories + default accounts) ----
+        // ---- 4. Products (categories + default accounts) ----
         var products = await CreateProductsAsync(companyId);
         result.ProductsCreated = products.Count;
 
-        // ---- 4. Project-tagged purchase invoices (4 invoices) ----
+        // ---- 5. Project-tagged purchase invoices (4 invoices) ----
         var purchaseInvoices = await CreateProjectPurchaseInvoicesAsync(
             companyId, projectId, suppliers, products);
         result.PurchaseInvoicesCreated = purchaseInvoices.Count;
         result.PurchaseInvoiceJEsPosted = purchaseInvoices.Count;
 
-        // ---- 5. The 4 monthly billings ----
+        // ---- 6. The 4 monthly billings ----
         var billings = await CreateBillingsAsync(companyId, projectId);
         result.BillingsCreated = billings.Count;
         result.BillingJEsPosted = billings.Count;
 
-        // ---- 6. Two regular sales invoices (non-project) ----
-        var salesInvoices = await CreateRegularSalesInvoicesAsync(companyId);
+        // ---- 7. Two regular sales invoices (non-project) ----
+        // Reuses the customer created in step 1.
+        var salesInvoices = await CreateRegularSalesInvoicesAsync(companyId, customerId);
         result.SalesInvoicesCreated = salesInvoices.Count;
 
         // ---- 7. Two regular purchase invoices (non-project, 5101/5102) ----
@@ -237,7 +248,7 @@ public class RealisticProjectSeeder
         _log.LogInformation("RealisticProjectSeeder: cleanup complete");
     }
 
-    private async Task<Guid> CreateProjectAsync(Guid companyId)
+    private async Task<Guid> CreateProjectAsync(Guid companyId, Guid customerId)
     {
         var req = new CreateProjectRequest(
             CompanyId: companyId,
@@ -250,7 +261,10 @@ public class RealisticProjectSeeder
             Budget: 4000000m,
             Notes: null,
             Type: "construction",
-            CustomerId: null,
+            // Sprint 52 — the project must reference a customer so
+            // billings can be approved. The customer is created
+            // earlier in the seeder (step 1) so its id is available here.
+            CustomerId: customerId,
             ContractValue: 4000000m,  // 4M LYD
             ExpectedEndDate: new DateTime(2026, 12, 31),
             ProjectManager: "م. أحمد الفيتوري",
@@ -330,6 +344,49 @@ public class RealisticProjectSeeder
                 });
         }
         return contractId;
+    }
+
+    // Sprint 52 — ensure the customer "وزارة الإسكان والتعمير" exists
+    // and return its id. The seeder creates the customer early so the
+    // project can reference it (project.CustomerId is required by
+    // BillingService.ApproveAsync).
+    //
+    // The customer lookup is on the Arabic name_ar column. The seeder
+    // re-uses this helper twice (here + later) so any change to the
+    // customer name stays in one place.
+    private async Task<Guid> EnsureCustomerAsync(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        var existing = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
+            SELECT id FROM contacts
+            WHERE company_id = @companyId AND type = 'customer' AND is_active = true
+            LIMIT 1;",
+            new { companyId });
+        if (existing.HasValue) return existing.Value;
+
+        // contacts.code is NOT NULL UNIQUE per (company_id, type, code).
+        // Use a stable CUS-001 code so re-runs don't conflict.
+        var id = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO contacts
+                (id, company_id, type, code, name, name_ar, tax_id, phone, email,
+                 is_active, is_demo_data, created_at)
+            VALUES
+                (@id, @companyId, 'customer', 'CUS-001', 'Ministry of Housing', 'وزارة الإسكان والتعمير',
+                 NULL, NULL, NULL, true, false, NOW());",
+            new { id, companyId });
+        // Sprint 52 — auto-create L4 sub-ledger (1103-CUS-001).
+        await _accounts.EnsureSubLedgerAsync(companyId, id);
+        return id;
+    }
+
+    private async Task<string> GetCustomerNameAsync(Guid companyId, Guid customerId)
+    {
+        using var conn = _db.CreateConnection();
+        return await conn.QuerySingleOrDefaultAsync<string?>(@"
+            SELECT name_ar FROM contacts
+            WHERE id = @id AND company_id = @companyId AND type = 'customer';",
+            new { id = customerId, companyId }) ?? "";
     }
 
     private async Task<List<(Guid id, string name)>> CreateSuppliersAsync(Guid companyId)
@@ -561,35 +618,18 @@ public class RealisticProjectSeeder
         return result;
     }
 
-    private async Task<List<Guid>> CreateRegularSalesInvoicesAsync(Guid companyId)
+    private async Task<List<Guid>> CreateRegularSalesInvoicesAsync(Guid companyId, Guid customerId)
     {
-        using var conn = _db.CreateConnection();
-        // Find or create the customer (Ministry of Housing)
-        var customer = await conn.QuerySingleOrDefaultAsync<(Guid id, string name)>(@"
-            SELECT id, name_ar FROM contacts
-            WHERE company_id = @companyId AND type = 'customer' AND is_active = true
-            LIMIT 1;",
-            new { companyId });
-        if (customer.id == Guid.Empty)
-        {
-            // contacts.code is NOT NULL UNIQUE per (company_id, type, code).
-            // Use a stable CUS-001 code so re-runs don't conflict.
-            customer = (Guid.NewGuid(), "وزارة الإسكان والتعمير");
-            await conn.ExecuteAsync(@"
-                INSERT INTO contacts
-                    (id, company_id, type, code, name, name_ar, tax_id, phone, email,
-                     is_active, is_demo_data, created_at)
-                VALUES
-                    (@id, @companyId, 'customer', 'CUS-001', 'Ministry of Housing', @nameAr,
-                     NULL, NULL, NULL, true, false, NOW());",
-                new { id = customer.id, companyId, nameAr = customer.name });
-            // Sprint 52 — auto-create L4 sub-ledger (1103-CUS-001).
-            // Same rationale as the supplier block above.
-            await _accounts.EnsureSubLedgerAsync(companyId, customer.id);
-        }
+        // Sprint 52 — customer is created earlier in the seeder (step 1)
+        // so the project can reference it. This method just looks up the
+        // customer name from the pre-created id and creates 2 sales
+        // invoices against it.
+        var customerName = await GetCustomerNameAsync(companyId, customerId);
+        if (string.IsNullOrEmpty(customerName))
+            throw new InvalidOperationException("Customer not found — step 1 should have created it");
 
-        var inv1 = await CreateRegularSalesInvoiceAsync(companyId, customer.name, "2026-03-15", "INV-S-2026-001", 10000m, "بيع أجهزة مكتبية");
-        var inv2 = await CreateRegularSalesInvoiceAsync(companyId, customer.name, "2026-06-20", "INV-S-2026-002", 25000m, "بيع معدات ورشة");
+        var inv1 = await CreateRegularSalesInvoiceAsync(companyId, customerName, "2026-03-15", "INV-S-2026-001", 10000m, "بيع أجهزة مكتبية");
+        var inv2 = await CreateRegularSalesInvoiceAsync(companyId, customerName, "2026-06-20", "INV-S-2026-002", 25000m, "بيع معدات ورشة");
         return new List<Guid> { inv1, inv2 };
     }
 
