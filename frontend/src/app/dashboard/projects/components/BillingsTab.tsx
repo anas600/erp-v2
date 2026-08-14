@@ -83,7 +83,14 @@ export default function BillingsTab({
   const [billings, setBillings] = useState<ProgressBillingDto[]>(
     initialBillings || []
   );
-  const [loading, setLoading] = useState(!initialBillings);
+  // Sprint 47 fix: if `initialBillings` is `[]` (empty array, truthy in JS),
+  // the old guard `if (!initialBillings) load()` skipped the fetch and the
+  // tab rendered "لا توجد مستخلصات بعد" forever — because the parent
+  // passes `initialBillings={billings}` and that state is `[]` on first
+  // mount. We now treat empty array as "no cache" and always load.
+  const hasInitialData =
+    Array.isArray(initialBillings) && initialBillings.length > 0;
+  const [loading, setLoading] = useState(!hasInitialData);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState<ProgressBillingDto | null>(null);
@@ -107,7 +114,9 @@ export default function BillingsTab({
   };
 
   useEffect(() => {
-    if (!initialBillings) load();
+    // Always load on mount; the initialBillings prop is only used to
+    // avoid a flash of "loading…" if the parent already fetched.
+    if (!hasInitialData) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, activeCompany?.id]);
 
