@@ -133,7 +133,12 @@ public class RealisticProjectSeeder
     {
         _log.LogInformation("RealisticProjectSeeder: cleanup start for company {CompanyId}", companyId);
 
-        // 1) billings (FK on project, contract_line_items, etc.)
+        // The cleanup order is important because the schema has
+        // RESTRICT foreign keys (e.g. receipt_vouchers.invoice_id
+        // → invoices.id with no cascade). We delete in REVERSE
+        // dependency order: dependent rows first, parents last.
+
+        // 1) Billings (depend on project + contract)
         await conn.ExecuteAsync(@"
             DELETE FROM billing_line_items
             WHERE billing_id IN (
@@ -141,14 +146,27 @@ public class RealisticProjectSeeder
                 JOIN projects p ON p.id = pb.project_id
                 WHERE p.company_id = @companyId
             );", new { companyId }, tx);
-
         await conn.ExecuteAsync(@"
             DELETE FROM progress_billings
             WHERE project_id IN (
                 SELECT id FROM projects WHERE company_id = @companyId
             );", new { companyId }, tx);
 
-        // 2) invoices
+        // 2) Vouchers FIRST (they reference invoices, and are
+        //    deleted before invoices to satisfy the FK)
+        await conn.ExecuteAsync(@"
+            DELETE FROM receipt_vouchers WHERE company_id = @companyId;", new { companyId }, tx);
+        await conn.ExecuteAsync(@"
+            DELETE FROM payment_vouchers WHERE company_id = @companyId;", new { companyId }, tx);
+
+        // 3) Intercompany pairs (they reference invoices)
+        await conn.ExecuteAsync(@"
+            DELETE FROM intercompany_pairs
+            WHERE invoice_a_id IN (SELECT id FROM invoices WHERE company_id = @companyId)
+               OR invoice_b_id IN (SELECT id FROM invoices WHERE company_id = @companyId);",
+            new { companyId }, tx);
+
+        // 4) Invoices (and their line items)
         await conn.ExecuteAsync(@"
             DELETE FROM invoice_lines
             WHERE invoice_id IN (
@@ -157,7 +175,7 @@ public class RealisticProjectSeeder
         await conn.ExecuteAsync(@"
             DELETE FROM invoices WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 3) JEs
+        // 5) JEs (and their lines)
         await conn.ExecuteAsync(@"
             DELETE FROM journal_lines
             WHERE journal_entry_id IN (
@@ -166,7 +184,7 @@ public class RealisticProjectSeeder
         await conn.ExecuteAsync(@"
             DELETE FROM journal_entries WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 4) account_contact_links + L4 sub-ledger accounts
+        // 6) L4 sub-ledger accounts (the project + supplier ones)
         await conn.ExecuteAsync(@"
             DELETE FROM account_contact_links
             WHERE account_id IN (
@@ -177,7 +195,7 @@ public class RealisticProjectSeeder
             DELETE FROM accounts
             WHERE company_id = @companyId AND level = 4;", new { companyId }, tx);
 
-        // 5) contracts (cascade line items)
+        // 7) Contracts (and their line items)
         await conn.ExecuteAsync(@"
             DELETE FROM contract_line_items
             WHERE contract_id IN (
@@ -186,25 +204,25 @@ public class RealisticProjectSeeder
         await conn.ExecuteAsync(@"
             DELETE FROM contracts WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 6) projects (cascades milestones, variations, costs, revenue)
+        // 8) Projects (cascades milestones, variations, costs, revenue)
         await conn.ExecuteAsync(@"
             DELETE FROM projects WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 7) customers + suppliers (will be re-created)
+        // 9) Customers + suppliers
         await conn.ExecuteAsync(@"
             DELETE FROM contacts WHERE company_id = @companyId
               AND type IN ('customer', 'supplier');",
             new { companyId }, tx);
 
-        // 8) products (will be re-created with categories)
+        // 10) Products
         await conn.ExecuteAsync(@"
             DELETE FROM products WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 9) reset account balances to 0
+        // 11) Reset account balances
         await conn.ExecuteAsync(@"
             UPDATE accounts SET balance = 0 WHERE company_id = @companyId;", new { companyId }, tx);
 
-        // 10) re-open fiscal periods
+        // 12) Re-open fiscal periods
         await conn.ExecuteAsync(@"
             UPDATE fiscal_periods SET is_closed = false
             WHERE fiscal_year_id IN (
