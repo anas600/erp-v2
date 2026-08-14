@@ -54,6 +54,9 @@ public class CoaSeeder
             -- Now the safe deletes (CASCADE handles journal_lines + account_contact_links)
             DELETE FROM account_contact_links WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM journal_lines WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
+            -- Sprint 52 — invoice_lines references accounts.id (FK fk_invoice_lines_account_id)
+            -- without ON DELETE CASCADE. Without this DELETE the reseed fails with FK violation.
+            DELETE FROM invoice_lines WHERE account_id IN (SELECT id FROM accounts WHERE company_id = @companyId);
             DELETE FROM accounts WHERE company_id = @companyId;",
             new { companyId });
 
