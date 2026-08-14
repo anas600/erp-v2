@@ -297,7 +297,7 @@ function SubLedgerReport({
                 {reconciliation.balanced ? "متوازن ✅" : "غير متوازن ❌"}
               </div>
               <div className="text-sm text-ink-muted">
-                {report.parentCode} ({report.parentName}) • {report.companyName} • كما في {formatDate(report.asOf)}
+                {report.parentCode} ({report.parentName}) • {report.companyName} • كما في {formatDate(report.asOfDate)}
               </div>
             </div>
           </div>
