@@ -22,6 +22,18 @@ public static class ProjectEndpoints
             return p is null ? Results.NotFound() : Results.Ok(p);
         });
 
+        // Sprint 50 — Returns the L4 sub-ledger accounts that were
+        // auto-created for this project's cost tracking (e.g. the
+        // 5401-PRJ-XXX, 5402-PRJ-XXX, ..., 5407-PRJ-XXX rows). The
+        // frontend's invoice form uses this to populate the "line
+        // account" dropdown when the user picks a project.
+        grp.MapGet("/{id:guid}/cost-accounts", async (
+            Guid id, [FromServices] ProjectCostAccountService svc) =>
+        {
+            var accounts = await svc.GetSubLedgersForProjectAsync(id);
+            return Results.Ok(accounts);
+        });
+
         grp.MapPost("/", async ([FromBody] CreateProjectRequest req, [FromServices] ProjectService svc) =>
         {
             try
