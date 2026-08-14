@@ -524,6 +524,14 @@ public class RealisticProjectSeeder
             throw new InvalidOperationException("Project has no contract — cannot create billings.");
 
         var result = new List<Guid>();
+        // Each billing represents a cumulative % of the contract work done.
+        // The seeder creates billings at 10%, 30%, 60%, 90% — each one
+        // advances the work_completed_percent. The BillingService
+        // ApproveAsync requires either WorkCompletedPercent OR LineItems;
+        // we use the percent path because it's simpler than synthesizing
+        // 7 line items per billing (each of the 7 contract line items
+        // would need a quantity_cumulative = % × original quantity).
+        var cumulativePercents = new decimal[] { 10m, 30m, 60m, 90m };
         for (int i = 0; i < numbers.Length; i++)
         {
             var req = new CreateBillingRequest(
@@ -532,7 +540,11 @@ public class RealisticProjectSeeder
                 BillingDate: DateTime.Parse(dates[i]),
                 PeriodFrom: i == 0 ? new DateTime(2026, 1, 1) : DateTime.Parse(dates[i - 1]),
                 PeriodTo: DateTime.Parse(dates[i]),
-                WorkCompletedPercent: null,  // let the service auto-compute from line items
+                // Sprint 52 — pass WorkCompletedPercent so the billing
+                // approve doesn't throw 'should specify percent or
+                // line items'. The previous version passed null + empty
+                // LineItems which the service rejected.
+                WorkCompletedPercent: cumulativePercents[i],
                 Notes: notes[i],
                 LineItems: new List<CreateBillingLineItemRequest>()
             );
