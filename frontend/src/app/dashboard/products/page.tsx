@@ -29,6 +29,12 @@ interface Product {
   defaultTaxRate: number;
   isActive: boolean;
   createdAt: string;
+  // Sprint 50 — category + default account. The DTO now returns
+  // these so the form can pre-fill and the table can show them.
+  category?: string | null;
+  defaultAccountId?: string | null;
+  defaultAccountCode?: string | null;
+  defaultAccountName?: string | null;
 }
 
 interface FormState {
@@ -37,14 +43,38 @@ interface FormState {
   nameAr: string;
   unitPrice: number;
   defaultTaxRate: number;
+  category: string;
+  defaultAccountId: string;
 }
+
+// Sprint 50 — fixed list of product categories. The set is small
+// enough that a hard-coded array is more maintainable than fetching
+// from a /api/categories endpoint. Matches the 54xx L3 accounts:
+//   materials          -> 5401 Project Materials
+//   labor              -> 5402 Project Labor
+//   subcontractor      -> 5403 Project Subcontractors
+//   equipment_rental   -> 5404 Project Equipment Rental
+//   overhead           -> 5405 Project Overhead Allocation
+//   transport          -> 5406 Project Transportation
+//   other              -> 5407 Project Other Costs
+const PRODUCT_CATEGORIES = [
+  { value: "materials",        label: "مواد خام",         labelEn: "Materials",         defaultAccountCode: "5401" },
+  { value: "labor",            label: "أجور عمال",        labelEn: "Labor",             defaultAccountCode: "5402" },
+  { value: "subcontractor",    label: "مقاولون باطن",     labelEn: "Subcontractor",     defaultAccountCode: "5403" },
+  { value: "equipment_rental", label: "إيجار معدات",      labelEn: "Equipment Rental",  defaultAccountCode: "5404" },
+  { value: "overhead",         label: "مصاريف عمومية",    labelEn: "Overhead",          defaultAccountCode: "5405" },
+  { value: "transport",        label: "نقل وشحن",         labelEn: "Transport",         defaultAccountCode: "5406" },
+  { value: "other",            label: "متفرقة",           labelEn: "Other",             defaultAccountCode: "5407" },
+] as const;
 
 const emptyForm: FormState = {
   code: "",
   name: "",
   nameAr: "",
   unitPrice: 0,
-  defaultTaxRate: 0
+  defaultTaxRate: 0,
+  category: "",
+  defaultAccountId: ""
 };
 
 export default function ProductsPage() {
@@ -57,6 +87,11 @@ export default function ProductsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Sprint 50 — 54xx L3 accounts. The form's "default account"
+  // dropdown is populated from this list. The user can still pick
+  // any 54xx account manually for special products.
+  const [costAccounts, setCostAccounts] = useState<{ id: string; code: string; name: string }[]>([]);
+
   const load = async () => {
     if (!activeCompany) return;
     try {
@@ -65,6 +100,29 @@ export default function ProductsPage() {
       // (user can reactivate via the toggle).
       const res = await api.get(`/products?companyId=${activeCompany.id}&includeInactive=true`);
       setProducts(res.data);
+
+      // Load the 54xx L3 cost accounts so the form can offer them
+      // as the default account. The COA tree endpoint returns the
+      // full tree; we filter to 54xx on the client.
+      try {
+        const accRes = await api.get(`/accounts?companyId=${activeCompany.id}`);
+        const tree = accRes.data as any[];
+        const collect = (nodes: any[]): any[] => {
+          let out: any[] = [];
+          for (const n of nodes || []) {
+            if (typeof n.code === "string" && n.code.startsWith("54") && n.level === 3) {
+              out.push({ id: n.id, code: n.code, name: n.name });
+            }
+            if (n.children) out = out.concat(collect(n.children));
+          }
+          return out;
+        };
+        setCostAccounts(collect(tree));
+      } catch (e) {
+        // Best-effort. If the accounts endpoint isn't reachable, the
+        // dropdown will just be empty and the user can type a code.
+        console.warn("Failed to load 54xx accounts:", e);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -88,7 +146,9 @@ export default function ProductsPage() {
       name: p.name,
       nameAr: p.nameAr || "",
       unitPrice: p.unitPrice,
-      defaultTaxRate: p.defaultTaxRate
+      defaultTaxRate: p.defaultTaxRate,
+      category: p.category || "",
+      defaultAccountId: p.defaultAccountId || ""
     });
     setError(null);
     setShowForm(true);
@@ -106,7 +166,9 @@ export default function ProductsPage() {
           name: form.name,
           nameAr: form.nameAr || null,
           unitPrice: form.unitPrice,
-          defaultTaxRate: form.defaultTaxRate
+          defaultTaxRate: form.defaultTaxRate,
+          category: form.category || "",
+          defaultAccountId: form.defaultAccountId || null
         });
       } else {
         await api.post("/products", {
@@ -115,7 +177,9 @@ export default function ProductsPage() {
           name: form.name,
           nameAr: form.nameAr || null,
           unitPrice: form.unitPrice,
-          defaultTaxRate: form.defaultTaxRate
+          defaultTaxRate: form.defaultTaxRate,
+          category: form.category || null,
+          defaultAccountId: form.defaultAccountId || null
         });
       }
       setShowForm(false);
@@ -172,6 +236,8 @@ export default function ProductsPage() {
                 <th>الكود</th>
                 <th>الاسم</th>
                 <th>الاسم بالعربي</th>
+                <th>التصنيف</th>
+                <th>الحساب الافتراضي</th>
                 <th>السعر الافتراضي</th>
                 <th>الضريبة</th>
                 <th>الحالة</th>
@@ -184,6 +250,24 @@ export default function ProductsPage() {
                   <td className="font-mono font-semibold">{p.code}</td>
                   <td>{p.name}</td>
                   <td>{p.nameAr || <span className="text-ink-subtle">—</span>}</td>
+                  <td>
+                    {p.category ? (
+                      <span className="badge-info text-xs">
+                        {PRODUCT_CATEGORIES.find((c) => c.value === p.category)?.label || p.category}
+                      </span>
+                    ) : (
+                      <span className="text-ink-subtle text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="font-mono text-xs">
+                    {p.defaultAccountCode ? (
+                      <span title={p.defaultAccountName || ""}>
+                        {p.defaultAccountCode}
+                      </span>
+                    ) : (
+                      <span className="text-ink-subtle">—</span>
+                    )}
+                  </td>
                   <td className="font-mono" dir="ltr">{formatNumber(p.unitPrice)}</td>
                   <td className="font-mono" dir="ltr">{(p.defaultTaxRate * 100).toFixed(1)}%</td>
                   <td>
@@ -300,6 +384,59 @@ export default function ProductsPage() {
                   />
                 </div>
               </div>
+
+              {/* Sprint 50 — category + default account. The category
+                  auto-suggests the matching 54xx L3 account, but the
+                  user can override (e.g. materials going to 5407
+                  Other for miscellaneous things). */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">التصنيف</label>
+                  <select
+                    className="input"
+                    value={form.category}
+                    onChange={(e) => {
+                      const cat = e.target.value;
+                      // Auto-pick the matching L3 account from
+                      // PRODUCT_CATEGORIES so the user doesn't have
+                      // to set both. They can still change the
+                      // account afterwards if needed.
+                      const preset = PRODUCT_CATEGORIES.find((c) => c.value === cat);
+                      const accountId = preset
+                        ? costAccounts.find((a) => a.code === preset.defaultAccountCode)?.id ?? form.defaultAccountId
+                        : form.defaultAccountId;
+                      setForm({ ...form, category: cat, defaultAccountId: accountId });
+                    }}
+                    dir="rtl"
+                  >
+                    <option value="">— بدون تصنيف —</option>
+                    {PRODUCT_CATEGORIES.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label} ({c.labelEn})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">الحساب الافتراضي (54xx)</label>
+                  <select
+                    className="input"
+                    value={form.defaultAccountId}
+                    onChange={(e) => setForm({ ...form, defaultAccountId: e.target.value })}
+                    dir="ltr"
+                  >
+                    <option value="">— لا يوجد —</option>
+                    {costAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-ink-muted -mt-1">
+                التصنيف يحدد الحساب تلقائياً. الحساب الافتراضي يُستخدم عند ترحيل الفواتير المخصصة لمشروع.
+              </p>
 
               {error && (
                 <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm">{error}</div>
