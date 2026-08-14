@@ -692,7 +692,7 @@ export default function BillingModal({
         periodFrom: periodFrom || null,
         periodTo: periodTo || null,
         notes: notes.trim() || null,
-        items,
+        lineItems: items,
       });
       setSuccess("تم إنشاء المسودة");
       onCreated(res.data);
