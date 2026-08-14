@@ -20,11 +20,19 @@ public class ProjectService
 {
     private readonly IDbConnectionFactory _db;
     private readonly RuleEvaluator _rules;
+    private readonly ProjectCostAccountService _costAccounts;
+    private readonly ILogger<ProjectService>? _log;
 
-    public ProjectService(IDbConnectionFactory db, RuleEvaluator rules)
+    public ProjectService(
+        IDbConnectionFactory db,
+        RuleEvaluator rules,
+        ProjectCostAccountService costAccounts,
+        ILogger<ProjectService>? log = null)
     {
         _db = db;
         _rules = rules;
+        _costAccounts = costAccounts;
+        _log = log;
     }
 
     public async Task<List<ProjectDto>> GetByCompanyAsync(Guid companyId)
@@ -121,6 +129,26 @@ public class ProjectService
                 projectManager = req.ProjectManager,
                 location = req.Location
             });
+
+        // Sprint 50 — auto-create the 7 L4 sub-ledger accounts for this
+        // project's cost tracking. Idempotent: safe to call on every
+        // create. This must run AFTER the project row exists so the
+        // sub-ledger code can include the project code.
+        try
+        {
+            await _costAccounts.CreateProjectSubLedgersAsync(id);
+        }
+        catch (Exception ex)
+        {
+            // Don't fail the project creation if sub-ledger creation
+            // fails (e.g. COA missing 5401-5407 in a custom company
+            // chart). The user can run it later via a separate admin
+            // command. We log the issue for visibility.
+            _log?.LogWarning(
+                "Project {ProjectId} created but sub-ledger auto-create failed: {Msg}",
+                id, ex.Message);
+        }
+
         return (await GetByIdAsync(id))!;
     }
 

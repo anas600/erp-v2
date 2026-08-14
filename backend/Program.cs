@@ -227,6 +227,7 @@ builder.Services.AddSingleton<RuleEvaluator>();
 builder.Services.AddSingleton<ReportService>();
 builder.Services.AddSingleton<ReportingGate>();          // Sprint 32: TB gate
 builder.Services.AddSingleton<InvoiceService>();
+builder.Services.AddSingleton<ProjectCostAccountService>();     // Sprint 50: project L4 sub-ledgers
 builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<UserService>();
 builder.Services.AddSingleton<ProductService>();
