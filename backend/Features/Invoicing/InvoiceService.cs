@@ -593,6 +593,21 @@ public class InvoiceService
             // so the templates always substitute cleanly.
             ["customer"] = partyDict,
             ["supplier"] = partyDict,
+            // Sprint 51 — project dict so rule templates can use
+            // {project.name} / {project.code} in their narrations
+            // and line descriptions. The 6th rule
+            // (PurchaseInvoiceApprovedForProject) and the
+            // ProjectBillingIssued rule both reference {project.name}
+            // — without this dict the placeholders stay literal in
+            // the resulting journal entry. We only add the dict
+            // when the invoice actually has a projectId; for
+            // non-project invoices the dict is omitted and the
+            // templates use the missing-value fallback (empty
+            // string), which is what they were doing before this
+            // fix.
+            ["project"] = inv.ProjectId.HasValue
+                ? await BuildProjectDictAsync(inv.ProjectId.Value)
+                : new Dictionary<string, object>(),   // empty → {project.X} → ""
             // Sprint 50 — invoice line items, in a shape the 6th rule
             // can read. The rule's accountFrom='line.accountCode'
             // directive reads the FIRST line's accountCode, so the
@@ -1378,6 +1393,30 @@ public class InvoiceService
 
         return (await GetIntercompanyPairsAsync(detail.Pair.PrimaryCompanyId))
             .FirstOrDefault(p => p.Id == pairId);
+    }
+
+    // Sprint 51 — fetch a project's name + code for the rule payload.
+    // The 6th rule (PurchaseInvoiceApprovedForProject) and
+    // ProjectBillingIssued templates use {project.name} in their
+    // narrations and line descriptions. Without this dict the
+    // placeholders stay literal. Returns an empty dict if the
+    // project was deleted (defensive — should not happen in
+    // practice because of the FK RESTRICT).
+    private async Task<Dictionary<string, object>> BuildProjectDictAsync(Guid projectId)
+    {
+        using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync<(string name, string? nameAr, string code)?>(@"
+            SELECT name, name_ar AS nameAr, code FROM projects
+            WHERE id = @id;",
+            new { id = projectId });
+        if (row == null) return new Dictionary<string, object>();
+        return new Dictionary<string, object>
+        {
+            ["id"] = projectId,
+            ["name"] = row.Value.name,
+            ["nameAr"] = row.Value.nameAr ?? row.Value.name,
+            ["code"] = row.Value.code
+        };
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(Guid companyId, string type, System.Data.IDbConnection conn, System.Data.IDbTransaction tx)

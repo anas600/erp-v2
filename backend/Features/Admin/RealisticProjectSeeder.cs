@@ -340,13 +340,23 @@ public class RealisticProjectSeeder
         };
         var result = new List<(Guid id, string name)>();
         using var conn = _db.CreateConnection();
+        int codeNum = 1;
         foreach (var (nameAr, nameEn) in suppliers)
         {
             var id = Guid.NewGuid();
+            // contacts.code is NOT NULL UNIQUE per (company_id, type, code).
+            // We synthesize SUP-001..SUP-NNN codes from the index. The
+            // contacts table is a per-company catalogue so codes only
+            // need to be unique within this company.
+            var code = $"SUP-{codeNum++:D3}";
             await conn.ExecuteAsync(@"
-                INSERT INTO contacts (id, company_id, type, name, name_ar, is_active, created_at)
-                VALUES (@id, @companyId, 'supplier', @name, @nameAr, true, NOW());",
-                new { id, companyId, name = nameEn, nameAr });
+                INSERT INTO contacts
+                    (id, company_id, type, code, name, name_ar, tax_id, phone, email,
+                     is_active, is_demo_data, created_at)
+                VALUES
+                    (@id, @companyId, 'supplier', @code, @name, @nameAr, NULL, NULL, NULL,
+                     true, false, NOW());",
+                new { id, companyId, code, name = nameEn, nameAr });
             result.Add((id, nameAr));
         }
         return result;
@@ -538,10 +548,16 @@ public class RealisticProjectSeeder
             new { companyId });
         if (customer.id == Guid.Empty)
         {
+            // contacts.code is NOT NULL UNIQUE per (company_id, type, code).
+            // Use a stable CUS-001 code so re-runs don't conflict.
             customer = (Guid.NewGuid(), "وزارة الإسكان والتعمير");
             await conn.ExecuteAsync(@"
-                INSERT INTO contacts (id, company_id, type, name, name_ar, is_active, created_at)
-                VALUES (@id, @companyId, 'customer', 'Ministry of Housing', @nameAr, true, NOW());",
+                INSERT INTO contacts
+                    (id, company_id, type, code, name, name_ar, tax_id, phone, email,
+                     is_active, is_demo_data, created_at)
+                VALUES
+                    (@id, @companyId, 'customer', 'CUS-001', 'Ministry of Housing', @nameAr,
+                     NULL, NULL, NULL, true, false, NOW());",
                 new { id = customer.id, companyId, nameAr = customer.name });
         }
 
