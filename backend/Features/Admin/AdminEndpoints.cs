@@ -298,6 +298,53 @@ public static class AdminEndpoints
             }
         });
 
+        // POST /api/admin/seed-realistic-data?companyId=...
+        // Sprint 50 / Sprint 51 — single, focused scenario:
+        //   1 project + 4 monthly billings + 4 project-tagged
+        //   purchase invoices + 2 regular sales + 2 regular purchases.
+        // Cleans the company's data first (same scope as cleanup-data)
+        // so the result is a deterministic, small audit trail.
+        // Requires super_admin.
+        grp.MapPost("/seed-realistic-data", async (
+            HttpContext ctx,
+            [FromQuery] Guid companyId,
+            [FromServices] RealisticProjectSeeder seeder,
+            ILogger<Program> logger) =>
+        {
+            if (!ctx.IsSuperAdmin())
+            {
+                return Results.Json(
+                    new { error = "هذا الإجراء يتطلب صلاحيات المدير العام (super_admin)." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            try
+            {
+                logger.LogWarning(
+                    "ADMIN SEED-REALISTIC-DATA: user {Email} starting scenario seed for company {CompanyId} at {Time}",
+                    ctx.User.FindFirst(ClaimTypes.Email)?.Value,
+                    companyId,
+                    DateTime.UtcNow);
+            }
+            catch { }
+
+            try
+            {
+                var result = await seeder.RunAsync(companyId, trustedMode: true);
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "SeedRealisticData failed: {Type}: {Message}\n{Stack}",
+                    ex.GetType().Name, ex.Message, ex.StackTrace);
+                return Results.BadRequest(new
+                {
+                    error = ex.Message,
+                    type = ex.GetType().Name,
+                    inner = ex.InnerException?.Message
+                });
+            }
+        });
+
         // POST /api/admin/seed-demo-data?companyId=...
         // Creates 5 customers + 3 suppliers + 10 invoices + 5 receipts +
         // 2 payments with realistic Libyan data. Requires super_admin.
