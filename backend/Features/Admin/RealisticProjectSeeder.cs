@@ -45,6 +45,7 @@ public class RealisticProjectSeeder
     private readonly ProjectService _projectSvc;
     private readonly InvoiceService _invoiceSvc;
     private readonly BillingService _billingSvc;
+    private readonly ErpV2.Features.Accounts.AccountService _accounts;
     private readonly ILogger<RealisticProjectSeeder> _log;
 
     public RealisticProjectSeeder(
@@ -52,12 +53,14 @@ public class RealisticProjectSeeder
         ProjectService projectSvc,
         InvoiceService invoiceSvc,
         BillingService billingSvc,
+        ErpV2.Features.Accounts.AccountService accounts,
         ILogger<RealisticProjectSeeder> log)
     {
         _db = db;
         _projectSvc = projectSvc;
         _invoiceSvc = invoiceSvc;
         _billingSvc = billingSvc;
+        _accounts = accounts;
         _log = log;
     }
 
@@ -357,6 +360,15 @@ public class RealisticProjectSeeder
                     (@id, @companyId, 'supplier', @code, @name, @nameAr, NULL, NULL, NULL,
                      true, false, NOW());",
                 new { id, companyId, code, name = nameEn, nameAr });
+            // Sprint 52 — auto-create the L4 sub-ledger
+            // (2101-SUP-XXX) for each supplier. Without this, the
+            // rule engine's contact.subLedger directive in the
+            // 5 default rules + the 6th rule can't resolve to a
+            // postable account, and the rule's exception is
+            // swallowed by the rule loop, leaving entries.Count=0
+            // which the InvoiceService reports as
+            // "لا توجد قواعد محاسبية مفعّلة".
+            await _accounts.EnsureSubLedgerAsync(companyId, id);
             result.Add((id, nameAr));
         }
         return result;
@@ -559,6 +571,9 @@ public class RealisticProjectSeeder
                     (@id, @companyId, 'customer', 'CUS-001', 'Ministry of Housing', @nameAr,
                      NULL, NULL, NULL, true, false, NOW());",
                 new { id = customer.id, companyId, nameAr = customer.name });
+            // Sprint 52 — auto-create L4 sub-ledger (1103-CUS-001).
+            // Same rationale as the supplier block above.
+            await _accounts.EnsureSubLedgerAsync(companyId, customer.id);
         }
 
         var inv1 = await CreateRegularSalesInvoiceAsync(companyId, customer.name, "2026-03-15", "INV-S-2026-001", 10000m, "بيع أجهزة مكتبية");
