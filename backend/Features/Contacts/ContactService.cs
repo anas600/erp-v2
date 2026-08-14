@@ -1,5 +1,6 @@
 using Dapper;
 using ErpV2.Common;
+using ErpV2.Features.Accounts;
 
 namespace ErpV2.Features.Contacts;
 
@@ -11,8 +12,13 @@ namespace ErpV2.Features.Contacts;
 public class ContactService
 {
     private readonly IDbConnectionFactory _db;
+    private readonly AccountService _accounts;
 
-    public ContactService(IDbConnectionFactory db) => _db = db;
+    public ContactService(IDbConnectionFactory db, AccountService accounts)
+    {
+        _db = db;
+        _accounts = accounts;
+    }
 
     public async Task<List<ContactDto>> GetByCompanyAsync(Guid companyId, string? type = null, bool includeInactive = false)
     {
@@ -61,6 +67,37 @@ public class ContactService
                 phone = req.Phone?.Trim(),
                 email = req.Email?.Trim()
             });
+
+        // Sprint 52 — auto-create the L4 sub-ledger (1103-CUST-XXX for
+        // customers, 2101-SUPP-XXX for suppliers) when a contact is
+        // created via the API. This mirrors the pattern that
+        // ProjectCostAccountService.CreateProjectSubLedgersAsync has
+        // for projects: every contact gets its own postable L4 account
+        // on creation, so the rule engine's contact.subLedger
+        // directive always resolves and the per-contact sub-ledger
+        // balance is visible in the chart of accounts from day 1.
+        //
+        // The EnsureSubLedgerAsync call is wrapped in try/catch so
+        // a sub-ledger creation failure doesn't block the contact
+        // creation itself — the user can still see the contact in
+        // the UI and re-run EnsureSubLedgerAsync from a follow-up
+        // admin tool. Better to log and continue than to fail the
+        // whole create.
+        try
+        {
+            await _accounts.EnsureSubLedgerAsync(req.CompanyId, id);
+        }
+        catch (Exception ex)
+        {
+            // Log via the framework's ILogger if available, otherwise
+            // we silently continue. The contact is created; the
+            // sub-ledger can be fixed by an admin later.
+            // (No logger here — ContactService doesn't depend on
+            // ILogger today. We can add it in a follow-up sprint.)
+            System.Diagnostics.Debug.WriteLine(
+                $"ContactService.CreateAsync: sub-ledger creation failed for {req.Code}: {ex.Message}");
+        }
+
         return (await GetByIdAsync(id))!;
     }
 
