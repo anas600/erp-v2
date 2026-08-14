@@ -579,6 +579,9 @@ public class InvoiceService
                 ["subtotal"] = inv.SubTotal,
                 ["tax"] = inv.TaxAmount,
                 ["total"] = inv.Total,
+                // Sprint 50 — the 6th rule's condition reads
+                // invoice.projectId to decide whether to fire.
+                ["projectId"] = inv.ProjectId,
                 ["lineCount"] = inv.Lines.Count,
                 ["lineTotalWithTaxSum"] = inv.Lines.Sum(l => l.LineTotalWithTax)
             },
@@ -589,18 +592,77 @@ public class InvoiceService
             // (purchase) — we expose both regardless of invoice type
             // so the templates always substitute cleanly.
             ["customer"] = partyDict,
-            ["supplier"] = partyDict
+            ["supplier"] = partyDict,
+            // Sprint 50 — invoice line items, in a shape the 6th rule
+            // can read. The rule's accountFrom='line.accountCode'
+            // directive reads the FIRST line's accountCode, so the
+            // simplest case (one line per invoice) Just Works. For
+            // multi-line invoices, the rule's per-line iteration is a
+            // future improvement; for now the rule produces one debit
+            // per distinct account code in the lines.
+            ["lines"] = inv.Lines.Select(l => new Dictionary<string, object>
+            {
+                ["id"] = l.Id,
+                ["productId"] = l.ProductId ?? (object)Guid.Empty,
+                ["description"] = l.Description,
+                ["accountCode"] = l.AccountCode,    // e.g. "5401-PRJ-005"
+                ["amount"] = l.Amount,
+                ["quantity"] = l.Quantity,
+                ["unitPrice"] = l.UnitPrice
+            }).ToList<object>()
         };
+
+        // Sprint 50 — if the invoice has a project, attach a small
+        // 'project' dict so the 6th rule's narration can mention
+        // '{project.name}'. We do a single small read instead of a
+        // join because the project is also stamped on the resulting
+        // journal entry via the rule's projectFrom directive.
+        if (inv.ProjectId.HasValue)
+        {
+            using var projConn = _db.CreateConnection();
+            var proj = await projConn.QuerySingleOrDefaultAsync<(string code, string name, string? name_ar)?>(@"
+                SELECT code, name, name_ar FROM projects WHERE id = @id;",
+                new { id = inv.ProjectId.Value });
+            if (proj.HasValue)
+            {
+                payload["project"] = new Dictionary<string, object>
+                {
+                    ["id"] = inv.ProjectId.Value,
+                    ["code"] = proj.Value.code,
+                    ["name"] = proj.Value.name_ar ?? proj.Value.name,
+                    ["nameEn"] = proj.Value.name
+                };
+            }
+        }
 
         // The rule template handles the actual journal entry creation
         // (it knows which accounts to debit/credit). We just kick the
         // event off and trust the user's configured rules. If no rule
         // is enabled, the journal is simply not created — the user can
         // inspect and re-enable rules from the Business Rules page.
-        var eventName = inv.InvoiceType == "sales" ? "SalesInvoiceApproved" : "PurchaseInvoiceApproved";
+        //
+        // Sprint 50 — branch on project tag for purchase invoices.
+        //   projectId == null  → 'PurchaseInvoiceApproved'  (COGS 5301)
+        //   projectId != null  → 'PurchaseInvoiceApprovedForProject'
+        //                          (54xx sub-ledgers, 6th rule)
+        // Sales invoices are not affected (they always go to AR +
+        // 4101 regardless of project).
+        string eventName;
+        if (inv.InvoiceType == "sales")
+        {
+            eventName = "SalesInvoiceApproved";
+        }
+        else if (inv.ProjectId.HasValue)
+        {
+            eventName = "PurchaseInvoiceApprovedForProject";
+        }
+        else
+        {
+            eventName = "PurchaseInvoiceApproved";
+        }
         _log.LogInformation(
-            "PostAsync: invoice {InvNum} type={Type} company={CoId} — triggering {Event}",
-            inv.InvoiceNumber, inv.InvoiceType, inv.CompanyId, eventName);
+            "PostAsync: invoice {InvNum} type={Type} company={CoId} project={ProjId} — triggering {Event}",
+            inv.InvoiceNumber, inv.InvoiceType, inv.CompanyId, inv.ProjectId, eventName);
         List<JournalEntryDto> entries;
         try
         {
