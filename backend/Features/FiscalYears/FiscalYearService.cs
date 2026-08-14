@@ -75,6 +75,35 @@ public class FiscalYearService
     }
 
     /// <summary>
+    /// Cycle 4: list every fiscal period for a company, optionally
+    /// filtered to a specific year. Sorted by start date DESC so the
+    /// most recent period (the one the user is most likely working in)
+    /// comes first in dropdowns.
+    ///
+    /// The fiscal-years page uses this to render a single "all periods
+    /// across all years" table without forcing the user to pick a year
+    /// first.
+    /// </summary>
+    public async Task<List<FiscalPeriodDto>> GetAllPeriodsAsync(
+        Guid companyId, Guid? fiscalYearId = null)
+    {
+        using var conn = _db.CreateConnection();
+        // Join with fiscal_years to filter by company_id (periods
+        // don't have company_id directly; they're scoped via their
+        // parent year).
+        var rows = await conn.QueryAsync<FiscalPeriodRow>(@"
+            SELECT p.id, p.fiscal_year_id, p.period_number,
+                   p.start_date, p.end_date, p.is_closed, p.closed_at
+            FROM fiscal_periods p
+            INNER JOIN fiscal_years y ON y.id = p.fiscal_year_id
+            WHERE y.company_id = @companyId
+              AND (@fiscalYearId IS NULL OR p.fiscal_year_id = @fiscalYearId)
+            ORDER BY p.start_date DESC, p.period_number DESC;",
+            new { companyId, fiscalYearId });
+        return rows.Select(MapPeriod).ToList();
+    }
+
+    /// <summary>
     /// Create a new fiscal year for a company, auto-creating 12 monthly
     /// periods. The year is identified by its <c>code</c> (e.g. '2026'),
     /// which is unique per company.
