@@ -287,13 +287,27 @@ public class RuleEvaluator
                 "الرجاء التحقق من الـ payload ومن صيغ المبالغ في القاعدة.");
         }
 
+        // Sprint 50 — resolve the optional ProjectFrom dot-path into
+        // a real project id. If the rule specified one and it resolves
+        // to a non-empty Guid, attach it to the journal entry so the
+        // P&L engine can find it.
+        Guid? projectId = null;
+        if (!string.IsNullOrWhiteSpace(action.ProjectFrom))
+        {
+            var raw = ResolveField(action.ProjectFrom, payload);
+            if (raw is Guid g && g != Guid.Empty) projectId = g;
+            else if (Guid.TryParse(raw?.ToString(), out var parsed) && parsed != Guid.Empty)
+                projectId = parsed;
+        }
+
         var req = new CreateJournalEntryRequest(
             companyId,
             DateTime.UtcNow,
             SubstituteTokens(action.Narration ?? "", payload),
             lines,
             Source: $"rule:{ruleId}",   // mark the entry as rule-generated for auditing
-            RuleId: ruleId
+            RuleId: ruleId,
+            ProjectId: projectId
         );
 
         _log.LogInformation("Rule {RuleId}: creating PENDING journal entry with {Count} lines, source=rule:{RuleId}", ruleId, lines.Count, ruleId);
@@ -422,6 +436,43 @@ public class RuleEvaluator
                             WHERE company_id = @companyId AND code = @code AND level = 3 AND is_active = true
                             LIMIT 1;",
                             new { companyId, code = fallbackCode });
+                    }
+
+                case "line.accountcode":
+                    {
+                        // Sprint 50 — read the account code from the
+                        // current invoice line. The rule payload must
+                        // include a "lines" array (each entry has
+                        // accountCode, amount, ...). The caller (e.g.
+                        // InvoiceService.PostAsync) builds this once per
+                        // invoice. For one-line rules the resolution
+                        // picks the first line; for multi-line rules
+                        // the line is duplicated for each entry (the
+                        // simple case). Future: a per-line iteration
+                        // mode can be added if needed.
+                        var raw = ResolveField("lines", payload);
+                        if (raw is System.Collections.IEnumerable list)
+                        {
+                            foreach (var item in list)
+                            {
+                                if (item is Dictionary<string, object> dict)
+                                {
+                                    var code = dict.TryGetValue("accountCode", out var c) ? c?.ToString() : null;
+                                    if (!string.IsNullOrEmpty(code))
+                                    {
+                                        return await conn.QuerySingleOrDefaultAsync<(Guid id, string nature)>(@"
+                                            SELECT id, nature FROM accounts
+                                            WHERE company_id = @companyId
+                                              AND code = @code
+                                              AND is_active = true
+                                            LIMIT 1;",
+                                            new { companyId, code });
+                                    }
+                                }
+                            }
+                        }
+                        _log.LogWarning("accountFrom='line.accountCode' could not resolve a line.accountCode from payload");
+                        return (Guid.Empty, "");
                     }
 
                 default:
