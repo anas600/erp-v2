@@ -76,6 +76,22 @@ public static class FiscalYearEndpoints
                      .WithTags("Fiscal Periods")
                      .RequireAuthorization();
 
+        // Cycle 4: LIST all periods across years for the active company.
+        // The fiscal-years page previously had no way to populate a
+        // period dropdown without iterating years one by one. This
+        // returns the full list, sorted by start date DESC.
+        // Optional ?fiscalYearId filter for "periods in this year only".
+        grp.MapGet("/", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] Guid? fiscalYearId,
+            [FromServices] FiscalYearService svc) =>
+        {
+            if (companyId == Guid.Empty)
+                return Results.BadRequest(new { error = "companyId required" });
+            var periods = await svc.GetAllPeriodsAsync(companyId, fiscalYearId);
+            return Results.Ok(periods);
+        });
+
         grp.MapGet("/{id:guid}", async (Guid id, [FromServices] FiscalYearService svc) =>
         {
             var p = await svc.GetPeriodAsync(id);
