@@ -315,9 +315,9 @@ public class RealisticProjectSeeder
             await conn.ExecuteAsync(@"
                 INSERT INTO contract_line_items
                     (id, company_id, contract_id, line_number, description, unit,
-                     quantity, unit_price, total_price, quantity_billed_so_far, quantity_remaining)
+                     quantity, unit_price, total_price, notes)
                 VALUES (@id, @companyId, @contractId, @lineNumber, @description, @unit,
-                        @quantity, @unitPrice, @total, 0, @quantity);",
+                        @quantity, @unitPrice, @total, NULL);",
                 new
                 {
                     id = Guid.NewGuid(),
