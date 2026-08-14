@@ -594,22 +594,67 @@ public class RealisticProjectSeeder
         // gives net = 1.2M - 800K - 60K = 340K (positive), and
         // subsequent billings have remainingAdvance = 0 so no
         // advance is deducted.
+        //
+        // Sprint 52 (work-flow fix #1) — pre-populate the
+        // billing_line_items with quantities proportional to the
+        // cumulative %. The user pointed out that the billings UI
+        // showed all "السابق" and "هذه الفترة" as 0 — because the
+        // seeder passed an empty LineItems list. The BillingService
+        // %-based path synthesizes ONE line item (a lump), but the
+        // contract has 7 BOQ line items. We pre-populate here so the
+        // user can see per-line quantities (e.g. "حفر الأساسات
+        // 150 m3 of 500 m3 = 30%") in the billings UI.
+        //
+        // Example for billing 1 (30% cumulative):
+        //   contract_line_item #1 (500 m3 × 500 LYD) → this billing 150 m3
+        //   contract_line_item #2 (400 m3 × 1500 LYD) → 120 m3
+        //   ...etc
         var cumulativePercents = new decimal[] { 30m, 50m, 80m, 100m };
+        // Load the contract_line_items once for use across all 4 billings.
+        var contractLineItems = (await conn.QueryAsync<(Guid id, int line_number, decimal quantity, decimal unit_price)>(@"
+            SELECT id, line_number, quantity, unit_price FROM contract_line_items
+            WHERE contract_id = @contractId
+            ORDER BY line_number;",
+            new { contractId })).ToList();
+        if (contractLineItems.Count == 0)
+            throw new InvalidOperationException("Contract has no line items — cannot compute billing quantities.");
+
         for (int i = 0; i < numbers.Length; i++)
         {
+            // For each billing, compute this-period quantities for each BOQ line.
+            // The cumulative percent maps to a cumulative quantity, and
+            // quantity_this_period = cumulative - previous_cumulative.
+            var cumulative = cumulativePercents[i] / 100m;
+            var previousCumulative = i == 0 ? 0m : cumulativePercents[i - 1] / 100m;
+            var lineItems = new List<CreateBillingLineItemRequest>();
+            foreach (var li in contractLineItems)
+            {
+                var cumulativeQty = Math.Round(li.quantity * cumulative, 3);
+                var previousQty = Math.Round(li.quantity * previousCumulative, 3);
+                var thisPeriodQty = cumulativeQty - previousQty;
+                if (thisPeriodQty > 0)
+                {
+                    lineItems.Add(new CreateBillingLineItemRequest(
+                        LineItemId: li.id,
+                        QuantityThisPeriod: thisPeriodQty,
+                        Notes: null
+                    ));
+                }
+            }
+
             var req = new CreateBillingRequest(
                 ContractId: contractId!.Value,
                 BillingNumber: numbers[i],
                 BillingDate: DateTime.Parse(dates[i]),
                 PeriodFrom: i == 0 ? new DateTime(2026, 1, 1) : DateTime.Parse(dates[i - 1]),
                 PeriodTo: DateTime.Parse(dates[i]),
-                // Sprint 52 — pass WorkCompletedPercent so the billing
-                // approve doesn't throw 'should specify percent or
-                // line items'. The previous version passed null + empty
-                // LineItems which the service rejected.
+                // Pass WorkCompletedPercent as a fallback (the system
+                // uses the per-line quantities to compute the gross,
+                // not the percent). The percent is still used for
+                // header display and downstream % calculations.
                 WorkCompletedPercent: cumulativePercents[i],
                 Notes: notes[i],
-                LineItems: new List<CreateBillingLineItemRequest>()
+                LineItems: lineItems
             );
             var draft = await _billingSvc.CreateAsync(projectId, req);
             var approved = await _billingSvc.ApproveAsync(draft.Id,
@@ -618,8 +663,8 @@ public class RealisticProjectSeeder
                     Notes: notes[i]));
             result.Add(approved.Id);
             _log.LogInformation(
-                "Billing {Num} approved: gross={Gross}, net={Net}, JE={Je}",
-                numbers[i], approved.GrossAmount, approved.NetAmount, approved.JournalEntryId);
+                "Billing {Num} approved: gross={Gross}, net={Net}, JE={Je}, lines={LineCount}",
+                numbers[i], approved.GrossAmount, approved.NetAmount, approved.JournalEntryId, lineItems.Count);
         }
         return result;
     }
