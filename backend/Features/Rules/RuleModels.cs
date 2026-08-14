@@ -78,6 +78,20 @@ public class RuleAction
 
     [JsonPropertyName("lines")]
     public List<RuleActionLine> Lines { get; set; } = new();
+
+    /// <summary>
+    /// Sprint 50 — optional project tag for the rule-generated journal
+    /// entry. When set, the rule evaluator copies the resolved value
+    /// into <c>journal_entries.project_id</c> so the entry shows up in
+    /// the project's P&L report. Dot-notation supported
+    /// (e.g. <c>"invoice.projectId"</c> or <c>"project.id"</c>).
+    ///
+    /// Without this, a project-tagged purchase invoice would post a
+    /// pending entry that the project P&L cannot find (because P&L
+    /// filters by <c>journal_entries.project_id</c>).
+    /// </summary>
+    [JsonPropertyName("projectFrom")]
+    public string? ProjectFrom { get; set; }
 }
 
 public class RuleActionLine
