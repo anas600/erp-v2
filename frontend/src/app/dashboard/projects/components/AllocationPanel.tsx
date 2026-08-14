@@ -68,20 +68,37 @@ export default function AllocationPanel({ projectId, onChange }: Props) {
       //   GET /api/projects/{id}/costs  -> list of all allocated
       // For unallocated, we need a separate endpoint that
       // returns purchase invoices WHERE project_id IS NULL.
-      // The backend team added GET /api/projects/{id}/costs and
-      // an "unallocated" filter for the project picker.
+      //
+      // Response shape normalization (Sprint 47 fix):
+      //   The /api/invoices endpoint returns a paginated envelope:
+      //     { items: [...], total: N, page: 1, ... }
+      //   The /api/projects/{id}/costs endpoint returns a bare array.
+      //   The Axios client gives us res.data for both, so we unwrap
+      //   the envelope here. Without this, the .map() below throws
+      //   "i.map is not a function" because we'd be calling .map on
+      //   the envelope object instead of the array.
       const [unallocRes, allocRes] = await Promise.all([
         api
           .get(`/invoices?companyId=${activeCompany.id}&invoiceType=purchase&unallocated=true&limit=200`)
-          .catch(() => ({ data: [] })),
+          .catch(() => ({ data: { items: [] } })),
         api.get(`/projects/${projectId}/costs`).catch(() => ({ data: [] })),
       ]);
-      setUnallocated(unallocRes.data || []);
-      // The costs endpoint returns a mixed list (invoices + journal lines);
-      // for the "currently allocated" table we only want invoices.
-      const invoiceRows = (allocRes.data || []).filter(
+
+      // Unwrap the paginated envelope: { items: [...], ... } → [...]
+      const unallocRaw = unallocRes.data;
+      const unallocList: any[] = Array.isArray(unallocRaw)
+        ? unallocRaw
+        : (unallocRaw?.items || []);
+
+      // /costs returns a bare array of mixed items (invoices + JE
+      // lines). The "currently allocated" table only wants invoices.
+      const allocRaw = allocRes.data;
+      const allocList: any[] = Array.isArray(allocRaw) ? allocRaw : [];
+      const invoiceRows = allocList.filter(
         (r: any) => r.source === "invoice" || r.invoiceId || r.invoiceNumber
       );
+
+      setUnallocated(unallocList);
       setAllocated(invoiceRows);
     } catch (err) {
       setError(getErrorMessage(err));
