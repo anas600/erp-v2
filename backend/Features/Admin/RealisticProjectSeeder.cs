@@ -160,10 +160,12 @@ public class RealisticProjectSeeder
             DELETE FROM payment_vouchers WHERE company_id = @companyId;", new { companyId }, tx);
 
         // 3) Intercompany pairs (they reference invoices)
+        // NOTE: the schema columns are primary_invoice_id and
+        // mirror_invoice_id, NOT invoice_a_id / invoice_b_id.
         await conn.ExecuteAsync(@"
             DELETE FROM intercompany_pairs
-            WHERE invoice_a_id IN (SELECT id FROM invoices WHERE company_id = @companyId)
-               OR invoice_b_id IN (SELECT id FROM invoices WHERE company_id = @companyId);",
+            WHERE primary_company_id = @companyId
+               OR mirror_company_id = @companyId;",
             new { companyId }, tx);
 
         // 4) Invoices (and their line items)
