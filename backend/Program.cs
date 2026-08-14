@@ -450,3 +450,9 @@ if (string.Equals(autoSeedFlag, "true", StringComparison.OrdinalIgnoreCase)
 }
 
 app.Run();
+
+
+// Sprint 52 force-rebuild marker (2026-08-14T20:53:00Z)
+// This comment changes the source so Docker's COPY layer cache
+// invalidates and the new binary (with auto L4 sub-ledger
+// creation in ContactService.CreateAsync) is actually built.
