@@ -257,15 +257,10 @@ public class RealisticProjectSeeder
         _log.LogInformation("Created project {Code} (auto-L4-sub-ledgers created)", proj.Code);
 
         // Create a contract with 7 line items summing to 4M
+        // (The contracts table has project_id; the projects table
+        // doesn't carry a contract_id back — it's a one-way
+        // relationship.)
         var contractId = await CreateContractAsync(companyId, proj.Id, proj.ContractValue);
-
-        // Link the project to the contract
-        using (var conn = _db.CreateConnection())
-        {
-            await conn.ExecuteAsync(
-                "UPDATE projects SET contract_id = @contractId WHERE id = @projectId;",
-                new { contractId, projectId = proj.Id });
-        }
 
         return proj.Id;
     }
@@ -498,16 +493,19 @@ public class RealisticProjectSeeder
         };
 
         using var conn = _db.CreateConnection();
-        var contractId = await conn.QuerySingleOrDefaultAsync<Guid>(
-            "SELECT contract_id FROM projects WHERE id = @id;", new { id = projectId });
-        if (contractId == Guid.Empty)
+        // The contract is the one whose project_id = this project. The
+        // projects table doesn't store the back-pointer.
+        var contractId = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
+            SELECT id FROM contracts WHERE project_id = @id LIMIT 1;",
+            new { id = projectId });
+        if (contractId == null || contractId == Guid.Empty)
             throw new InvalidOperationException("Project has no contract — cannot create billings.");
 
         var result = new List<Guid>();
         for (int i = 0; i < numbers.Length; i++)
         {
             var req = new CreateBillingRequest(
-                ContractId: contractId,
+                ContractId: contractId!.Value,
                 BillingNumber: numbers[i],
                 BillingDate: DateTime.Parse(dates[i]),
                 PeriodFrom: i == 0 ? new DateTime(2026, 1, 1) : DateTime.Parse(dates[i - 1]),
