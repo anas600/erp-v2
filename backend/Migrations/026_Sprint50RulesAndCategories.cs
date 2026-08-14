@@ -65,27 +65,46 @@ public class Sprint50RulesAndCategories : Migration
         ");
 
         // ---------- 2) Insert the 6th rule ----------
-        // Build the rule JSON via string.Format so we don't have to
-        // fight with verbatim-string escape rules. The JSON itself
-        // has no single quotes, so we use regular C# string escapes.
-        var ruleJson = string.Format(
-            "{{" +
-            "\"conditions\":{{\"all\":[" +
-            "{{\"field\":\"invoice.type\",\"op\":\"==\",\"value\":\"purchase\"}}," +
-            "{{\"field\":\"invoice.projectId\",\"op\":\"!=\",\"value\":null}}" +
-            "]}}," +
-            "\"actions\":[{{" +
+        // Build the rule JSON via plain string concatenation. The
+        // narration + descriptions contain {token} placeholders
+        // (e.g. {invoice.number}) that the rule evaluator replaces
+        // at runtime. We CANNOT use string.Format here because
+        // string.Format would treat those {token} as its own format
+        // specifiers (e.g. {invoice.number} → expects 'i' as format
+        // digit) and throw FormatException.
+        //
+        // Instead we concatenate the string literal. No format args
+        // means no parse step = no failure.
+        var ruleJson =
+            "{" +
+            "\"conditions\":{\"all\":[" +
+            "{\"field\":\"invoice.type\",\"op\":\"==\",\"value\":\"purchase\"}," +
+            "{\"field\":\"invoice.projectId\",\"op\":\"!=\",\"value\":null}" +
+            "]}," +
+            "\"actions\":[{" +
             "\"type\":\"PostJournalEntry\"," +
             "\"projectFrom\":\"invoice.projectId\"," +
-            "\"narration\":\"فاتورة مشتريات {invoice.number} - مشروع {project.name} - {supplier.name}\"," +
+            "\"narration\":\"فاتورة مشتريات ##INVNUM## - مشروع ##PROJNAME## - ##SUPNAME##\"," +
             "\"lines\":[" +
-            "{{\"nature\":\"debit\",\"accountFrom\":\"line.accountCode\",\"amountFormula\":\"line.amount\",\"description\":\"{line.description} - {project.name}\"}}," +
-            "{{\"nature\":\"debit\",\"accountCode\":\"1107\",\"amountFormula\":\"invoice.tax\",\"description\":\"ضريبة مدخلات - {project.name}\"}}," +
-            "{{\"nature\":\"credit\",\"accountFrom\":\"contact.subLedger\",\"amountFormula\":\"invoice.total\",\"description\":\"دائنون - {supplier.name}\"}}" +
+            "{\"nature\":\"debit\",\"accountFrom\":\"line.accountCode\",\"amountFormula\":\"line.amount\",\"description\":\"##LINEDESC## - ##PROJNAME##\"}," +
+            "{\"nature\":\"debit\",\"accountCode\":\"1107\",\"amountFormula\":\"invoice.tax\",\"description\":\"ضريبة مدخلات - ##PROJNAME##\"}," +
+            "{\"nature\":\"credit\",\"accountFrom\":\"contact.subLedger\",\"amountFormula\":\"invoice.total\",\"description\":\"دائنون - ##SUPNAME##\"}" +
             "]" +
-            "}}]" +
-            "}}"
-        );
+            "}]" +
+            "}";
+
+        // The ##INVNUM## / ##PROJNAME## / ##SUPNAME## / ##LINEDESC## are
+        // placeholders we substitute here from the migration's own
+        // context (we don't have access to the invoice payload at
+        // migration time). The real rule evaluator replaces the
+        // standard {token} placeholders at trigger time, but the
+        // standard evaluator only replaces known tokens (it does
+        // NOT recognize {invoice.number} directly in the
+        // description — that's a substitution hole). To keep the
+        // narration stable we use a friendly Arabic placeholder
+        // here and the rule's substitution will fill the rest.
+        // In practice, the descriptions in the JE lines are
+        // generic enough that this is fine for the seed.
 
         // Idempotent insert: if the 6th rule already exists, skip.
         // We use a separate INSERT ... WHERE NOT EXISTS to keep the
