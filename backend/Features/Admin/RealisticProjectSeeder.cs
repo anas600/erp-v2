@@ -582,13 +582,19 @@ public class RealisticProjectSeeder
 
         var result = new List<Guid>();
         // Each billing represents a cumulative % of the contract work done.
-        // The seeder creates billings at 10%, 30%, 60%, 90% — each one
-        // advances the work_completed_percent. The BillingService
-        // ApproveAsync requires either WorkCompletedPercent OR LineItems;
-        // we use the percent path because it's simpler than synthesizing
-        // 7 line items per billing (each of the 7 contract line items
-        // would need a quantity_cumulative = % × original quantity).
-        var cumulativePercents = new decimal[] { 10m, 30m, 60m, 90m };
+        // The seeder creates billings at 30%, 50%, 80%, 100% — each one
+        // advances the work_completed_percent.
+        //
+        // Why not 10%? Because the BillingService recovers the
+        // contract advance (20% of contract value = 800K LYD) from
+        // the FIRST billing's gross. With 10% (gross=400K), the
+        // advance recovered = 400K and retention = 20K, giving
+        // net = -20K (negative). The journal validator rejects
+        // negative debit/credit lines. Starting at 30% (gross=1.2M)
+        // gives net = 1.2M - 800K - 60K = 340K (positive), and
+        // subsequent billings have remainingAdvance = 0 so no
+        // advance is deducted.
+        var cumulativePercents = new decimal[] { 30m, 50m, 80m, 100m };
         for (int i = 0; i < numbers.Length; i++)
         {
             var req = new CreateBillingRequest(
