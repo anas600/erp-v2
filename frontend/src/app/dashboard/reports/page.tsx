@@ -168,7 +168,7 @@ const REPORTS: ReportEntry[] = [
     module: "accounting",
     moduleAr: "المحاسبة",
     priority: "P2",
-    status: "missing",
+    status: "working",  // Cycle 2: shipped
     icon: Layers,
   },
   {
@@ -181,7 +181,7 @@ const REPORTS: ReportEntry[] = [
     module: "projects",
     moduleAr: "المشاريع",
     priority: "P3",
-    status: "missing",
+    status: "working",  // Cycle 3: shipped
     icon: Briefcase,
   },
   {
