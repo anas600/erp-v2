@@ -782,10 +782,15 @@ public class RealisticProjectSeeder
             throw new InvalidOperationException("Project has no contract — cannot create billings.");
 
         var result = new List<Guid>();
-        // 4 billings at 15%, 35%, 30%, 20% — realistic construction progression
-        // (the user said "بنسب انجاز واقعية" — not the old 30/50/80/100 which
-        // was too aggressive for a 45-day project).
-        var cumulativePercents = new decimal[] { 15m, 35m, 30m, 20m };
+        // 4 billings with CUMULATIVE % (monotonically increasing):
+        //   - Billing 1: 15% cumulative (early works — demolition, site prep, foundations)
+        //   - Billing 2: 40% cumulative (additional 25% — structural, walls, plastering)
+        //   - Billing 3: 70% cumulative (additional 30% — MEP, painting, finishing)
+        //   - Billing 4: 100% cumulative (final 30% — equipment, generator, handover)
+        // Note: percentages are CUMULATIVE not individual. The system
+        // validates that each billing's cumulative % is greater than
+        // the previous one (cannot decrease work done).
+        var cumulativePercents = new decimal[] { 15m, 40m, 70m, 100m };
         // Load the contract_line_items once for use across all 4 billings.
         var contractLineItems = (await conn.QueryAsync<(Guid id, int line_number, decimal quantity, decimal unit_price)>(@"
             SELECT id, line_number, quantity, unit_price FROM contract_line_items
