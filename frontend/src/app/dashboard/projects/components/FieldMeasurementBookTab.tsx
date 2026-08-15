@@ -64,18 +64,43 @@ export interface LineItemDto {
 
 interface Props {
   projectId: string;
-  /** Loaded by parent — list of contract line items to choose from. */
-  lineItems: LineItemDto[];
+  /** Optional pre-loaded line items (when parent has them). */
+  lineItems?: LineItemDto[];
   /** Optional pre-loaded FMBs (when integrated with parent). */
   initialBooks?: FieldMeasurementBookDto[];
 }
 
-export default function FieldMeasurementBookTab({ projectId, lineItems, initialBooks }: Props) {
+export default function FieldMeasurementBookTab({ projectId, lineItems: initialLineItems, initialBooks }: Props) {
   const [books, setBooks] = useState<FieldMeasurementBookDto[]>(initialBooks || []);
   const [loading, setLoading] = useState(!initialBooks);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState<FieldMeasurementBookDto | null>(null);
+  // Sprint 58 — if the parent didn't pass line items, fetch them ourselves
+  // by first getting the project contract, then the contract line items.
+  const [lineItems, setLineItems] = useState<LineItemDto[]>(initialLineItems || []);
+
+  const loadLineItems = async () => {
+    try {
+      // 1) Get the project's contract
+      const contractRes = await api.get<{ id: string }>(
+        `/projects/${projectId}/contract`
+      );
+      if (!contractRes.data?.id) {
+        // No contract yet — leave lineItems empty
+        return;
+      }
+      // 2) Get the contract's line items
+      const itemsRes = await api.get<LineItemDto[]>(
+        `/contracts/${contractRes.data.id}/line-items`
+      );
+      const list = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data as any)?.items || [];
+      setLineItems(list);
+    } catch (err) {
+      // No contract or no line items yet — that's OK
+      setLineItems([]);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -92,6 +117,7 @@ export default function FieldMeasurementBookTab({ projectId, lineItems, initialB
 
   useEffect(() => {
     if (!initialBooks) load();
+    if (!initialLineItems || initialLineItems.length === 0) loadLineItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
