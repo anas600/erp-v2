@@ -63,13 +63,13 @@ public class PrintViewService
                 COALESCE(c.original_contract_value, 0) AS original_contract_value,
                 c.final_insurance_percent, c.admin_fee_percent,
                 COALESCE(c.final_insurance_release_date, '0001-01-01'::timestamp) AS final_insurance_release_date,
-                -- Parties
-                COALESCE(cust.name_ar, '') AS customer_name_ar,
+                -- Parties (order matches PrintViewRow record: name first, then name_ar)
                 COALESCE(cust.name, '') AS customer_name,
-                COALESCE(contractor.name_ar, '') AS contractor_name_ar,
+                COALESCE(cust.name_ar, '') AS customer_name_ar,
                 COALESCE(contractor.name, '') AS contractor_name,
-                COALESCE(consultant.name_ar, '') AS consultant_name_ar,
+                COALESCE(contractor.name_ar, '') AS contractor_name_ar,
                 COALESCE(consultant.name, '') AS consultant_name,
+                COALESCE(consultant.name_ar, '') AS consultant_name_ar,
                 -- Company
                 comp.id AS company_id, comp.name AS company_name,
                 COALESCE(comp.name_ar, '') AS company_name_ar
