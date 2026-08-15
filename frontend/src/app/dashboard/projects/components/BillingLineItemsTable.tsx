@@ -68,7 +68,7 @@ export default function BillingLineItemsTable({ items, totalAmount }: Props) {
               <th className="text-left py-2 px-3 font-semibold text-ink-muted">هذه الفترة</th>
               <th className="text-left py-2 px-3 font-semibold text-ink-muted">السابق</th>
               <th className="text-left py-2 px-3 font-semibold text-ink-muted">التراكمي</th>
-              <th className="text-left py-2 px-3 font-semibold text-ink-muted">المبلغ</th>
+              <th className="text-left py-2 px-3 font-semibold text-ink-muted">مبلغ هذه الفترة</th>
             </tr>
           </thead>
           <tbody>
@@ -102,7 +102,7 @@ export default function BillingLineItemsTable({ items, totalAmount }: Props) {
           <tfoot>
             <tr className="bg-raised font-semibold border-t-2 border-edge">
               <td colSpan={7} className="py-2 px-3 text-right">
-                إجمالي المستخلص
+                إجمالي هذه الفترة
               </td>
               <td className="py-2 px-3 text-left font-mono text-primary-700" dir="ltr">
                 {formatNumber(total)}
@@ -130,7 +130,7 @@ export default function BillingLineItemsTable({ items, totalAmount }: Props) {
                 </p>
               </div>
               <div className="text-left shrink-0">
-                <div className="text-[10px] text-ink-muted">المبلغ</div>
+                <div className="text-[10px] text-ink-muted">مبلغ الفترة</div>
                 <div className="font-mono font-semibold" dir="ltr">
                   {formatNumber(i.thisPeriodAmount)}
                 </div>
