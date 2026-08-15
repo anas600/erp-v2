@@ -135,7 +135,9 @@ public class ProjectService
                 @projectManager, @location,
                 @contractorId, @consultantId,
                 @physicalProgressPercent, @financialProgressPercent,
-                @scheduleStatus, @executionStatus, @techReportDate);",
+                COALESCE(@scheduleStatus, 'on_track'),
+                COALESCE(@executionStatus, 'in_progress'),
+                @techReportDate);",
             new
             {
                 id,
