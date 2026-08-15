@@ -98,9 +98,13 @@ public class ProjectProgressService
             SELECT COALESCE(SUM(gross_amount), 0) FROM progress_billings
             WHERE project_id = @projectId AND status = 'INVOICED';",
             new { projectId });
-        var financialPct = effectiveContract > 0
+        // Calculate raw % first (can exceed 100% if billings > contract).
+        // The DB-level raw % is the truth — we cap at 100 for display only.
+        var financialPctRaw = effectiveContract > 0
             ? Math.Round((totalBilled ?? 0m) / effectiveContract * 100m, 2)
             : 0m;
+        var financialPct = Math.Min(financialPctRaw, 100m);
+        // When capped, surface a warning in the response via project notes.
 
         var itemDtos = lineItems.Select(li => new LineItemProgressDto(
             li.id, li.line_item_id,
