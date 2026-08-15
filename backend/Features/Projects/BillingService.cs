@@ -93,7 +93,7 @@ public class BillingService
             SELECT id, company_id, project_id, contract_id, billing_number,
                    billing_date, period_from, period_to,
                    work_completed_percent, gross_amount,
-                   advance_deducted, retention_deducted, net_amount,
+                   advance_deducted, retention_deducted, final_insurance_deducted, admin_fees_deducted, original_contract_deduction, net_amount,
                    status, invoice_id, journal_entry_id, notes,
                    created_at, updated_at
             FROM progress_billings
@@ -113,7 +113,7 @@ public class BillingService
             SELECT id, company_id, project_id, contract_id, billing_number,
                    billing_date, period_from, period_to,
                    work_completed_percent, gross_amount,
-                   advance_deducted, retention_deducted, net_amount,
+                   advance_deducted, retention_deducted, final_insurance_deducted, admin_fees_deducted, original_contract_deduction, net_amount,
                    status, invoice_id, journal_entry_id, notes,
                    created_at, updated_at
             FROM progress_billings
@@ -282,7 +282,16 @@ public class BillingService
             }
         }
 
-        // 7) Calculate advance / retention / net.
+        // 7) Calculate advance / retention / additional deductions / net.
+        //
+        // Sprint 53: three additional deductions from the Libyan
+        // construction contract model:
+        //   - final_insurance_percent (2% default) — held as liability
+        //     until end of warranty period
+        //   - admin_fee_percent (1.5% default) — paid to the owner
+        //   - original_contract_deduction (15% of original contract
+        //     value, applied to FIRST billing only) — typically a
+        //     tax / withholding on the pre-variation contract value
         var advanceTotal = Math.Round(effectiveValue * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
         var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
@@ -293,7 +302,40 @@ public class BillingService
             retentionDeducted = Math.Round(gross * (contract.RetentionPercent / 100m), 3);
         }
 
-        var net = Math.Round(gross - advanceDeducted - retentionDeducted, 3);
+        // Sprint 53: final insurance 2% — applied to every billing
+        // from the start (not gated by retention_start_billing)
+        decimal finalInsuranceDeducted = 0m;
+        if (contract.FinalInsurancePercent > 0)
+        {
+            finalInsuranceDeducted = Math.Round(gross * (contract.FinalInsurancePercent / 100m), 3);
+        }
+
+        // Sprint 53: admin fees 1.5% — applied to every billing
+        decimal adminFeesDeducted = 0m;
+        if (contract.AdminFeePercent > 0)
+        {
+            adminFeesDeducted = Math.Round(gross * (contract.AdminFeePercent / 100m), 3);
+        }
+
+        // Sprint 53: original contract deduction 15% — FIRST billing
+        // only. We use originalContractValue if set on the contract,
+        // otherwise fall back to effectiveValue (the contract value
+        // before variations).
+        decimal originalContractDeduction = 0m;
+        // isFirstBilling: nextBillingNumber == 1 means this is the
+        // first non-cancelled billing for this project.
+        var isFirstBilling = nextBillingNumber == 1;
+        if (isFirstBilling && contract.ContractValue > 0)
+        {
+            // Default 15% — could later be made configurable. For
+            // now we hard-code the Libyan contract standard.
+            originalContractDeduction = Math.Round(contract.ContractValue * 0.15m, 3);
+        }
+
+        var net = Math.Round(
+            gross - advanceDeducted - retentionDeducted
+                - finalInsuranceDeducted - adminFeesDeducted
+                - originalContractDeduction, 3);
 
         // 8) Insert the billing in DRAFT status + the billing_line_items,
         //    all in one transaction so a partial failure can't leave a
@@ -308,14 +350,20 @@ public class BillingService
                         id, company_id, project_id, contract_id, billing_number,
                         billing_date, period_from, period_to,
                         work_completed_percent, gross_amount,
-                        advance_deducted, retention_deducted, net_amount,
+                        advance_deducted, retention_deducted,
+                        final_insurance_deducted, admin_fees_deducted,
+                        original_contract_deduction,
+                        net_amount,
                         status, notes, created_at
                     )
                     VALUES (
                         @id, @companyId, @projectId, @contractId, @billingNumber,
                         @billingDate, @periodFrom, @periodTo,
                         @workCompletedPercent, @gross,
-                        @advanceDeducted, @retentionDeducted, @net,
+                        @advanceDeducted, @retentionDeducted,
+                        @finalInsuranceDeducted, @adminFeesDeducted,
+                        @originalContractDeduction,
+                        @net,
                         'DRAFT', @notes, NOW()
                     );",
                     new
@@ -332,6 +380,9 @@ public class BillingService
                         gross,
                         advanceDeducted,
                         retentionDeducted,
+                        finalInsuranceDeducted,
+                        adminFeesDeducted,
+                        originalContractDeduction,
                         net,
                         notes = req.Notes
                     }, tx);
@@ -570,7 +621,7 @@ public class BillingService
             SELECT id, company_id, project_id, contract_id, billing_number,
                    billing_date, period_from, period_to,
                    work_completed_percent, gross_amount,
-                   advance_deducted, retention_deducted, net_amount,
+                   advance_deducted, retention_deducted, final_insurance_deducted, admin_fees_deducted, original_contract_deduction, net_amount,
                    status, invoice_id, journal_entry_id, notes,
                    created_at, updated_at
             FROM progress_billings WHERE id = @id;",
@@ -642,7 +693,27 @@ public class BillingService
         if (nextBillingNumber >= contract.RetentionStartBilling)
             retentionDeducted = Math.Round(gross * (contract.RetentionPercent / 100m), 3);
 
-        var net = Math.Round(gross - advanceDeducted - retentionDeducted, 3);
+        // Sprint 53: same deductions as in Create
+        decimal finalInsuranceDeducted = 0m;
+        if (contract.FinalInsurancePercent > 0)
+            finalInsuranceDeducted = Math.Round(gross * (contract.FinalInsurancePercent / 100m), 3);
+
+        decimal adminFeesDeducted = 0m;
+        if (contract.AdminFeePercent > 0)
+            adminFeesDeducted = Math.Round(gross * (contract.AdminFeePercent / 100m), 3);
+
+        decimal originalContractDeduction = 0m;
+        var otherFirstBillingCount = await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(*) FROM progress_billings
+            WHERE contract_id = @contractId AND id <> @id AND status != 'CANCELLED';",
+            new { contractId = existing.contract_id, id });
+        if (otherFirstBillingCount == 0 && contract.ContractValue > 0)
+            originalContractDeduction = Math.Round(contract.ContractValue * 0.15m, 3);
+
+        var net = Math.Round(
+            gross - advanceDeducted - retentionDeducted
+                - finalInsuranceDeducted - adminFeesDeducted
+                - originalContractDeduction, 3);
 
         // Update the billing + replace its billing_line_items in one
         // transaction. The DELETE+INSERT is the simplest "replace
@@ -662,6 +733,9 @@ public class BillingService
                         gross_amount = @gross,
                         advance_deducted = @advanceDeducted,
                         retention_deducted = @retentionDeducted,
+                        final_insurance_deducted = @finalInsuranceDeducted,
+                        admin_fees_deducted = @adminFeesDeducted,
+                        original_contract_deduction = @originalContractDeduction,
                         net_amount = @net,
                         notes = @notes,
                         updated_at = NOW()
@@ -677,6 +751,9 @@ public class BillingService
                         gross,
                         advanceDeducted,
                         retentionDeducted,
+                        finalInsuranceDeducted,
+                        adminFeesDeducted,
+                        originalContractDeduction,
                         net,
                         notes = req.Notes
                     }, tx);
@@ -819,7 +896,7 @@ public class BillingService
                 SELECT id, company_id, project_id, contract_id, billing_number,
                        billing_date, period_from, period_to,
                        work_completed_percent, gross_amount,
-                       advance_deducted, retention_deducted, net_amount,
+                       advance_deducted, retention_deducted, final_insurance_deducted, admin_fees_deducted, original_contract_deduction, net_amount,
                        status, invoice_id, journal_entry_id, notes,
                        created_at, updated_at
                 FROM progress_billings WHERE id = @id FOR UPDATE;",
@@ -1126,6 +1203,7 @@ public class BillingService
         r.billing_date, r.period_from, r.period_to,
         r.work_completed_percent, r.gross_amount,
         r.advance_deducted, r.retention_deducted, r.net_amount,
+        r.final_insurance_deducted, r.admin_fees_deducted, r.original_contract_deduction,
         r.status, r.invoice_id, r.journal_entry_id, r.notes,
         r.created_at, r.updated_at);
 
@@ -1141,6 +1219,8 @@ public class BillingService
         DateTime? period_from, DateTime? period_to,
         decimal work_completed_percent, decimal gross_amount,
         decimal advance_deducted, decimal retention_deducted, decimal net_amount,
+        decimal final_insurance_deducted, decimal admin_fees_deducted,
+        decimal original_contract_deduction,
         string status, Guid? invoice_id, Guid? journal_entry_id,
         string? notes, DateTime created_at, DateTime? updated_at);
 

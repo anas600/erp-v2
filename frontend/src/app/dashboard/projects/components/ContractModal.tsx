@@ -37,6 +37,10 @@ export interface ContractDto {
   startDate?: string | null;
   endDate?: string | null;
   notes?: string | null;
+  // Sprint 53 — additional deductions
+  finalInsurancePercent?: number;
+  adminFeePercent?: number;
+  finalInsuranceReleaseDate?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -60,6 +64,10 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
+  // Sprint 53 — additional deductions
+  const [finalInsurancePercent, setFinalInsurancePercent] = useState<string>("0");
+  const [adminFeePercent, setAdminFeePercent] = useState<string>("0");
+  const [finalInsuranceReleaseDate, setFinalInsuranceReleaseDate] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +85,9 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
     setStartDate((contract?.startDate || "").slice(0, 10));
     setEndDate((contract?.endDate || "").slice(0, 10));
     setNotes(contract?.notes || "");
+    setFinalInsurancePercent(contract?.finalInsurancePercent != null ? String(contract.finalInsurancePercent) : "0");
+    setAdminFeePercent(contract?.adminFeePercent != null ? String(contract.adminFeePercent) : "0");
+    setFinalInsuranceReleaseDate((contract?.finalInsuranceReleaseDate || "").slice(0, 10));
     setError(null);
     setSuccess(null);
   }, [open, contract]);
@@ -103,6 +114,10 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
       startDate: startDate || null,
       endDate: endDate || null,
       notes: notes.trim() || null,
+      // Sprint 53 — additional deductions
+      finalInsurancePercent: Number(finalInsurancePercent) || 0,
+      adminFeePercent: Number(adminFeePercent) || 0,
+      finalInsuranceReleaseDate: finalInsuranceReleaseDate || null,
     };
 
     setSaving(true);
@@ -210,6 +225,63 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
               />
               <p className="text-xs text-ink-muted mt-1">يبدأ الاحتجاز من رقم</p>
             </div>
+          </div>
+
+          {/* Sprint 53 — Additional deductions (Libyan construction
+              contract model). These mirror the columns on the Excel
+              المستخلص: تأمين نهائي 2% + خدمات لصالح الجهاز 1.5%. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                نسبة التأمين النهائي %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                className="input"
+                value={finalInsurancePercent}
+                onChange={(e) => setFinalInsurancePercent(e.target.value)}
+                dir="ltr"
+              />
+              <p className="text-xs text-ink-muted mt-1">
+                ضمان نهائي يُفرج عنه بعد انتهاء فترة الضمان
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                نسبة الرسوم الإدارية %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                className="input"
+                value={adminFeePercent}
+                onChange={(e) => setAdminFeePercent(e.target.value)}
+                dir="ltr"
+              />
+              <p className="text-xs text-ink-muted mt-1">
+                خدمات لصالح الجهة المالكة
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              تاريخ استحقاق الإفراج عن التأمين النهائي
+            </label>
+            <input
+              type="date"
+              className="input"
+              value={finalInsuranceReleaseDate}
+              onChange={(e) => setFinalInsuranceReleaseDate(e.target.value)}
+            />
+            <p className="text-xs text-ink-muted mt-1">
+              اختياري — يُستخدم للتذكير عند انتهاء فترة الضمان
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
