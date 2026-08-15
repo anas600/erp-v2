@@ -119,6 +119,57 @@ input, select, textarea, button {
   @apply px-4 py-2 border-b border-edge text-ink-strong;
 }
 
+/* Sprint 59 — responsive tables.
+   On mobile, the table needs to be scrollable horizontally so
+   columns don't get squeezed. We convert the table to a block
+   (with its own horizontal scrollbar) and keep the rows/columns
+   inside as a proper table layout. This is the standard pattern
+   for responsive data tables on small screens.
+
+   The user reported that on mobile the invoice/receipt tables
+   overflowed the viewport with no way to see the right-side
+   columns. The sidebar drawer covers part of the screen, so
+   we need this scroll behavior on screens < 768px. */
+@media (max-width: 767px) {
+  .table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Hint to the user that there's more content to scroll */
+    background:
+      linear-gradient(to right, white 30%, rgba(255, 255, 255, 0)),
+      linear-gradient(to right, rgba(255, 255, 255, 0), white 70%) 100% 0,
+      radial-gradient(farthest-side at 0% 50%, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0)),
+      radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0)) 100% 0;
+    background-repeat: no-repeat;
+    background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .table thead,
+  .table tbody {
+    display: table;
+    width: 100%;
+    min-width: 600px; /* keeps columns from squeezing too small */
+  }
+  .table th,
+  .table td {
+    /* Slightly tighter padding on mobile so more columns fit */
+    @apply px-3 py-2;
+    white-space: nowrap;
+  }
+}
+
+/* Sprint 59 — tighter main padding on mobile.
+   The dashboard's <main> uses p-6 (24px each side). On a 360px
+   mobile screen that leaves only 312px for content, which is
+   too tight for tables + side margins. */
+@media (max-width: 767px) {
+  main.p-6,
+  main[class*="p-6"] {
+    padding: 12px !important;
+  }
+}
+
 .badge {
   @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
 }
