@@ -48,10 +48,12 @@ public class FieldMeasurementService
 
         var ids = headers.Select(h => h.id).ToList();
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
-            SELECT id, company_id, fmb_id, line_item_id, measurements,
+            SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
                    initial_total, deductions_total, final_total,
-                   unit_price, amount, notes, created_at, updated_at
-            FROM field_measurement_entries
+                   unit_price, amount, notes, created_at, updated_at,
+                   li.line_number, li.description, li.unit
+            FROM field_measurement_entries e
+            JOIN contract_line_items li ON li.id = e.line_item_id
             WHERE fmb_id = ANY(@ids);",
             new { ids = ids.ToArray() })).ToList();
 
@@ -73,10 +75,12 @@ public class FieldMeasurementService
         if (header is null) return null;
 
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
-            SELECT id, company_id, fmb_id, line_item_id, measurements,
+            SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
                    initial_total, deductions_total, final_total,
-                   unit_price, amount, notes, created_at, updated_at
-            FROM field_measurement_entries
+                   unit_price, amount, notes, created_at, updated_at,
+                   li.line_number, li.description, li.unit
+            FROM field_measurement_entries e
+            JOIN contract_line_items li ON li.id = e.line_item_id
             WHERE fmb_id = @id
             ORDER BY created_at ASC;",
             new { id })).ToList();
