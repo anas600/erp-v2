@@ -304,7 +304,17 @@ public class BillingService
             : contract.ContractValue;
         var advanceTotal = Math.Round(advanceBase * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
-        var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
+        // Sprint 58 — cap advance recovery at the cumulative work %
+        // (i.e. if work is 15% done, recover 15% of the total advance).
+        // This is the Libyan construction convention: the advance is
+        // recovered proportionally to the work done, not all-at-once
+        // from the first billing. Without this cap, the first billing
+        // (with gross = 15% of contract) would have advance = min(gross,
+        // 20% of contract) = gross, leaving net = 0 or negative.
+        var cumulativePct = workCompletedPercent;  // already calculated above
+        var cumulativeAdvanceCap = Math.Round(advanceTotal * (Math.Min(cumulativePct, 100m) / 100m), 3);
+        var advanceCap = Math.Max(0m, Math.Min(cumulativeAdvanceCap, remainingAdvance));
+        var advanceDeducted = Math.Round(Math.Min(gross, advanceCap), 3);
 
         decimal retentionDeducted = 0m;
         if (nextBillingNumber >= contract.RetentionStartBilling)
@@ -336,23 +346,50 @@ public class BillingService
         // whose gross is only 1.2M (would push net negative).
         //
         // Sprint 58 — original contract deduction (15% of original
-        // contract value, applied to FIRST billing only). This is a
-        // Libyan construction contract convention: the 15% withholding
-        // is against the PRE-variation contract value, not the
-        // current effective value. Without this, the calculation
-        // gives 15% × 6.5M = 984K which is too large.
-        // If the contract has OriginalContractValue > 0, apply 15% of
-        // that on the first billing. Otherwise default to 0
-        // (opt-in via the contract form).
+        // contract value). This is a Libyan construction contract
+        // convention: the 15% withholding is against the
+        // PRE-variation contract value, not the current effective
+        // value. The deduction is SPREAD across all billings
+        // proportionally to the cumulative work done (rather than
+        // all-at-once on the first billing), so each billing's
+        // deduction is bounded by what it can afford.
+        //
+        // Example: 15% of 2,369,048 = 355,357 total deduction
+        //   Billing 1 (15% cumulative): 15% × 355,357 = 53,304
+        //   Billing 2 (35% cumulative): 35% × 355,357 = 124,375
+        //   Billing 3 (65% cumulative): 65% × 355,357 = 230,982
+        //   Billing 4 (85% cumulative): 85% × 355,357 = 302,054
+        //   (Total: 710,715 = 2 × 355,357 — wait, that doesn't work)
+        //
+        // Actually, the convention is: 15% of ORIGINAL is a one-time
+        // deduction, NOT multiplied by cumulative %. It's applied
+        // fully on the first billing that has enough gross to cover
+        // it. For our 4-billing split (each ~25% cumulative), the
+        // first billing's gross (355,357) exactly equals the 15%
+        // deduction, leaving no room for other deductions.
+        //
+        // Fix: cap the 15% deduction at the billing's gross minus
+        // the other deductions. This way, the system always has a
+        // valid (positive) net.
         decimal originalContractDeduction = 0m;
-        // isFirstBilling: nextBillingNumber == 1 means this is the
-        // first non-cancelled billing for this project.
-        var isFirstBilling = nextBillingNumber == 1;
-        if (isFirstBilling && contract.OriginalContractValue.HasValue && contract.OriginalContractValue.Value > 0)
+        if (contract.OriginalContractValue.HasValue && contract.OriginalContractValue.Value > 0)
         {
-            // 15% of original contract value
-            originalContractDeduction = Math.Round(
+            // Total 15% to be deducted (one-time, across all billings)
+            var totalOriginalDeduction = Math.Round(
                 contract.OriginalContractValue.Value * 0.15m, 3);
+            // How much has been deducted in previous billings?
+            var previousOriginalDeduction = await conn.ExecuteScalarAsync<decimal?>(@"
+                SELECT COALESCE(SUM(original_contract_deduction), 0) FROM progress_billings
+                WHERE project_id = @projectId AND status != 'CANCELLED';",
+                new { projectId }) ?? 0m;
+            var remainingOriginalDeduction = Math.Max(0m, totalOriginalDeduction - previousOriginalDeduction);
+            // Cap at what's affordable in this billing (after other
+            // deductions but before this one)
+            var availableForOriginal = Math.Max(0m,
+                gross - advanceDeducted - retentionDeducted
+                       - finalInsuranceDeducted - adminFeesDeducted);
+            originalContractDeduction = Math.Round(
+                Math.Min(remainingOriginalDeduction, availableForOriginal), 3);
         }
 
         var net = Math.Round(
@@ -714,7 +751,12 @@ public class BillingService
             : contract.ContractValue;
         var advanceTotal = Math.Round(advanceBaseUpdate * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
-        var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
+        // Sprint 58 — cap advance recovery at the cumulative work %
+        // (same convention as the CreateAsync path above)
+        var cumulativePctUpdate = workCompletedPercent;
+        var cumulativeAdvanceCap = Math.Round(advanceTotal * (Math.Min(cumulativePctUpdate, 100m) / 100m), 3);
+        var advanceCap = Math.Max(0m, Math.Min(cumulativeAdvanceCap, remainingAdvance));
+        var advanceDeducted = Math.Round(Math.Min(gross, advanceCap), 3);
 
         decimal retentionDeducted = 0m;
         if (nextBillingNumber >= contract.RetentionStartBilling)
