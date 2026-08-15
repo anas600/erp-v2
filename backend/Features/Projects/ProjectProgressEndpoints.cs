@@ -28,7 +28,7 @@ public static class ProjectProgressEndpoints
         });
 
         // Update header (4 status flags + 2 progress percents)
-        grp.MapPut("/projects/{id:guid}/progress", async (
+        grp.MapPatch("/projects/{id:guid}/progress", async (
             Guid id,
             [FromBody] UpdateProjectProgressRequest req,
             [FromServices] ProjectProgressService svc) =>
@@ -45,7 +45,7 @@ public static class ProjectProgressEndpoints
         });
 
         // Update a single line item's progress
-        grp.MapPut("/projects/{projectId:guid}/line-items/{lineItemId:guid}/progress", async (
+        grp.MapPatch("/projects/{projectId:guid}/line-items/{lineItemId:guid}/progress", async (
             Guid projectId, Guid lineItemId,
             [FromBody] UpdateLineItemProgressRequest req,
             [FromServices] ProjectProgressService svc) =>

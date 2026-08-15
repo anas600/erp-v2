@@ -82,12 +82,18 @@ public class ProjectProgressService
         var contractValue = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
             SELECT contract_value FROM contracts WHERE project_id = @projectId LIMIT 1;",
             new { projectId });
+        // Variations: add to contract value for the "effective contract"
+        var totalVariations = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
+            SELECT COALESCE(SUM(COALESCE(amount,0)), 0) FROM variations
+            WHERE project_id = @projectId AND status IN ('approved','APPROVED');",
+            new { projectId });
+        var effectiveContract = (contractValue ?? 0m) + (totalVariations ?? 0m);
         var totalBilled = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
             SELECT COALESCE(SUM(gross_amount), 0) FROM progress_billings
             WHERE project_id = @projectId AND status = 'INVOICED';",
             new { projectId });
-        var financialPct = (contractValue.HasValue && contractValue.Value > 0)
-            ? Math.Round((totalBilled ?? 0m) / contractValue.Value * 100m, 2)
+        var financialPct = effectiveContract > 0
+            ? Math.Round((totalBilled ?? 0m) / effectiveContract * 100m, 2)
             : 0m;
 
         var itemDtos = lineItems.Select(li => new LineItemProgressDto(

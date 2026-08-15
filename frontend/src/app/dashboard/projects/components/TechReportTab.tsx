@@ -156,7 +156,7 @@ export default function TechReportTab({ projectId, onSave }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await api.patch(`/projects/${projectId}/line-progress/${lineItemId}`, {
+      await api.patch(`/projects/${projectId}/line-items/${lineItemId}/progress`, {
         progressPercent: lineEdit.progressPercent,
         quantityDone: lineEdit.quantityDone,
         isManualOverride: lineEdit.isManualOverride,
