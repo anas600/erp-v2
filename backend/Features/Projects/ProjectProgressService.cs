@@ -118,9 +118,21 @@ public class ProjectProgressService
         var totalContract = itemDtos.Sum(x => x.ContractQuantity * x.UnitPrice);
         var totalCompleted = itemDtos.Sum(x => x.AmountCompleted);
 
+        // Always recompute the physical % from the current state of
+        // contract_line_item_progress. The stored column is only a
+        // snapshot from the last manual line update — the FMB-driven
+        // changes (Sprint 55) bypass that path. The weighted average
+        // is the truth.
+        var computedPhysicalPct = itemDtos.Count > 0
+            ? Math.Round(
+                itemDtos.Sum(x => x.ContractQuantity * x.UnitPrice * x.ProgressPercent) /
+                Math.Max(totalContract, 0.0001m), 2)
+            : 0m;
+        var physicalPct = Math.Max(p.physical_progress_percent, computedPhysicalPct);
+
         return new ProjectProgressDto(
             p.id, p.code, p.name,
-            p.physical_progress_percent, financialPct,
+            physicalPct, financialPct,
             p.schedule_status ?? "on_track",
             p.execution_status ?? "in_progress",
             p.tech_report_date,
