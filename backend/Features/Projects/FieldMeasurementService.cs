@@ -48,10 +48,12 @@ public class FieldMeasurementService
 
         var ids = headers.Select(h => h.id).ToList();
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
-            SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
-                   e.initial_total, e.deductions_total, e.final_total,
-                   e.unit_price, e.amount, e.notes, e.created_at, e.updated_at,
-                   li.line_number, li.description, li.unit
+            SELECT e.id AS id, e.company_id AS company_id, e.fmb_id AS fmb_id, e.line_item_id AS line_item_id,
+                   e.measurements AS measurements,
+                   e.initial_total AS initial_total, e.deductions_total AS deductions_total, e.final_total AS final_total,
+                   e.unit_price AS unit_price, e.amount AS amount, e.notes AS notes,
+                   e.created_at AS created_at, e.updated_at AS updated_at,
+                   li.line_number AS line_number, li.description AS description, li.unit AS unit
             FROM field_measurement_entries e
             JOIN contract_line_items li ON li.id = e.line_item_id
             WHERE fmb_id = ANY(@ids);",
@@ -75,10 +77,12 @@ public class FieldMeasurementService
         if (header is null) return null;
 
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
-            SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
-                   e.initial_total, e.deductions_total, e.final_total,
-                   e.unit_price, e.amount, e.notes, e.created_at, e.updated_at,
-                   li.line_number, li.description, li.unit
+            SELECT e.id AS id, e.company_id AS company_id, e.fmb_id AS fmb_id, e.line_item_id AS line_item_id,
+                   e.measurements AS measurements,
+                   e.initial_total AS initial_total, e.deductions_total AS deductions_total, e.final_total AS final_total,
+                   e.unit_price AS unit_price, e.amount AS amount, e.notes AS notes,
+                   e.created_at AS created_at, e.updated_at AS updated_at,
+                   li.line_number AS line_number, li.description AS description, li.unit AS unit
             FROM field_measurement_entries e
             JOIN contract_line_items li ON li.id = e.line_item_id
             WHERE fmb_id = @id
