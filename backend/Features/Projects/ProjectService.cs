@@ -126,12 +126,16 @@ public class ProjectService
                 status, start_date, end_date, budget, notes,
                 type, customer_id, contract_value, expected_end_date,
                 project_manager, location,
-                contractor_id, consultant_id)
+                contractor_id, consultant_id,
+                physical_progress_percent, financial_progress_percent,
+                schedule_status, execution_status, tech_report_date)
             VALUES (@id, @companyId, @code, @name, @nameAr, @description,
                 'draft', @startDate, @endDate, @budget, @notes,
                 @type, @customerId, @contractValue, @expectedEndDate,
                 @projectManager, @location,
-                @contractorId, @consultantId, @physicalProgressPercent, @financialProgressPercent, @scheduleStatus, @executionStatus, @techReportDate);",
+                @contractorId, @consultantId,
+                @physicalProgressPercent, @financialProgressPercent,
+                @scheduleStatus, @executionStatus, @techReportDate);",
             new
             {
                 id,
