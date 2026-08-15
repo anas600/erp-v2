@@ -49,8 +49,8 @@ public class FieldMeasurementService
         var ids = headers.Select(h => h.id).ToList();
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
             SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
-                   initial_total, deductions_total, final_total,
-                   unit_price, amount, notes, created_at, updated_at,
+                   e.initial_total, e.deductions_total, e.final_total,
+                   e.unit_price, e.amount, e.notes, e.created_at, e.updated_at,
                    li.line_number, li.description, li.unit
             FROM field_measurement_entries e
             JOIN contract_line_items li ON li.id = e.line_item_id
@@ -76,8 +76,8 @@ public class FieldMeasurementService
 
         var entries = (await conn.QueryAsync<FmbEntryRow>(@"
             SELECT e.id, e.company_id, e.fmb_id, e.line_item_id, e.measurements,
-                   initial_total, deductions_total, final_total,
-                   unit_price, amount, notes, created_at, updated_at,
+                   e.initial_total, e.deductions_total, e.final_total,
+                   e.unit_price, e.amount, e.notes, e.created_at, e.updated_at,
                    li.line_number, li.description, li.unit
             FROM field_measurement_entries e
             JOIN contract_line_items li ON li.id = e.line_item_id
