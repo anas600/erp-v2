@@ -671,7 +671,7 @@ public class RealisticProjectSeeder
               AND parent.code LIKE '54%'
               AND a.code LIKE '%' || @projectCode
             ORDER BY a.code;",
-            new { companyId, projectCode = "PRJ-2026-100" })).ToList();
+            new { companyId, projectCode = "PRJ-SRT-2024-001" })).ToList();
         if (subLedgers.Count < 2)
             throw new InvalidOperationException(
                 $"Project sub-ledgers not found (got {subLedgers.Count}). The project L4 sub-ledgers must be auto-created at project insert time.");
@@ -687,7 +687,7 @@ public class RealisticProjectSeeder
         {
             var prod = prodMap[pid];
             string l3Code = prod.category == "labor" ? "5402" : "5401";
-            string subCode = $"{l3Code}-PRJ-2026-100";
+            string subCode = $"{l3Code}-PRJ-SRT-2024-001";
             var sub = subLedgers.FirstOrDefault(s => s.code == subCode);
             if (sub.id == Guid.Empty)
                 throw new InvalidOperationException(
