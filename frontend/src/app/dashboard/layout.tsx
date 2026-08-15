@@ -256,6 +256,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <Link
                           key={item.href}
                           href={item.href}
+                          // Sprint 59 — Render Free Tier rate-limit fix.
+                          // Next.js by default pre-fetches every <Link>
+                          // when it enters the viewport. With 14 sidebar
+                          // items, that's 14 RSC requests on every page
+                          // mount. Combined with the actual page's data
+                          // fetches, 10 page navigations = 150+ requests
+                          // in ~30 seconds, blowing past Render's 400
+                          // GET/min limit and triggering 429.
+                          //
+                          // Disabling prefetch here means the sidebar
+                          // links only fetch on click. The user is the
+                          // one who decides when to spend API calls.
+                          prefetch={false}
                           className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                             active
                               ? "bg-brand-light text-primary-700 dark:bg-brand-900/30 dark:text-primary-300"

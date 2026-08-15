@@ -50,8 +50,24 @@ export const api: AxiosInstance = axios.create({
   timeout: 30000
 });
 
+// Sprint 59 — Render Free Tier rate-limit fix: global cooldown flag.
+// When any 429 fires, we set this to Date.now() + 30_000. The request
+// interceptor below sees it and delays subsequent requests instead of
+// letting them pile up and re-trigger 429s.
+let globalCooldownUntil = 0;
+
 // Request interceptor: attach auth + active company header
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
+  // Sprint 59 — wait out the global cooldown if one is active.
+  // Without this, when the dashboard or a page fires 5 parallel
+  // requests after a 429, all 5 get 429 and all 5 retry, multiplying
+  // the rate-limit pressure by 6. The cooldown makes them wait.
+  const now = Date.now();
+  if (globalCooldownUntil > now) {
+    const waitMs = globalCooldownUntil - now;
+    console.warn(`[api] global cooldown active — waiting ${waitMs}ms`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
   const token = Cookies.get("erp_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -65,6 +81,15 @@ api.interceptors.request.use((config) => {
 
 // Response interceptor: 401 → clear session + redirect to login.
 //                     429 → wait + retry (Render/Cloudflare rate limit)
+//
+// Sprint 59 — Render Free Tier rate-limit fix:
+// Added a GLOBAL cooldown. When any request gets 429, ALL subsequent
+// requests are blocked for 30 seconds. This prevents a "retry
+// cascade" where multiple in-flight requests each get 429 and each
+// retry, multiplying the load and making the rate limit recovery
+// take even longer. The global flag is checked by the request
+// interceptor below — see GLOBAL_COOLDOWN_UNTIL.
+//
 //
 // Sprint 34 hotfix v4 (2026-08-07): removed pre-warm + silent retry.
 // Sprint 45 (2026-08-13): added 429 retry. The user hit 429 across
@@ -87,11 +112,26 @@ api.interceptors.response.use(
       return Promise.reject(err);
     }
 
-    // 429 retry: wait then retry. Cap at 2 retries.
+    // 429 retry: wait then retry. Cap at 1 retry.
+    // Sprint 59 — Render Free Tier rate-limit fix.
+    // The previous retry waited 3s then 6s = 9s total. That's not
+    // long enough for the Render per-minute rate limit window to
+    // reset, so the retry itself would get 429 too, doubling the
+    // pressure on the rate limit. New strategy: wait 30s (half the
+    // per-minute window) and cap at 1 retry. If still 429, surface
+    // the error and let the user refresh — better than hammering
+    // the rate limit.
+    //
+    // Also sets a GLOBAL cooldown so other in-flight requests stop
+    // hammering the limit. Without this, a single 429 on a 5-request
+    // parallel batch becomes 15 requests (5 × 3 with retries) which
+    // makes the rate limit recovery take minutes.
     if (err.response?.status === 429) {
+      // Set the global cooldown for 30 seconds
+      globalCooldownUntil = Date.now() + 30_000;
       const config = err.config as any;
       config.__retryCount = config.__retryCount ?? 0;
-      if (config.__retryCount >= 2) {
+      if (config.__retryCount >= 1) {
         return Promise.reject(err);
       }
       config.__retryCount += 1;
@@ -99,7 +139,7 @@ api.interceptors.response.use(
       const retryAfter = parseInt(err.response.headers["retry-after"] ?? "", 10);
       const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
         ? retryAfter * 1000
-        : 3000 * config.__retryCount; // 3s, 6s
+        : 30000; // 30s — half the per-minute rate-limit window
       await new Promise((r) => setTimeout(r, waitMs));
       return axios.request(config);
     }
