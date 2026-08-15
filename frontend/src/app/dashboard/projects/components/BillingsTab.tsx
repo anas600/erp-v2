@@ -583,24 +583,36 @@ function ViewBillingModal({
       .get(`/billings/${billing.id}/line-items`)
       .then((res) => {
         // Adapter: backend returns `quantityThisPeriod` /
-        // `quantityPrevious` / `quantityCumulative` / `amount`.
-        // The table component expects the renamed fields
-        // `thisPeriodQuantity` / `previousCumulative` /
-        // `newCumulative` / `thisPeriodAmount`. Map here so
-        // we don't have to keep two DTOs in sync.
+        // `quantityPrevious` / `quantityCumulative` / `amount`
+        // (where `amount` is the cumulative value, i.e. qty_cum
+        // × unit_price). The table component expects the renamed
+        // fields plus an `thisPeriodAmount` for the per-line
+        // "المبلغ (هذه الفترة)" column.
+        //
+        // Per construction-contract convention (FIDIC), each
+        // billing settlement invoices the quantity EXECUTED in
+        // the current period — not the running total. So:
+        //   thisPeriodAmount = qty_this_period × unit_price
+        // (We don't read `amount` from the API because that
+        //  holds the cumulative value, which is what the
+        //  billing's gross is computed from.)
         const raw = (res.data || []) as any[];
-        const mapped: BillingLineItemDto[] = raw.map((r) => ({
-          id: r.id,
-          lineItemId: r.lineItemId,
-          description: r.description,
-          unit: r.unit,
-          customUnit: r.customUnit,
-          unitPrice: Number(r.unitPrice ?? 0),
-          thisPeriodQuantity: Number(r.quantityThisPeriod ?? 0),
-          previousCumulative: Number(r.quantityPrevious ?? 0),
-          newCumulative: Number(r.quantityCumulative ?? 0),
-          thisPeriodAmount: Number(r.amount ?? 0),
-        }));
+        const mapped: BillingLineItemDto[] = raw.map((r) => {
+          const qtyThis = Number(r.quantityThisPeriod ?? 0);
+          const unitPrice = Number(r.unitPrice ?? 0);
+          return {
+            id: r.id,
+            lineItemId: r.lineItemId,
+            description: r.description,
+            unit: r.unit,
+            customUnit: r.customUnit,
+            unitPrice,
+            thisPeriodQuantity: qtyThis,
+            previousCumulative: Number(r.quantityPrevious ?? 0),
+            newCumulative: Number(r.quantityCumulative ?? 0),
+            thisPeriodAmount: Math.round(qtyThis * unitPrice * 1000) / 1000,
+          };
+        });
         setItems(mapped);
       })
       .catch((err) => {
