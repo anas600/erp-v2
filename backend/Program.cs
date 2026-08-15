@@ -258,6 +258,11 @@ builder.Services.AddSingleton<BillingService>();
 builder.Services.AddSingleton<FieldMeasurementService>();
 // Sprint 56 — Project Technical Report service
 builder.Services.AddSingleton<ProjectProgressService>();
+// Sprint 57 — 4-party billing approval workflow
+builder.Services.AddSingleton<BillingApprovalService>();
+builder.Services.AddSingleton<PrintViewService>();
+// HttpContextAccessor for the approval service to read the JWT claims
+builder.Services.AddHttpContextAccessor();
 
 // Sprint 38 — BOQ (Bill of Quantities) + Variations. Order matters
 // for readability: LineItemService has no deps; VariationService
@@ -365,6 +370,9 @@ VariationEndpoints.Map(app);
 FieldMeasurementEndpoints.MapFieldMeasurementEndpoints(app);
 // Sprint 56 — Project Technical Report
 ProjectProgressEndpoints.MapProjectProgressEndpoints(app);
+// Sprint 57 — 4-party billing approvals + Print Final view
+BillingApprovalEndpoints.MapBillingApprovalEndpoints(app);
+PrintViewEndpoints.MapPrintViewEndpoints(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);

@@ -38,6 +38,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatNumber, formatDate, cn } from "@/lib/utils";
 import StatusBadgeBilling from "./StatusBadgeBilling";
 import BillingModal from "./BillingModal";
+import ApprovalsPanel from "./ApprovalsPanel";
 import type { ContractDto } from "./ContractModal";
 import BillingLineItemsTable, {
   type BillingLineItemDto,
@@ -651,6 +652,16 @@ function ViewBillingModal({
         </div>
 
         <div className="space-y-3 text-sm">
+          {/* Sprint 57 — 4-party approvals panel */}
+          <ApprovalsPanel
+            projectId={billing.projectId}
+            billingId={billing.id}
+            onChange={() => {
+              // The parent owns the billings list; re-load after approval changes
+              window.dispatchEvent(new CustomEvent("billing-approved:refresh", { detail: { billingId: billing.id } }));
+            }}
+          />
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Row label="رقم المستخلص" value={billing.billingNumber} mono />
             <Row label="التاريخ" value={formatDate(billing.billingDate)} />
