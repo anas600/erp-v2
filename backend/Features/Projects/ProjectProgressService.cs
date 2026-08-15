@@ -83,10 +83,15 @@ public class ProjectProgressService
             SELECT contract_value FROM contracts WHERE project_id = @projectId LIMIT 1;",
             new { projectId });
         // Variations: add to contract value for the "effective contract"
+        // Sum of approved variation items (total_price) across all variations
+        // for this project's contract.
         var totalVariations = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
-            SELECT COALESCE(SUM(COALESCE(amount,0)), 0) FROM contract_variations cv
+            SELECT COALESCE(SUM(vi.total_price), 0)
+            FROM contract_variation_items vi
+            JOIN contract_variations cv ON cv.id = vi.variation_id
             JOIN contracts c ON c.id = cv.contract_id
-            WHERE c.project_id = @projectId AND cv.status IN ('approved','APPROVED');",
+            WHERE c.project_id = @projectId
+              AND cv.status IN ('approved','APPROVED');",
             new { projectId });
         var effectiveContract = (contractValue ?? 0m) + (totalVariations ?? 0m);
         var totalBilled = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
