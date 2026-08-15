@@ -43,7 +43,7 @@ public class ContractService
         var row = await conn.QuerySingleOrDefaultAsync<ContractRow>(@"
             SELECT id, company_id, project_id, contract_number, contract_value,
                    advance_percent, retention_percent, retention_start_billing,
-                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, created_at, updated_at
+                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, site_handover_date, original_contract_value, created_at, updated_at
             FROM contracts
             WHERE project_id = @projectId
             LIMIT 1;",
@@ -61,7 +61,7 @@ public class ContractService
         var row = await conn.QuerySingleOrDefaultAsync<ContractRow>(@"
             SELECT id, company_id, project_id, contract_number, contract_value,
                    advance_percent, retention_percent, retention_start_billing,
-                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, created_at, updated_at
+                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, site_handover_date, original_contract_value, created_at, updated_at
             FROM contracts
             WHERE id = @id;",
             new { id });
@@ -109,6 +109,7 @@ public class ContractService
                 advance_percent, retention_percent, retention_start_billing,
                 start_date, end_date, notes,
                 final_insurance_percent, admin_fee_percent, final_insurance_release_date,
+                site_handover_date, original_contract_value,
                 created_at
             )
             VALUES (
@@ -116,6 +117,7 @@ public class ContractService
                 @advancePercent, @retentionPercent, @retentionStartBilling,
                 @startDate, @endDate, @notes,
                 @finalInsurancePercent, @adminFeePercent, @finalInsuranceReleaseDate,
+                @siteHandoverDate, @originalContractValue,
                 NOW()
             );",
             new
@@ -133,7 +135,9 @@ public class ContractService
                 notes = req.Notes,
                 finalInsurancePercent = req.FinalInsurancePercent,
                 adminFeePercent = req.AdminFeePercent,
-                finalInsuranceReleaseDate = req.FinalInsuranceReleaseDate
+                finalInsuranceReleaseDate = req.FinalInsuranceReleaseDate,
+                siteHandoverDate = req.SiteHandoverDate,
+                originalContractValue = req.OriginalContractValue
             });
 
         return (await GetByIdAsync(id))!;
@@ -153,7 +157,7 @@ public class ContractService
         var existing = await conn.QuerySingleOrDefaultAsync<ContractRow>(@"
             SELECT id, company_id, project_id, contract_number, contract_value,
                    advance_percent, retention_percent, retention_start_billing,
-                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, created_at, updated_at
+                   start_date, end_date, notes, final_insurance_percent, admin_fee_percent, final_insurance_release_date, site_handover_date, original_contract_value, created_at, updated_at
             FROM contracts WHERE id = @id;",
             new { id });
         if (existing is null) return null;
@@ -171,6 +175,8 @@ public class ContractService
                 final_insurance_percent = @finalInsurancePercent,
                 admin_fee_percent = @adminFeePercent,
                 final_insurance_release_date = @finalInsuranceReleaseDate,
+                site_handover_date = @siteHandoverDate,
+                original_contract_value = @originalContractValue,
                 updated_at = NOW()
             WHERE id = @id;",
             new
@@ -186,7 +192,9 @@ public class ContractService
                 notes = req.Notes,
                 finalInsurancePercent = req.FinalInsurancePercent,
                 adminFeePercent = req.AdminFeePercent,
-                finalInsuranceReleaseDate = req.FinalInsuranceReleaseDate
+                finalInsuranceReleaseDate = req.FinalInsuranceReleaseDate,
+                siteHandoverDate = req.SiteHandoverDate,
+                originalContractValue = req.OriginalContractValue
             });
 
         return await GetByIdAsync(id);
@@ -233,6 +241,7 @@ public class ContractService
         r.start_date, r.end_date, r.notes,
         r.final_insurance_percent, r.admin_fee_percent,
         r.final_insurance_release_date,
+        r.site_handover_date, r.original_contract_value,
         r.created_at, r.updated_at);
 
     private record ContractRow(
@@ -244,5 +253,6 @@ public class ContractService
         string? notes,
         decimal final_insurance_percent, decimal admin_fee_percent,
         DateTime? final_insurance_release_date,
+        DateTime? site_handover_date, decimal? original_contract_value,
         DateTime created_at, DateTime? updated_at);
 }

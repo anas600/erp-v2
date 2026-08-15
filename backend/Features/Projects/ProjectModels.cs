@@ -29,7 +29,12 @@ public record ProjectDto(
     DateTime? ExpectedEndDate,   // planned end
     DateTime? ActualEndDate,     // actual end (set when status flips to 'completed')
     string? ProjectManager,      // free-text manager name
-    string? Location             // free-text location / site
+    string? Location,            // free-text location / site
+    // ---------- Sprint 54 additions (4-party project model) ----------
+    Guid? ContractorId,          // الجهة المنفذة (FK contacts, type='contractor')
+    string? ContractorName,      // denormalized
+    Guid? ConsultantId,          // الجهة المشرفة (FK contacts, type='consultant')
+    string? ConsultantName       // denormalized
 );
 
 public record MilestoneDto(
@@ -65,7 +70,10 @@ public record CreateProjectRequest(
     decimal ContractValue = 0,
     DateTime? ExpectedEndDate = null,
     string? ProjectManager = null,
-    string? Location = null
+    string? Location = null,
+    // ---------- Sprint 54 additions (4-party model) ----------
+    Guid? ContractorId = null,
+    Guid? ConsultantId = null
 );
 
 /// <summary>
@@ -89,7 +97,10 @@ public record UpdateProjectRequest(
     DateTime? ExpectedEndDate = null,
     DateTime? ActualEndDate = null,
     string? ProjectManager = null,
-    string? Location = null
+    string? Location = null,
+    // ---------- Sprint 54 additions (4-party model) ----------
+    Guid? ContractorId = null,
+    Guid? ConsultantId = null
 );
 
 public record CreateMilestoneRequest(

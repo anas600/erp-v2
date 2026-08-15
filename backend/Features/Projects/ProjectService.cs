@@ -60,7 +60,7 @@ public class ProjectService
             SELECT id, company_id, code, name, name_ar, description, status,
                    start_date, end_date, budget, actual_cost, notes, created_at, updated_at,
                    type, customer_id, contract_value, expected_end_date, actual_end_date,
-                   project_manager, location
+                   project_manager, location, contractor_id, consultant_id
             FROM projects WHERE id = @id;",
             new { id });
         if (p is null) return null;
@@ -83,6 +83,22 @@ public class ProjectService
                 new { id = p.customer_id.Value });
         }
 
+        // Sprint 54 — 4-party model: load contractor + consultant names
+        string? contractorName = null;
+        if (p.contractor_id.HasValue)
+        {
+            contractorName = await conn.QuerySingleOrDefaultAsync<string?>(@"
+                SELECT name FROM contacts WHERE id = @id;",
+                new { id = p.contractor_id.Value });
+        }
+        string? consultantName = null;
+        if (p.consultant_id.HasValue)
+        {
+            consultantName = await conn.QuerySingleOrDefaultAsync<string?>(@"
+                SELECT name FROM contacts WHERE id = @id;",
+                new { id = p.consultant_id.Value });
+        }
+
         return new ProjectDto(
             p.id, p.company_id, p.code, p.name, p.name_ar, p.description, p.status,
             p.start_date, p.end_date, p.budget, p.actual_cost, p.notes, p.created_at, p.updated_at,
@@ -92,7 +108,9 @@ public class ProjectService
             )).ToList(),
             // Sprint 35 fields
             p.type, p.customer_id, customerName, p.contract_value ?? 0m,
-            p.expected_end_date, p.actual_end_date, p.project_manager, p.location
+            p.expected_end_date, p.actual_end_date, p.project_manager, p.location,
+            // Sprint 54 fields — 4-party model
+            p.contractor_id, contractorName, p.consultant_id, consultantName
         );
     }
 
@@ -104,11 +122,13 @@ public class ProjectService
             INSERT INTO projects (id, company_id, code, name, name_ar, description,
                 status, start_date, end_date, budget, notes,
                 type, customer_id, contract_value, expected_end_date,
-                project_manager, location)
+                project_manager, location,
+                contractor_id, consultant_id)
             VALUES (@id, @companyId, @code, @name, @nameAr, @description,
                 'draft', @startDate, @endDate, @budget, @notes,
                 @type, @customerId, @contractValue, @expectedEndDate,
-                @projectManager, @location);",
+                @projectManager, @location,
+                @contractorId, @consultantId);",
             new
             {
                 id,
@@ -127,7 +147,10 @@ public class ProjectService
                 contractValue = req.ContractValue,
                 expectedEndDate = req.ExpectedEndDate,
                 projectManager = req.ProjectManager,
-                location = req.Location
+                location = req.Location,
+                // Sprint 54 — 4-party model
+                contractorId = req.ContractorId,
+                consultantId = req.ConsultantId
             });
 
         // Sprint 50 — auto-create the 7 L4 sub-ledger accounts for this
@@ -163,7 +186,8 @@ public class ProjectService
                 type = @type, customer_id = @customerId,
                 contract_value = @contractValue, expected_end_date = @expectedEndDate,
                 actual_end_date = @actualEndDate, project_manager = @projectManager,
-                location = @location
+                location = @location,
+                contractor_id = @contractorId, consultant_id = @consultantId
             WHERE id = @id;",
             new
             {
@@ -183,7 +207,10 @@ public class ProjectService
                 expectedEndDate = req.ExpectedEndDate,
                 actualEndDate = req.ActualEndDate,
                 projectManager = req.ProjectManager,
-                location = req.Location
+                location = req.Location,
+                // Sprint 54 — 4-party model
+                contractorId = req.ContractorId,
+                consultantId = req.ConsultantId
             });
         return rows == 0 ? null : await GetByIdAsync(id);
     }
@@ -628,7 +655,9 @@ public class ProjectService
         // Sprint 35
         string? type, Guid? customer_id, decimal? contract_value,
         DateTime? expected_end_date, DateTime? actual_end_date,
-        string? project_manager, string? location);
+        string? project_manager, string? location,
+        // Sprint 54 — 4-party project model
+        Guid? contractor_id, Guid? consultant_id);
 
     private record MilestoneRow(
         Guid id, Guid project_id, string name, string? name_ar, string? description,

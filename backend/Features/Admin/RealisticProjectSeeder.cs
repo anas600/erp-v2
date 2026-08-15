@@ -101,8 +101,16 @@ public class RealisticProjectSeeder
         // creation to step 1 so the project can reference it.
         var customerId = await EnsureCustomerAsync(companyId);
 
+        // Sprint 54 — 4-party model: also create the contractor
+        // (المقاول) and consultant (الاستشاري) contacts. The seeder
+        // mirrors the Libyan construction project: client is the
+        // government, contractor is an external construction firm,
+        // consultant is an external engineering firm.
+        var contractorId = await EnsureContractorAsync(companyId);
+        var consultantId = await EnsureConsultantAsync(companyId);
+
         // ---- 2. Project (triggers auto-create of 7 L4 sub-ledgers) ----
-        var projectId = await CreateProjectAsync(companyId, customerId);
+        var projectId = await CreateProjectAsync(companyId, customerId, contractorId, consultantId);
         result.ProjectId = projectId;
 
         // ---- 3. Suppliers (with sub-ledgers via service) ----
@@ -248,7 +256,7 @@ public class RealisticProjectSeeder
         _log.LogInformation("RealisticProjectSeeder: cleanup complete");
     }
 
-    private async Task<Guid> CreateProjectAsync(Guid companyId, Guid customerId)
+    private async Task<Guid> CreateProjectAsync(Guid companyId, Guid customerId, Guid contractorId, Guid consultantId)
     {
         var req = new CreateProjectRequest(
             CompanyId: companyId,
@@ -268,7 +276,10 @@ public class RealisticProjectSeeder
             ContractValue: 4000000m,  // 4M LYD
             ExpectedEndDate: new DateTime(2026, 12, 31),
             ProjectManager: "م. أحمد الفيتوري",
-            Location: "طرابلس - حي الأندلس"
+            Location: "طرابلس - حي الأندلس",
+            // Sprint 54 — 4-party model
+            ContractorId: contractorId,
+            ConsultantId: consultantId
         );
         var proj = await _projectSvc.CreateAsync(req);
         _log.LogInformation("Created project {Code} (auto-L4-sub-ledgers created)", proj.Code);
@@ -291,14 +302,21 @@ public class RealisticProjectSeeder
         // model (final insurance 2% + admin fees 1.5%). Original
         // contract deduction 15% is hard-coded in BillingService for
         // the first billing (not stored here).
+        //
+        // Sprint 54: include site_handover_date + original_contract_value.
+        // Original = 5M (pre-variation); current = 4M (after deducting
+        // the 20% advance). The 15% tax deduction in Sprint 53 would
+        // apply to original_contract_value (5M) in a future sprint.
         await conn.ExecuteAsync(@"
             INSERT INTO contracts (id, company_id, project_id, contract_number, contract_value,
                                    advance_percent, retention_percent, retention_start_billing,
                                    final_insurance_percent, admin_fee_percent,
-                                   start_date, end_date)
+                                   start_date, end_date,
+                                   site_handover_date, original_contract_value)
             VALUES (@id, @companyId, @projectId, @number, @value, 20, 5, 1,
                     2, 1.5,
-                    '2026-01-01', '2026-12-31');",
+                    '2026-01-01', '2026-12-31',
+                    '2026-01-15', 5000000);",
             new
             {
                 id = contractId,
@@ -384,6 +402,58 @@ public class RealisticProjectSeeder
             new { id, companyId });
         // Sprint 52 — auto-create L4 sub-ledger (1103-CUS-001).
         await _accounts.EnsureSubLedgerAsync(companyId, id);
+        return id;
+    }
+
+    // Sprint 54 — 4-party model: the contractor (المقاول / الجهة المنفذة).
+    // Mirrors EnsureCustomerAsync but with type='contractor'.
+    private async Task<Guid> EnsureContractorAsync(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        var existing = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
+            SELECT id FROM contacts
+            WHERE company_id = @companyId AND type = 'contractor' AND is_active = true
+            LIMIT 1;",
+            new { companyId });
+        if (existing.HasValue) return existing.Value;
+
+        var id = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO contacts
+                (id, company_id, type, code, name, name_ar, tax_id, phone, email,
+                 is_active, is_demo_data, created_at)
+            VALUES
+                (@id, @companyId, 'contractor', 'CON-001', 'Amjad Construction Co.',
+                 'شركة أمجاد للمقاولات العامة والاستثمار العقاري',
+                 NULL, NULL, NULL, true, false, NOW());",
+            new { id, companyId });
+        // Auto-create L4 sub-ledger (2101-CON-001 — AP sub-ledger)
+        await _accounts.EnsureSubLedgerAsync(companyId, id);
+        return id;
+    }
+
+    // Sprint 54 — 4-party model: the consultant (الاستشاري / الجهة المشرفة).
+    private async Task<Guid> EnsureConsultantAsync(Guid companyId)
+    {
+        using var conn = _db.CreateConnection();
+        var existing = await conn.QuerySingleOrDefaultAsync<Guid?>(@"
+            SELECT id FROM contacts
+            WHERE company_id = @companyId AND type = 'consultant' AND is_active = true
+            LIMIT 1;",
+            new { companyId });
+        if (existing.HasValue) return existing.Value;
+
+        var id = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO contacts
+                (id, company_id, type, code, name, name_ar, tax_id, phone, email,
+                 is_active, is_demo_data, created_at)
+            VALUES
+                (@id, @companyId, 'consultant', 'CST-001', 'Dar Al-Taqnia Consulting',
+                 'شركة دار التقنية للاستشارات والأعمال الهندسية',
+                 NULL, NULL, NULL, true, false, NOW());",
+            new { id, companyId });
+        // Consultants don't have a sub-ledger (they don't post to GL directly)
         return id;
     }
 
