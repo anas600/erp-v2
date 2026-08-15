@@ -124,12 +124,13 @@ public record ProgressBillingDto(
     decimal GrossAmount,
     decimal AdvanceDeducted,
     decimal RetentionDeducted,
-    decimal NetAmount,
     // Sprint 53 — additional deductions (mirrors the Libyan
-    // construction contract settlement model)
+    // construction contract settlement model). Order matches the
+    // SELECT projection in BillingService + the BillingRow record.
     decimal FinalInsuranceDeducted,       // 2% final performance bond
     decimal AdminFeesDeducted,            // 1.5% admin fees to owner
     decimal OriginalContractDeduction,    // 15% one-time tax on first billing
+    decimal NetAmount,                    // after ALL deductions
     string Status,                // "DRAFT" | "INVOICED" | "CANCELLED"
     Guid? InvoiceId,              // set after ApproveAsync
     Guid? JournalEntryId,         // set after ApproveAsync
