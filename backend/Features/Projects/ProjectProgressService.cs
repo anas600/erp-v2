@@ -84,8 +84,9 @@ public class ProjectProgressService
             new { projectId });
         // Variations: add to contract value for the "effective contract"
         var totalVariations = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
-            SELECT COALESCE(SUM(COALESCE(amount,0)), 0) FROM variations
-            WHERE project_id = @projectId AND status IN ('approved','APPROVED');",
+            SELECT COALESCE(SUM(COALESCE(amount,0)), 0) FROM contract_variations cv
+            JOIN contracts c ON c.id = cv.contract_id
+            WHERE c.project_id = @projectId AND cv.status IN ('approved','APPROVED');",
             new { projectId });
         var effectiveContract = (contractValue ?? 0m) + (totalVariations ?? 0m);
         var totalBilled = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
