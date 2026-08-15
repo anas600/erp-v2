@@ -254,6 +254,8 @@ builder.Services.AddSingleton<PaymentService>();
 // truth for advance/retention terms that BillingService reads.
 builder.Services.AddSingleton<ContractService>();
 builder.Services.AddSingleton<BillingService>();
+// Sprint 55 — Field Measurement Book service
+builder.Services.AddSingleton<FieldMeasurementService>();
 
 // Sprint 38 — BOQ (Bill of Quantities) + Variations. Order matters
 // for readability: LineItemService has no deps; VariationService
@@ -357,6 +359,8 @@ BillingEndpoints.Map(app);
 // + /api/variations/{id}/* own the variation lifecycle.
 LineItemEndpoints.Map(app);
 VariationEndpoints.Map(app);
+// Sprint 55 — Field Measurement Book
+FieldMeasurementEndpoints.MapFieldMeasurementEndpoints(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);
