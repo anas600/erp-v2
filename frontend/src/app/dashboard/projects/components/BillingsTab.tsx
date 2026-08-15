@@ -581,7 +581,28 @@ function ViewBillingModal({
     setError(null);
     api
       .get(`/billings/${billing.id}/line-items`)
-      .then((res) => setItems(res.data || []))
+      .then((res) => {
+        // Adapter: backend returns `quantityThisPeriod` /
+        // `quantityPrevious` / `quantityCumulative` / `amount`.
+        // The table component expects the renamed fields
+        // `thisPeriodQuantity` / `previousCumulative` /
+        // `newCumulative` / `thisPeriodAmount`. Map here so
+        // we don't have to keep two DTOs in sync.
+        const raw = (res.data || []) as any[];
+        const mapped: BillingLineItemDto[] = raw.map((r) => ({
+          id: r.id,
+          lineItemId: r.lineItemId,
+          description: r.description,
+          unit: r.unit,
+          customUnit: r.customUnit,
+          unitPrice: Number(r.unitPrice ?? 0),
+          thisPeriodQuantity: Number(r.quantityThisPeriod ?? 0),
+          previousCumulative: Number(r.quantityPrevious ?? 0),
+          newCumulative: Number(r.quantityCumulative ?? 0),
+          thisPeriodAmount: Number(r.amount ?? 0),
+        }));
+        setItems(mapped);
+      })
       .catch((err) => {
         // 404 is fine — billing may have no items (legacy or simple
         // percent-based billing).
