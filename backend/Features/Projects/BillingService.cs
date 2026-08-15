@@ -1202,8 +1202,9 @@ public class BillingService
         r.id, r.company_id, r.project_id, r.contract_id, r.billing_number,
         r.billing_date, r.period_from, r.period_to,
         r.work_completed_percent, r.gross_amount,
-        r.advance_deducted, r.retention_deducted, r.net_amount,
+        r.advance_deducted, r.retention_deducted,
         r.final_insurance_deducted, r.admin_fees_deducted, r.original_contract_deduction,
+        r.net_amount,
         r.status, r.invoice_id, r.journal_entry_id, r.notes,
         r.created_at, r.updated_at);
 
@@ -1218,9 +1219,9 @@ public class BillingService
         string billing_number, DateTime billing_date,
         DateTime? period_from, DateTime? period_to,
         decimal work_completed_percent, decimal gross_amount,
-        decimal advance_deducted, decimal retention_deducted, decimal net_amount,
+        decimal advance_deducted, decimal retention_deducted,
         decimal final_insurance_deducted, decimal admin_fees_deducted,
-        decimal original_contract_deduction,
+        decimal original_contract_deduction, decimal net_amount,
         string status, Guid? invoice_id, Guid? journal_entry_id,
         string? notes, DateTime created_at, DateTime? updated_at);
 
