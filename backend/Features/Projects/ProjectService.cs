@@ -60,7 +60,7 @@ public class ProjectService
             SELECT id, company_id, code, name, name_ar, description, status,
                    start_date, end_date, budget, actual_cost, notes, created_at, updated_at,
                    type, customer_id, contract_value, expected_end_date, actual_end_date,
-                   project_manager, location, contractor_id, consultant_id
+                   project_manager, location, contractor_id, consultant_id, physical_progress_percent, financial_progress_percent, schedule_status, execution_status, tech_report_date
             FROM projects WHERE id = @id;",
             new { id });
         if (p is null) return null;
@@ -110,7 +110,10 @@ public class ProjectService
             p.type, p.customer_id, customerName, p.contract_value ?? 0m,
             p.expected_end_date, p.actual_end_date, p.project_manager, p.location,
             // Sprint 54 fields — 4-party model
-            p.contractor_id, contractorName, p.consultant_id, consultantName
+            p.contractor_id, contractorName, p.consultant_id, consultantName,
+            // Sprint 56 fields — Technical Report
+            p.physical_progress_percent, p.financial_progress_percent,
+            p.schedule_status, p.execution_status, p.tech_report_date
         );
     }
 
@@ -128,7 +131,7 @@ public class ProjectService
                 'draft', @startDate, @endDate, @budget, @notes,
                 @type, @customerId, @contractValue, @expectedEndDate,
                 @projectManager, @location,
-                @contractorId, @consultantId);",
+                @contractorId, @consultantId, @physicalProgressPercent, @financialProgressPercent, @scheduleStatus, @executionStatus, @techReportDate);",
             new
             {
                 id,
@@ -150,7 +153,13 @@ public class ProjectService
                 location = req.Location,
                 // Sprint 54 — 4-party model
                 contractorId = req.ContractorId,
-                consultantId = req.ConsultantId
+                consultantId = req.ConsultantId,
+                // Sprint 56 — Technical Report
+                physicalProgressPercent = req.PhysicalProgressPercent,
+                financialProgressPercent = req.FinancialProgressPercent,
+                scheduleStatus = req.ScheduleStatus,
+                executionStatus = req.ExecutionStatus,
+                techReportDate = req.TechReportDate
             });
 
         // Sprint 50 — auto-create the 7 L4 sub-ledger accounts for this
@@ -187,7 +196,7 @@ public class ProjectService
                 contract_value = @contractValue, expected_end_date = @expectedEndDate,
                 actual_end_date = @actualEndDate, project_manager = @projectManager,
                 location = @location,
-                contractor_id = @contractorId, consultant_id = @consultantId
+                contractor_id = @contractorId, consultant_id = @consultantId, physical_progress_percent = @physicalProgressPercent, financial_progress_percent = @financialProgressPercent, schedule_status = @scheduleStatus, execution_status = @executionStatus, tech_report_date = @techReportDate
             WHERE id = @id;",
             new
             {
@@ -210,7 +219,13 @@ public class ProjectService
                 location = req.Location,
                 // Sprint 54 — 4-party model
                 contractorId = req.ContractorId,
-                consultantId = req.ConsultantId
+                consultantId = req.ConsultantId,
+                // Sprint 56 — Technical Report
+                physicalProgressPercent = req.PhysicalProgressPercent,
+                financialProgressPercent = req.FinancialProgressPercent,
+                scheduleStatus = req.ScheduleStatus,
+                executionStatus = req.ExecutionStatus,
+                techReportDate = req.TechReportDate
             });
         return rows == 0 ? null : await GetByIdAsync(id);
     }
@@ -657,7 +672,11 @@ public class ProjectService
         DateTime? expected_end_date, DateTime? actual_end_date,
         string? project_manager, string? location,
         // Sprint 54 — 4-party project model
-        Guid? contractor_id, Guid? consultant_id);
+        Guid? contractor_id, Guid? consultant_id,
+        // Sprint 56 — Technical Report
+        decimal physical_progress_percent, decimal financial_progress_percent,
+        string? schedule_status, string? execution_status,
+        DateTime? tech_report_date);
 
     private record MilestoneRow(
         Guid id, Guid project_id, string name, string? name_ar, string? description,

@@ -34,7 +34,13 @@ public record ProjectDto(
     Guid? ContractorId,          // الجهة المنفذة (FK contacts, type='contractor')
     string? ContractorName,      // denormalized
     Guid? ConsultantId,          // الجهة المشرفة (FK contacts, type='consultant')
-    string? ConsultantName       // denormalized
+    string? ConsultantName,      // denormalized
+    // ---------- Sprint 56 additions (Technical Report) ----------
+    decimal PhysicalProgressPercent,    // 0-100
+    decimal FinancialProgressPercent,   // 0-100 (auto-calc from billings)
+    string? ScheduleStatus,             // on_track | delayed | ahead | no_schedule | stopped
+    string? ExecutionStatus,            // completed | in_progress | stopped
+    DateTime? TechReportDate            // last update of the report
 );
 
 public record MilestoneDto(
@@ -73,7 +79,13 @@ public record CreateProjectRequest(
     string? Location = null,
     // ---------- Sprint 54 additions (4-party model) ----------
     Guid? ContractorId = null,
-    Guid? ConsultantId = null
+    Guid? ConsultantId = null,
+    // ---------- Sprint 56 additions (Technical Report) ----------
+    decimal PhysicalProgressPercent = 0,
+    decimal FinancialProgressPercent = 0,
+    string? ScheduleStatus = null,
+    string? ExecutionStatus = null,
+    DateTime? TechReportDate = null
 );
 
 /// <summary>
@@ -100,7 +112,13 @@ public record UpdateProjectRequest(
     string? Location = null,
     // ---------- Sprint 54 additions (4-party model) ----------
     Guid? ContractorId = null,
-    Guid? ConsultantId = null
+    Guid? ConsultantId = null,
+    // ---------- Sprint 56 additions (Technical Report) ----------
+    decimal PhysicalProgressPercent = 0,
+    decimal FinancialProgressPercent = 0,
+    string? ScheduleStatus = null,
+    string? ExecutionStatus = null,
+    DateTime? TechReportDate = null
 );
 
 public record CreateMilestoneRequest(
