@@ -383,13 +383,17 @@ public class BillingService
                 WHERE project_id = @projectId AND status != 'CANCELLED';",
                 new { projectId }) ?? 0m;
             var remainingOriginalDeduction = Math.Max(0m, totalOriginalDeduction - previousOriginalDeduction);
-            // Cap at what's affordable in this billing (after other
-            // deductions but before this one)
+            // Cap at what's affordable in this billing, leaving at
+            // least 1% of the gross as positive net (so the JE has
+            // non-zero debit/credit lines). For 15% first billing
+            // the cap is 14% of gross; for larger billings it's
+            // proportionally more.
             var availableForOriginal = Math.Max(0m,
                 gross - advanceDeducted - retentionDeducted
-                       - finalInsuranceDeducted - adminFeesDeducted);
+                       - finalInsuranceDeducted - adminFeesDeducted
+                       - Math.Max(gross * 0.01m, 100m));  // keep at least 1% of gross as net
             originalContractDeduction = Math.Round(
-                Math.Min(remainingOriginalDeduction, availableForOriginal), 3);
+                Math.Min(remainingOriginalDeduction, Math.Max(0m, availableForOriginal)), 3);
         }
 
         var net = Math.Round(
