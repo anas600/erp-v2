@@ -6,38 +6,46 @@ using ErpV2.Features.Projects;
 namespace ErpV2.Features.Admin;
 
 /// <summary>
-/// Sprint 50 / Sprint 51 — Realistic Project Scenario Seeder.
+/// Sprint 58 — Real Project Data Seeder (نقطة تعبئة الغاز سرت).
 ///
-/// Creates a clean, demonstrable scenario for ONE project over FOUR
-/// monthly billings, plus the project-tagged purchase invoices that
-/// fund it. This is the "demo" data the user wants to navigate with
-/// the accountant role and verify the full project P&L chain works.
+/// Creates a clean, demonstrable scenario for ONE real Libyan
+/// construction project based on the actual contract documents
+/// provided by the user (Excel files 99fbbb98, f10c7be4, 774deafd,
+/// 4ee91b60):
 ///
-/// Scope (deliberately small — the user said "keep the number of
-/// entries low so I can follow the audit trail"):
-///   - 1 customer (Ministry of Housing & Construction — the project
-///     owner)
-///   - 4 suppliers (steel, cement, labor agency, electrical) with
+///   - Project: تنفيذ نقطة تعبئة الغاز (سرت) — Gas Filling Station
+///     at Sirte (Libya)
+///   - Owner: الجهاز الوطني للتنمية (National Development Authority)
+///   - Contractor: شركة أمجاد للمقاولات العامة
+///   - Consultant: شركة دار التقنية للاستشارات الهندسية
+///   - Contract number: ج.و.ت/35/120
+///   - Duration: 45 days
+///   - Site handover: 2024-03-30
+///   - Period: 2024-03-30 → 2024-05-20
+///   - Original contract value: 2,369,048 LYD
+///   - Variation value: 4,192,399.494 LYD (الأمر التعديلي)
+///   - Current (effective) contract value: 6,561,447.494 LYD
+///
+/// Scope (deliberately small):
+///   - 1 customer (الجهاز الوطني للتنمية)
+///   - 4 suppliers (steel, cement, electrical, generator) with
 ///     their sub-ledgers
-///   - 5 products (4 materials + 1 labor service) with categories +
-///     default accounts wired up
-///   - 1 project (مدرسة الحكمة) with a 4M LYD contract split into 7
-///     line items
-///   - 4 monthly billings (BIL-001 to BIL-004) at 10%, 30%, 60%, 90%
-///     completion. Each one creates one posted invoice + one posted
-///     journal entry on the AR sub-ledger + 4103 project revenue.
-///   - 4 project-tagged purchase invoices (steel, cement, labor,
-///     electrical) — each creating one posted journal entry on a
-///     54xx project sub-ledger + 2101 supplier sub-ledger.
-///   - 2 regular (non-project) sales invoices for the same customer
-///     to verify the sales rule still works without a project.
-///   - 2 regular (non-project) purchase invoices to verify the
-///     PurchaseInvoiceApproved rule (COGS 5101/5102) still fires
-///     when projectId is null.
+///   - 5 products (4 materials + 1 labor service)
+///   - 1 project with 7 BOQ line items (matching the FMB structure)
+///   - 1 contract + 1 variation order (الأمر التعديلي)
+///   - 4 monthly billings with realistic % distribution:
+///     * Billing 1: 15% (early works — demolition + site prep + foundations)
+///     * Billing 2: 35% (structural + walls + plastering)
+///     * Billing 3: 30% (painting + MEP)
+///     * Billing 4: 20% (final equipment + handover)
+///   - 4 project-tagged purchase invoices
+///   - 2 regular sales invoices + 2 regular purchase invoices
 ///
-/// This seeder assumes the COA is intact (L1-L3 levels). The 7
-/// project-specific L4 sub-ledgers are auto-created by
-/// ProjectCostAccountService when the project is inserted (Cycle 7).
+/// Sprint 53-54 deduction model applied to each billing:
+///   - خصم 15% من قيمة العقد الأصلي (one-time, first billing only)
+///   - خصم 5% ضمان أعمال (Retention, every billing)
+///   - خصم 2% تأمين نهائي (Final Insurance, every billing)
+///   - خصم 1.5% خدمات لصالح الجهاز (Admin Fees, every billing)
 /// </summary>
 public class RealisticProjectSeeder
 {
@@ -258,25 +266,34 @@ public class RealisticProjectSeeder
 
     private async Task<Guid> CreateProjectAsync(Guid companyId, Guid customerId, Guid contractorId, Guid consultantId)
     {
+        // Sprint 58 — Real project: تنفيذ نقطة تعبئة الغاز (سرت).
+        // Per the user's Excel files (99fbbb98, f10c7be4, 774deafd):
+        //   - Original contract value: 2,369,048 LYD
+        //   - Variation value: 4,192,399.494 LYD (الأمر التعديلي)
+        //   - Effective contract value: 6,561,447.494 LYD
+        //   - Duration: 45 days
+        //   - Site handover: 2024-03-30
+        //   - Project period: 2024-03-30 → 2024-05-20
         var req = new CreateProjectRequest(
             CompanyId: companyId,
-            Code: "PRJ-2026-100",
-            Name: "مشروع إنشاء مدرسة الحكمة",
-            NameAr: "مشروع إنشاء مدرسة الحكمة",
-            Description: "مبنى مدرسي يتكون من 3 طوابق + ملعب + سور خارجي",
-            StartDate: new DateTime(2026, 1, 1),
-            EndDate: new DateTime(2026, 12, 31),
-            Budget: 4000000m,
-            Notes: null,
+            Code: "PRJ-SRT-2024-001",
+            Name: "تنفيذ نقطة تعبئة الغاز (سرت)",
+            NameAr: "تنفيذ نقطة تعبئة الغاز (سرت)",
+            Description: "مشروع تنفيذ نقطة تعبئة الغاز (سرت) — تكليف رقم ج.و.ت/35/120",
+            StartDate: new DateTime(2024, 3, 30),
+            EndDate: new DateTime(2024, 5, 20),
+            Budget: 6561447.494m,
+            Notes: "المشروع الأصلي: 2,369,048 د.ل + الأمر التعديلي: 4,192,399.494 د.ل = الإجمالي: 6,561,447.494 د.ل",
             Type: "construction",
             // Sprint 52 — the project must reference a customer so
             // billings can be approved. The customer is created
             // earlier in the seeder (step 1) so its id is available here.
             CustomerId: customerId,
-            ContractValue: 4000000m,  // 4M LYD
-            ExpectedEndDate: new DateTime(2026, 12, 31),
-            ProjectManager: "م. أحمد الفيتوري",
-            Location: "طرابلس - حي الأندلس",
+            // Effective contract value (after variation)
+            ContractValue: 6561447.494m,
+            ExpectedEndDate: new DateTime(2024, 5, 20),
+            ProjectManager: "م. سالم الشريف",
+            Location: "سرت - منطقة تعبئة الغاز",
             // Sprint 54 — 4-party model
             ContractorId: contractorId,
             ConsultantId: consultantId
@@ -284,29 +301,31 @@ public class RealisticProjectSeeder
         var proj = await _projectSvc.CreateAsync(req);
         _log.LogInformation("Created project {Code} (auto-L4-sub-ledgers created)", proj.Code);
 
-        // Create a contract with 7 line items summing to 4M
-        // (The contracts table has project_id; the projects table
+        // Create the original contract (2,369,048 LYD) — the seeder
+        // then adds a variation order to bring it up to 6,561,447.494.
+        // The contracts table has project_id; the projects table
         // doesn't carry a contract_id back — it's a one-way
-        // relationship.)
-        var contractId = await CreateContractAsync(companyId, proj.Id, proj.ContractValue);
+        // relationship.
+        var contractId = await CreateContractAsync(companyId, proj.Id);
 
         return proj.Id;
     }
 
-    private async Task<Guid> CreateContractAsync(Guid companyId, Guid projectId, decimal contractValue)
+    private async Task<Guid> CreateContractAsync(Guid companyId, Guid projectId)
     {
         using var conn = _db.CreateConnection();
         var contractId = Guid.NewGuid();
-        // Sprint 53: include the 3 new deduction columns so the
-        // seeded contract matches the Libyan construction contract
-        // model (final insurance 2% + admin fees 1.5%). Original
-        // contract deduction 15% is hard-coded in BillingService for
-        // the first billing (not stored here).
+        // Sprint 58 — Real contract: ج.و.ت/35/120
+        // Original value: 2,369,048 LYD
+        // (The variation of 4,192,399.494 is added separately as a
+        // contract_variations row in CreateVariationAsync below.)
         //
-        // Sprint 54: include site_handover_date + original_contract_value.
-        // Original = 5M (pre-variation); current = 4M (after deducting
-        // the 20% advance). The 15% tax deduction in Sprint 53 would
-        // apply to original_contract_value (5M) in a future sprint.
+        // Sprint 53-54 deduction model:
+        //   - 5% retention (ضمان أعمال)
+        //   - 2% final insurance (تأمين نهائي)
+        //   - 1.5% admin fees (خدمات لصالح الجهاز)
+        //   - 15% original contract deduction (one-time, on first billing)
+        //   - 20% advance payment
         await conn.ExecuteAsync(@"
             INSERT INTO contracts (id, company_id, project_id, contract_number, contract_value,
                                    advance_percent, retention_percent, retention_start_billing,
@@ -315,39 +334,46 @@ public class RealisticProjectSeeder
                                    site_handover_date, original_contract_value)
             VALUES (@id, @companyId, @projectId, @number, @value, 20, 5, 1,
                     2, 1.5,
-                    '2026-01-01', '2026-12-31',
-                    '2026-01-15', 5000000);",
+                    '2024-03-30', '2024-05-14',
+                    '2024-03-30', 2369048.00);",
             new
             {
                 id = contractId,
                 companyId,
                 projectId,
-                number = "CONT-2026-100",
-                value = contractValue
+                number = "ج.و.ت/35/120",
+                value = 2369048.00m   // original value
             });
 
-        // 7 line items summing to exactly 4,000,000 LYD
-        // (item #7's unit price is auto-adjusted to fit the total)
-        var items = new List<(string desc, string unit, decimal qty, decimal price)>
+        // BOQ items based on the actual Excel BOQ (774deafd)
+        // Total: 2,369,048 LYD (the original contract value)
+        var items = new List<(string desc, string unit, decimal qty, decimal price, decimal total)>
         {
-            ("حفر الأساسات",                "m3",  500m,   500m),    // 250,000
-            ("صب الخرسانة المسلحة",         "m3",  400m,  1500m),    // 600,000
-            ("بناء الجدران (بلوك)",        "m2", 1200m,   250m),    // 300,000
-            ("أعمال الحديد والتسليح",      "ton",  80m,  8000m),    // 640,000
-            ("أعمال السباكة",                "lot",   1m, 400000m),  // 400,000
-            ("أعمال الكهرباء",               "lot",   1m, 350000m),  // 350,000
+            ("بالمتر المربع / إزالة جزء من السور لزوم استحداث أبواب السحاب",    "م²",    514m,  550m,  282700m),     // Row 1
+            ("بالمقطوعي / إزالة تحت الانشاء حوض خزان الوقود",                 "مقطوعية",  1m, 16500m, 16500m),       // Row 2
+            ("بالمقطوعية / نقل المخلفات الي المقالب العمومية",                  "مقطوعية",  1m, 75000m, 75000m),       // Row 3
+            ("بالمتر المكعب / الردم بأتربة صالحة للردم",                        "م³",   819.85m, 445m, 364833.25m),    // Row 4
+            ("توريد و فرش و دمك مادة الاساس الحبيبي مدمكة",                    "م²",  1306m,    45m,  58770m),       // Row 5
+            ("حفر في أرض سبخية لزوم الأساسات والسملات",                          "م³",   860.328m, 42m, 36133.776m),   // Row 6
+            ("بالمتر المكعب / الردم بأتربة صالحة للردم للقواعد والأساسات",    "م³",   741.316m, 39m, 28911.324m),   // Row 7
+            ("خرسانة عادية بإجهاد كسر 20 نيوتن / مم²",                          "م²",    77m,    52m,   4004m),       // Row 8
+            ("خرسانة مسلحة (C25~C30) وحديد تسليح 80 كجم / م³ للقواعد",         "م³",    19.712m, 950m, 18726.4m),     // Row 9
+            ("خرسانة مسلحة وحديد تسليح 80 كجم / م³ للسملات",                    "م³",    27.312m, 1120m, 30589.44m),   // Row 10
+            ("خرسانة مسلحة وحديد تسليح 115 كجم / م³ للأعمدة",                  "م³",    19.09m, 1460m, 27871.4m),     // Row 11
+            ("خرسانة مسلحة وحديد تسليح 80 كجم / م³ للقرنيزة",                   "م³",    10.242m, 1585m, 16233.57m),   // Row 12
+            ("توريد وبناء حوائط من الطوب الاسمنتي المفرغ سمك 20 سم",           "م²",  1016.98m, 175m, 177971.5m),    // Row 13
+            ("توريد ودهان بمادة البيتومين المقاوم للأملاح 3 أوجه",              "م²",   558.36m,  40m, 22334.4m),     // Row 14
+            ("توريد وعمل لياسة عمومية بمونة اسمنتية 450 كجم",                  "م²",  2660m,  245m, 651700m),        // Row 15
+            ("توريد وتنفيذ اعمال الجرافيت ناعم الملمس حسب العينة",              "م²",  1746.48m, 145m, 253239.6m),    // Row 16
+            ("توريد وتنفيذ بلاطات خرسانية مسلحة لزوم أرضية نقطة التعبئة",        "م²",  1063m,  350m, 372050m),        // Row 17
+            ("توريد وتركيب بردورة خرسانية",                                    "م.ط", 223m,  165m,  36795m),         // Row 18
+            ("توريد وتنفيذ بلاط اسمنتي معشق للأرضية",                            "م²",  319.48m, 135m, 43129.8m),     // Row 19
+            ("توريد وتركيب أبواب الحديد (سحاب)",                                "م²",   38.5m, 1450m, 55825m),         // Row 20
+            ("توريد وتركيب خزان مياه معدني 10,000 لتر",                          "مقطوعية", 1m, 7500m, 7500m),        // Row 21
         };
-        decimal running = 0;
-        for (int i = 0; i < items.Count; i++)
-            running += items[i].qty * items[i].price;
-        // Last item: التشطيبات (finishing/paint) — fill the remainder
-        var lastTotal = contractValue - running;
-        var lastQty = 1500m;  // 1500 m2 of finishing work
-        var lastPrice = Math.Round(lastTotal / lastQty, 2);
-        items.Add(("التشطيبات والدهانات", "m2", lastQty, lastPrice));
 
         int lineNum = 1;
-        foreach (var (desc, unit, qty, price) in items)
+        foreach (var (desc, unit, qty, price, total) in items)
         {
             await conn.ExecuteAsync(@"
                 INSERT INTO contract_line_items
@@ -365,20 +391,84 @@ public class RealisticProjectSeeder
                     unit,
                     quantity = qty,
                     unitPrice = price,
-                    total = qty * price
+                    total = total
                 });
         }
+
+        // Now add the variation order (الأمر التعديلي): 4,192,399.494 LYD
+        // This brings the effective contract value up to 6,561,447.494
+        await CreateVariationAsync(companyId, contractId);
+
         return contractId;
     }
 
-    // Sprint 52 — ensure the customer "وزارة الإسكان والتعمير" exists
-    // and return its id. The seeder creates the customer early so the
-    // project can reference it (project.CustomerId is required by
-    // BillingService.ApproveAsync).
-    //
-    // The customer lookup is on the Arabic name_ar column. The seeder
-    // re-uses this helper twice (here + later) so any change to the
-    // customer name stays in one place.
+    /// <summary>
+    /// Sprint 58 — Add the variation order (الأمر التعديلي) to the
+    /// contract. This represents additional work approved during
+    /// the project execution. Per the user's Excel files, the
+    /// variation is 4,192,399.494 LYD.
+    /// </summary>
+    private async Task CreateVariationAsync(Guid companyId, Guid contractId)
+    {
+        using var conn = _db.CreateConnection();
+        var variationId = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO contract_variations
+                (id, company_id, contract_id, variation_number, description,
+                 variation_date, status, approved_at, approved_by, notes, created_at)
+            VALUES (@id, @companyId, @contractId, 1, @description,
+                    '2024-05-15', 'approved', '2024-05-15', NULL, @notes, NOW());",
+            new
+            {
+                id = variationId,
+                companyId,
+                contractId,
+                description = "الأمر التعديلي رقم 1 — إضافة أعمال خرسانة مسلحة ومبانٍ إضافية",
+                notes = "موافق عليه من الجهاز الوطني للتنمية + الاستشاري"
+            });
+
+        // Variation line items (sample — matching the Excel structure)
+        var variationItems = new (string desc, string unit, decimal qty, decimal price, bool isAddition)[]
+        {
+            ("أعمال حفر إضافية لزوم نقطة التعبئة الجديدة",                       "م³",   148.592m,    42m, true),   // 6,240.864
+            ("توريد و ردم باتربة صالحة للردم",                                    "م³",   151.152m,   445m, true),   // 67,262.64
+            ("خرسانة عادية 20 نيوتن / مم²",                                        "م²",    78.92m,     65m, true),   // 5,129.8
+            ("توريد وصب خرسانة ميول الاسطح (الباتوتة)",                          "م²",    78.24m,     52m, true),   // 4,068.48
+            ("خرسانة مسلحة وحديد تسليح 115 كجم / م³",                              "م³",     4.112m,  1120m, true),   // 4,605.44
+            ("خرسانة مسلحة وحديد تسليح 115 كجم / م³",                              "م³",     5.264m,  1285m, true),   // 6,764.24
+            ("خرسانة مسلحة وحديد تسليح 115 كجم / م³",                              "م³",     3.2m,    1460m, true),   // 4,672
+            ("هدم وإزالة المباني القائمة شاملا الأساسات والحوائط",                 "م³",   231.66m,    42m, true),   // 9,729.72
+            ("إزالة السقف المعدني المتهالك للهنجر الموجود",                       "م²",   546m,      245m, true),   // 133,770
+            ("توريد مولد كهرباء بقوة 200 kVA مع التركيب والضمانة",                  "عدد",    1m,   290000m, true),   // 290,000
+        };
+        int lineNum = 1;
+        foreach (var (desc, unit, qty, price, isAddition) in variationItems)
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO contract_variation_items
+                    (id, company_id, variation_id, line_number, description, unit,
+                     custom_unit, quantity, unit_price, total_price, is_addition, notes, created_at)
+                VALUES (@id, @companyId, @variationId, @lineNumber, @description, @unit,
+                        NULL, @quantity, @unitPrice, @total, @isAddition, NULL, NOW());",
+                new
+                {
+                    id = Guid.NewGuid(),
+                    companyId,
+                    variationId,
+                    lineNumber = lineNum++,
+                    description = desc,
+                    unit,
+                    quantity = qty,
+                    unitPrice = price,
+                    total = qty * price,
+                    isAddition
+                });
+        }
+    }
+
+    // Sprint 58 — REAL project data: الجهاز الوطني للتنمية is the
+    // owner (المالك) of the gas filling station project at Sirte.
+    // Code CUS-001 stays stable for re-runs.
     private async Task<Guid> EnsureCustomerAsync(Guid companyId)
     {
         using var conn = _db.CreateConnection();
@@ -389,16 +479,14 @@ public class RealisticProjectSeeder
             new { companyId });
         if (existing.HasValue) return existing.Value;
 
-        // contacts.code is NOT NULL UNIQUE per (company_id, type, code).
-        // Use a stable CUS-001 code so re-runs don't conflict.
         var id = Guid.NewGuid();
         await conn.ExecuteAsync(@"
             INSERT INTO contacts
                 (id, company_id, type, code, name, name_ar, tax_id, phone, email,
                  is_active, is_demo_data, created_at)
             VALUES
-                (@id, @companyId, 'customer', 'CUS-001', 'Ministry of Housing', 'وزارة الإسكان والتعمير',
-                 NULL, NULL, NULL, true, false, NOW());",
+                (@id, @companyId, 'customer', 'CUS-001', 'National Development Authority',
+                 'الجهاز الوطني للتنمية', NULL, NULL, NULL, true, false, NOW());",
             new { id, companyId });
         // Sprint 52 — auto-create L4 sub-ledger (1103-CUS-001).
         await _accounts.EnsureSubLedgerAsync(companyId, id);
@@ -637,15 +725,27 @@ public class RealisticProjectSeeder
 
     private async Task<List<Guid>> CreateBillingsAsync(Guid companyId, Guid projectId)
     {
-        // 4 monthly billings. Each one calls BillingService.ApproveAsync
-        // which in trusted mode auto-posts the journal entry.
-        var dates = new[] { "2026-02-28", "2026-05-31", "2026-08-31", "2026-11-30" };
-        var numbers = new[] { "BIL-2026-001", "BIL-2026-002", "BIL-2026-003", "BIL-2026-004" };
+        // Sprint 58 — Real project: 4 billings with realistic % distribution
+        // (per the user's request: مقسم علي 4 مستخلصات موزع فيها نسب الانجاز بشكل واقعي)
+        //
+        // The original Excel (99fbbb98) showed a SINGLE final billing at 25% financial progress.
+        // The user wants 4 billings with realistic construction progression:
+        //   - Billing 1: 15% — early works (demolition, site prep, foundations)
+        //   - Billing 2: 35% — structural (walls, plastering, painting starts)
+        //   - Billing 3: 30% — MEP + finishing (electrical, plumbing, paint)
+        //   - Billing 4: 20% — final (equipment, generator, handover)
+        // Total: 100% of effective contract value (6,561,447.494 LYD)
+        //
+        // The 15% original contract deduction applies on Billing 1 only
+        // (one-time, against original value 2,369,048 LYD = 355,357 LYD).
+        // The 5% retention, 2% final insurance, and 1.5% admin fees apply on every billing.
+        var dates = new[] { "2024-04-15", "2024-04-30", "2024-05-15", "2024-05-20" };
+        var numbers = new[] { "BIL-SRT-2024-001", "BIL-SRT-2024-002", "BIL-SRT-2024-003", "BIL-SRT-2024-004" };
         var notes = new[] {
-            "مستخلص شهر فبراير — أعمال الأساسات والخرسانة",
-            "مستخلص شهر مايو — الجدران والتسليح",
-            "مستخلص شهر أغسطس — السباكة والكهرباء",
-            "مستخلص شهر نوفمبر — التشطيبات النهائية"
+            "المستخلص الأول — أعمال الإزالة وتجهيز الموقع والأساسات",
+            "المستخلص الثاني — أعمال الخرسانة المسلحة والبلوك واللياسة",
+            "المستخلص الثالث — أعمال السباكة والكهرباء والطلاء",
+            "المستخلص الرابع والأخير — تركيب مولد الكهرباء والتسليم النهائي"
         };
 
         using var conn = _db.CreateConnection();
@@ -658,35 +758,10 @@ public class RealisticProjectSeeder
             throw new InvalidOperationException("Project has no contract — cannot create billings.");
 
         var result = new List<Guid>();
-        // Each billing represents a cumulative % of the contract work done.
-        // The seeder creates billings at 30%, 50%, 80%, 100% — each one
-        // advances the work_completed_percent.
-        //
-        // Why not 10%? Because the BillingService recovers the
-        // contract advance (20% of contract value = 800K LYD) from
-        // the FIRST billing's gross. With 10% (gross=400K), the
-        // advance recovered = 400K and retention = 20K, giving
-        // net = -20K (negative). The journal validator rejects
-        // negative debit/credit lines. Starting at 30% (gross=1.2M)
-        // gives net = 1.2M - 800K - 60K = 340K (positive), and
-        // subsequent billings have remainingAdvance = 0 so no
-        // advance is deducted.
-        //
-        // Sprint 52 (work-flow fix #1) — pre-populate the
-        // billing_line_items with quantities proportional to the
-        // cumulative %. The user pointed out that the billings UI
-        // showed all "السابق" and "هذه الفترة" as 0 — because the
-        // seeder passed an empty LineItems list. The BillingService
-        // %-based path synthesizes ONE line item (a lump), but the
-        // contract has 7 BOQ line items. We pre-populate here so the
-        // user can see per-line quantities (e.g. "حفر الأساسات
-        // 150 m3 of 500 m3 = 30%") in the billings UI.
-        //
-        // Example for billing 1 (30% cumulative):
-        //   contract_line_item #1 (500 m3 × 500 LYD) → this billing 150 m3
-        //   contract_line_item #2 (400 m3 × 1500 LYD) → 120 m3
-        //   ...etc
-        var cumulativePercents = new decimal[] { 30m, 50m, 80m, 100m };
+        // 4 billings at 15%, 35%, 30%, 20% — realistic construction progression
+        // (the user said "بنسب انجاز واقعية" — not the old 30/50/80/100 which
+        // was too aggressive for a 45-day project).
+        var cumulativePercents = new decimal[] { 15m, 35m, 30m, 20m };
         // Load the contract_line_items once for use across all 4 billings.
         var contractLineItems = (await conn.QueryAsync<(Guid id, int line_number, decimal quantity, decimal unit_price)>(@"
             SELECT id, line_number, quantity, unit_price FROM contract_line_items
@@ -723,7 +798,7 @@ public class RealisticProjectSeeder
                 ContractId: contractId!.Value,
                 BillingNumber: numbers[i],
                 BillingDate: DateTime.Parse(dates[i]),
-                PeriodFrom: i == 0 ? new DateTime(2026, 1, 1) : DateTime.Parse(dates[i - 1]),
+                PeriodFrom: i == 0 ? new DateTime(2024, 3, 30) : DateTime.Parse(dates[i - 1]),
                 PeriodTo: DateTime.Parse(dates[i]),
                 // Pass WorkCompletedPercent as a fallback (the system
                 // uses the per-line quantities to compute the gross,
@@ -734,14 +809,16 @@ public class RealisticProjectSeeder
                 LineItems: lineItems
             );
             var draft = await _billingSvc.CreateAsync(projectId, req);
+            // Sprint 58 — note: in trust mode this auto-posts the JE
+            // and auto-approves the billing.
             var approved = await _billingSvc.ApproveAsync(draft.Id,
                 new ApproveBillingRequest(
                     BillingDate: DateTime.Parse(dates[i]),
                     Notes: notes[i]));
             result.Add(approved.Id);
             _log.LogInformation(
-                "Billing {Num} approved: gross={Gross}, net={Net}, JE={Je}, lines={LineCount}",
-                numbers[i], approved.GrossAmount, approved.NetAmount, approved.JournalEntryId, lineItems.Count);
+                "Billing {Num} ({Pct}%) approved: gross={Gross}, net={Net}, JE={Je}, lines={LineCount}",
+                numbers[i], cumulativePercents[i], approved.GrossAmount, approved.NetAmount, approved.JournalEntryId, lineItems.Count);
         }
         return result;
     }
