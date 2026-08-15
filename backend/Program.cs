@@ -256,6 +256,8 @@ builder.Services.AddSingleton<ContractService>();
 builder.Services.AddSingleton<BillingService>();
 // Sprint 55 — Field Measurement Book service
 builder.Services.AddSingleton<FieldMeasurementService>();
+// Sprint 56 — Project Technical Report service
+builder.Services.AddSingleton<ProjectProgressService>();
 
 // Sprint 38 — BOQ (Bill of Quantities) + Variations. Order matters
 // for readability: LineItemService has no deps; VariationService
@@ -361,6 +363,8 @@ LineItemEndpoints.Map(app);
 VariationEndpoints.Map(app);
 // Sprint 55 — Field Measurement Book
 FieldMeasurementEndpoints.MapFieldMeasurementEndpoints(app);
+// Sprint 56 — Project Technical Report
+ProjectProgressEndpoints.MapProjectProgressEndpoints(app);
 
 // Sprint 25 — Receivable/Payable settlement + Contact Statement + Fiscal Year
 ContactStatementEndpoints.Map(app);

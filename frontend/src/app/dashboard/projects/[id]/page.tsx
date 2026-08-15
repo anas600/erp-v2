@@ -47,6 +47,7 @@ import type { ContractDto } from "../components/ContractModal";
 import BillingsTab, { type ProgressBillingDto } from "../components/BillingsTab";
 import StatementTab from "../components/StatementTab";
 import VariationTab from "../components/VariationTab";
+import TechReportTab from "../components/TechReportTab";
 
 interface Project {
   id: string;
@@ -106,7 +107,7 @@ interface RevenueRow {
   status: string;
 }
 
-type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation" | "contract" | "billings" | "variations" | "statement";
+type TabId = "overview" | "costs" | "revenue" | "pnl" | "allocation" | "contract" | "billings" | "variations" | "statement" | "tech-report";
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "overview",   label: "نظرة عامة",       icon: ClipboardList },
@@ -117,6 +118,7 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "revenue",    label: "الإيرادات",       icon: TrendingUp },
   { id: "pnl",        label: "الربح والخسارة",   icon: DollarSign },
   { id: "statement",  label: "كشف حساب العميل",  icon: FileBarChart },
+  { id: "tech-report", label: "التقرير الفني",   icon: FileBarChart },
   { id: "allocation", label: "التخصيص",         icon: FileText },
 ];
 
@@ -326,6 +328,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         <StatementTab
           projectId={projectId}
           projectName={project.nameAr || project.name}
+        />
+      )}
+      {tab === "tech-report" && (
+        <TechReportTab
+          projectId={projectId}
+          onSave={() => loadProject()}
         />
       )}
     </div>
