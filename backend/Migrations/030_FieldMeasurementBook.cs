@@ -78,35 +78,36 @@ public class FieldMeasurementBook : Migration
         // ============================================================
         if (!Schema.Table("field_measurement_entries").Exists())
         {
-            Create.Table("field_measurement_entries")
-                .WithColumn("id").AsGuid().PrimaryKey().WithDefault(SystemMethods.NewGuid)
-                .WithColumn("company_id").AsGuid().NotNullable()
-                    .ForeignKey("companies", "id").OnDelete(System.Data.Rule.Cascade)
-                .WithColumn("fmb_id").AsGuid().NotNullable()
-                    .ForeignKey("field_measurement_books", "id").OnDelete(System.Data.Rule.Cascade)
-                .WithColumn("line_item_id").AsGuid().NotNullable()
-                    .ForeignKey("contract_line_items", "id").OnDelete(System.Data.Rule.Cascade)
-                // JSONB array of sub-rows:
-                //   { label: "الواجهة الجنوبية", count: 1, length: 33.8,
-                //     width: null, height: 3.0, initialQty: 101.4,
-                //     deduction: null, notes: null }
-                //   { label: "خصم: خرسانة النظافة", deduction: 7.7 }
-                .WithColumn("measurements").AsCustom("jsonb").NotNullable().WithDefaultValue("'[]'::jsonb")
-                .WithColumn("initial_total").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-                .WithColumn("deductions_total").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-                .WithColumn("final_total").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-                .WithColumn("unit_price").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-                .WithColumn("amount").AsDecimal(18, 3).NotNullable().WithDefaultValue(0)
-                .WithColumn("notes").AsString(int.MaxValue).Nullable()
-                .WithColumn("created_at").AsDateTime().NotNullable().WithDefault(SystemMethods.CurrentDateTime)
-                .WithColumn("updated_at").AsDateTime().Nullable();
+            // Use raw SQL because FluentMigrator escapes the jsonb
+            // default value into a syntax the Postgres JSON parser
+            // rejects. The DEFAULT '[]'::jsonb is the cleanest form
+            // and the only one Postgres accepts.
+            Execute.Sql(@"
+                CREATE TABLE field_measurement_entries (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                    fmb_id uuid NOT NULL REFERENCES field_measurement_books(id) ON DELETE CASCADE,
+                    line_item_id uuid NOT NULL REFERENCES contract_line_items(id) ON DELETE CASCADE,
+                    measurements jsonb NOT NULL DEFAULT '[]'::jsonb,
+                    initial_total decimal(18,3) NOT NULL DEFAULT 0,
+                    deductions_total decimal(18,3) NOT NULL DEFAULT 0,
+                    final_total decimal(18,3) NOT NULL DEFAULT 0,
+                    unit_price decimal(18,3) NOT NULL DEFAULT 0,
+                    amount decimal(18,3) NOT NULL DEFAULT 0,
+                    notes text,
+                    created_at timestamptz NOT NULL DEFAULT NOW(),
+                    updated_at timestamptz
+                );
+            ");
 
-            Create.Index("ix_fmb_entries_fmb")
-                .OnTable("field_measurement_entries")
-                .OnColumn("fmb_id");
-            Create.Index("ix_fmb_entries_line_item")
-                .OnTable("field_measurement_entries")
-                .OnColumn("line_item_id");
+            Execute.Sql(@"
+                CREATE INDEX IF NOT EXISTS ix_fmb_entries_fmb
+                ON field_measurement_entries (fmb_id);
+            ");
+            Execute.Sql(@"
+                CREATE INDEX IF NOT EXISTS ix_fmb_entries_line_item
+                ON field_measurement_entries (line_item_id);
+            ");
         }
 
         // ============================================================
