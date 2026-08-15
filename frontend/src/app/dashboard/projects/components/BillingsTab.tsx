@@ -56,6 +56,10 @@ export interface ProgressBillingDto {
   grossAmount: number;
   advanceDeducted: number;
   retentionDeducted: number;
+  // Sprint 53 — additional deductions
+  finalInsuranceDeducted?: number;
+  adminFeesDeducted?: number;
+  originalContractDeduction?: number;
   netAmount: number;
   status: string;
   invoiceId?: string | null;
@@ -686,6 +690,31 @@ function ViewBillingModal({
                   {formatNumber(billing.retentionDeducted)}
                 </div>
               </div>
+              {/* Sprint 53: 3 additional deductions */}
+              {(billing.finalInsuranceDeducted ?? 0) > 0 && (
+                <div>
+                  <div className="text-xs text-ink-muted">تأمين نهائي</div>
+                  <div className="font-mono" dir="ltr">
+                    {formatNumber(billing.finalInsuranceDeducted ?? 0)}
+                  </div>
+                </div>
+              )}
+              {(billing.adminFeesDeducted ?? 0) > 0 && (
+                <div>
+                  <div className="text-xs text-ink-muted">خدمات الجهاز</div>
+                  <div className="font-mono" dir="ltr">
+                    {formatNumber(billing.adminFeesDeducted ?? 0)}
+                  </div>
+                </div>
+              )}
+              {(billing.originalContractDeduction ?? 0) > 0 && (
+                <div>
+                  <div className="text-xs text-ink-muted">خصم العقد الأصلي</div>
+                  <div className="font-mono" dir="ltr">
+                    {formatNumber(billing.originalContractDeduction ?? 0)}
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="text-xs text-ink-muted">الصافي</div>
                 <div className="font-mono font-bold text-primary-900" dir="ltr">

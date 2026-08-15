@@ -286,11 +286,18 @@ public class RealisticProjectSeeder
     {
         using var conn = _db.CreateConnection();
         var contractId = Guid.NewGuid();
+        // Sprint 53: include the 3 new deduction columns so the
+        // seeded contract matches the Libyan construction contract
+        // model (final insurance 2% + admin fees 1.5%). Original
+        // contract deduction 15% is hard-coded in BillingService for
+        // the first billing (not stored here).
         await conn.ExecuteAsync(@"
             INSERT INTO contracts (id, company_id, project_id, contract_number, contract_value,
                                    advance_percent, retention_percent, retention_start_billing,
+                                   final_insurance_percent, admin_fee_percent,
                                    start_date, end_date)
             VALUES (@id, @companyId, @projectId, @number, @value, 20, 5, 1,
+                    2, 1.5,
                     '2026-01-01', '2026-12-31');",
             new
             {

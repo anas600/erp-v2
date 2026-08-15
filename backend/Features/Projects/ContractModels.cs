@@ -42,6 +42,10 @@ public record ContractDto(
     DateTime? StartDate,
     DateTime? EndDate,
     string? Notes,
+    // Sprint 53 — additional deductions (libyan construction contracts)
+    decimal FinalInsurancePercent,        // e.g. 2% final performance bond
+    decimal AdminFeePercent,              // e.g. 1.5% paid to owner
+    DateTime? FinalInsuranceReleaseDate,  // when the insurance is released
     DateTime CreatedAt,
     DateTime? UpdatedAt
 );
@@ -59,7 +63,11 @@ public record CreateContractRequest(
     int RetentionStartBilling,
     DateTime? StartDate,
     DateTime? EndDate,
-    string? Notes
+    string? Notes,
+    // Sprint 53 — additional deductions
+    decimal FinalInsurancePercent = 0m,
+    decimal AdminFeePercent = 0m,
+    DateTime? FinalInsuranceReleaseDate = null
 );
 
 /// <summary>
@@ -74,7 +82,11 @@ public record UpdateContractRequest(
     int RetentionStartBilling,
     DateTime? StartDate,
     DateTime? EndDate,
-    string? Notes
+    string? Notes,
+    // Sprint 53 — additional deductions
+    decimal FinalInsurancePercent = 0m,
+    decimal AdminFeePercent = 0m,
+    DateTime? FinalInsuranceReleaseDate = null
 );
 
 // ============================================================
@@ -113,6 +125,11 @@ public record ProgressBillingDto(
     decimal AdvanceDeducted,
     decimal RetentionDeducted,
     decimal NetAmount,
+    // Sprint 53 — additional deductions (mirrors the Libyan
+    // construction contract settlement model)
+    decimal FinalInsuranceDeducted,       // 2% final performance bond
+    decimal AdminFeesDeducted,            // 1.5% admin fees to owner
+    decimal OriginalContractDeduction,    // 15% one-time tax on first billing
     string Status,                // "DRAFT" | "INVOICED" | "CANCELLED"
     Guid? InvoiceId,              // set after ApproveAsync
     Guid? JournalEntryId,         // set after ApproveAsync
