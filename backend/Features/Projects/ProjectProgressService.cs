@@ -228,14 +228,20 @@ public class ProjectProgressService
     private async Task RecomputeProjectPhysicalProgressAsync(Guid projectId)
     {
         using var conn = _db.CreateConnection();
-        // Weighted average of progress_percent by contract value (quantity × unit_price)
+        // Weighted average of progress_percent by contract value (quantity × unit_price).
+        // Use LEFT JOIN so untouched BOQ lines (progress=0) are included in the
+        // denominator, otherwise the percentage would be inflated by only
+        // counting the lines that have been touched.
         var weightedPct = await conn.ExecuteScalarAsync<decimal>(@"
             WITH line_vals AS (
                 SELECT (li.quantity * li.unit_price) AS value,
-                       p.progress_percent AS pct
-                FROM contract_line_item_progress p
-                JOIN contract_line_items li ON li.id = p.line_item_id
-                WHERE p.project_id = @projectId
+                       COALESCE(p.progress_percent, 0) AS pct
+                FROM contract_line_items li
+                LEFT JOIN contract_line_item_progress p
+                    ON p.line_item_id = li.id AND p.project_id = @projectId
+                WHERE li.contract_id = (
+                    SELECT id FROM contracts WHERE project_id = @projectId LIMIT 1
+                )
             )
             SELECT CASE
                 WHEN COALESCE(SUM(value), 0) = 0 THEN 0
