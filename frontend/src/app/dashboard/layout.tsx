@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, Menu, X
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -153,6 +153,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return initial;
   });
 
+  // Sprint 59 — mobile sidebar drawer state.
+  // The sidebar is `fixed` on the right side of the viewport.
+  // On desktop (lg+) it's always visible. On mobile, it would
+  // cover the entire content. So we hide it by default on
+  // mobile and show it as a drawer when the user taps the
+  // hamburger button in the topbar.
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Auto-close the drawer on every route change. Without this,
+  // the user clicks a link, the page changes, but the drawer
+  // stays open and the user has to manually close it.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
+  // Lock body scroll while the drawer is open. Without this,
+  // background content scrolls when the user swipes inside
+  // the drawer.
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileMenuOpen]);
+
   useEffect(() => {
     if (!loading && !user) router.push("/auth/login");
   }, [user, loading, router]);
@@ -191,9 +218,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex bg-raised dark:bg-neutral-950">
-      {/* Sidebar */}
-      <aside className="w-64 bg-canvas dark:bg-neutral-950 border-l border-edge fixed right-0 top-0 h-full overflow-y-auto">
-        <div className="p-4 border-b border-edge">
+      {/* Sprint 59 — mobile drawer backdrop.
+          Visible only when the mobile menu is open. Clicking it
+          closes the drawer. Sits behind the sidebar (z-30) but
+          above the main content (z-40 sidebar). */}
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          aria-label="إغلاق القائمة"
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+        />
+      )}
+
+      {/* Sidebar — drawer on mobile, fixed column on desktop.
+          - Mobile (default): hidden, slides in from the right
+            when mobileMenuOpen is true (translate-x-0).
+          - Desktop (lg+): always visible, sits in the normal
+            flow next to the main content. */}
+      <aside
+        className={`w-64 bg-canvas dark:bg-neutral-950 border-l border-edge fixed right-0 top-0 h-full overflow-y-auto z-40 transition-transform duration-200 ease-in-out
+          ${mobileMenuOpen ? "translate-x-0" : "translate-x-full"}
+          lg:translate-x-0`}
+      >
+        <div className="p-4 border-b border-edge flex items-center justify-between">
           <Link href="/dashboard" className="flex items-center gap-2">
             <div className="w-9 h-9 bg-primary-700 text-white rounded-md flex items-center justify-center">
               <Building2 size={20} />
@@ -203,6 +251,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <p className="text-xs text-ink-subtle">Multi-Company</p>
             </div>
           </Link>
+          {/* Close button — only visible on mobile (lg:hidden) */}
+          <button
+            type="button"
+            aria-label="إغلاق"
+            onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden p-1 rounded-md text-ink-muted hover:bg-raised hover:text-ink-strong"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <nav className="p-3 space-y-3">
@@ -288,45 +345,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
 
-      {/* Main */}
-      <div className="flex-1 mr-64">
+      {/* Main — on mobile (no sidebar taking space) we use no margin;
+          on desktop (lg+) the sidebar takes 16rem so we add mr-64. */}
+      <div className="flex-1 lg:mr-64">
         {/* Top bar */}
-        <header className="bg-canvas dark:bg-neutral-950 border-b border-edge px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-          {/* Company Switcher */}
-          <div className="relative">
+        <header className="bg-canvas dark:bg-neutral-950 border-b border-edge px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+          {/* Left cluster: hamburger (mobile only) + company switcher */}
+          <div className="flex items-center gap-2">
+            {/* Sprint 59 — mobile hamburger button.
+                Hidden on lg+ where the sidebar is always visible. */}
             <button
-              onClick={() => setShowCompanyMenu(!showCompanyMenu)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-raised"
+              type="button"
+              aria-label="فتح القائمة"
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-md text-ink-muted hover:bg-raised hover:text-ink-strong"
             >
-              <Building2 size={16} className="text-ink-subtle" />
-              <div className="text-right">
-                <p className="text-sm font-semibold text-ink-strong">{activeCompany?.nameAr || activeCompany?.name || "اختر شركة"}</p>
-                <p className="text-xs text-ink-subtle">{activeCompany?.roleName}</p>
-              </div>
-              <ChevronDown size={14} className="text-ink-subtle" />
+              <Menu size={22} />
             </button>
-            {showCompanyMenu && (
-              <div className="absolute right-0 mt-1 w-72 bg-canvas dark:bg-neutral-900 border border-edge rounded-md shadow-lg z-20">
-                <div className="p-2">
-                  <p className="text-xs text-ink-subtle px-2 py-1">شركاتي</p>
-                  {companies.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={async () => {
-                        setShowCompanyMenu(false);
-                        if (c.id !== activeCompany?.id) await switchCompany(c.id);
-                      }}
-                      className={`w-full text-right px-3 py-2 rounded-md text-sm hover:bg-raised text-ink-strong ${
-                        c.id === activeCompany?.id ? "bg-brand-light dark:bg-brand-900/30" : ""
-                      }`}
-                    >
-                      <div className="font-medium">{c.nameAr || c.name}</div>
-                      <div className="text-xs text-ink-subtle">{c.code} • {c.roleName}</div>
-                    </button>
-                  ))}
+
+            {/* Company Switcher */}
+            <div className="relative">
+              <button
+                onClick={() => setShowCompanyMenu(!showCompanyMenu)}
+                className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-raised"
+              >
+                <Building2 size={16} className="text-ink-subtle" />
+                <div className="text-right hidden sm:block">
+                  <p className="text-sm font-semibold text-ink-strong">{activeCompany?.nameAr || activeCompany?.name || "اختر شركة"}</p>
+                  <p className="text-xs text-ink-subtle">{activeCompany?.roleName}</p>
                 </div>
-              </div>
-            )}
+                <ChevronDown size={14} className="text-ink-subtle" />
+              </button>
+              {showCompanyMenu && (
+                <div className="absolute right-0 mt-1 w-72 bg-canvas dark:bg-neutral-900 border border-edge rounded-md shadow-lg z-20">
+                  <div className="p-2">
+                    <p className="text-xs text-ink-subtle px-2 py-1">شركاتي</p>
+                    {companies.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={async () => {
+                          setShowCompanyMenu(false);
+                          if (c.id !== activeCompany?.id) await switchCompany(c.id);
+                        }}
+                        className={`w-full text-right px-3 py-2 rounded-md text-sm hover:bg-raised text-ink-strong ${
+                          c.id === activeCompany?.id ? "bg-brand-light dark:bg-brand-900/30" : ""
+                        }`}
+                      >
+                        <div className="font-medium">{c.nameAr || c.name}</div>
+                        <div className="text-xs text-ink-subtle">{c.code} • {c.roleName}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right cluster: theme + user menu */}
