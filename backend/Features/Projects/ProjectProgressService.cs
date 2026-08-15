@@ -40,49 +40,38 @@ public class ProjectProgressService
         if (p is null)
             throw new InvalidOperationException("المشروع غير موجود");
 
+        // Show ALL BOQ lines, with progress = 0% if no row in
+        // contract_line_item_progress. Use LEFT JOIN so untouched
+        // lines are still visible in the UI.
         var lineItems = (await conn.QueryAsync<LineItemProgressRow>(@"
-            SELECT p.id AS id, p.line_item_id AS line_item_id,
-                   p.quantity_done AS quantity_done,
-                   p.progress_percent AS progress_percent,
-                   p.last_updated AS last_updated,
-                   p.is_manual_override AS is_manual_override,
+            SELECT COALESCE(p.id, gen_random_uuid()) AS id,
+                   li.id AS line_item_id,
+                   COALESCE(p.quantity_done, 0) AS quantity_done,
+                   COALESCE(p.progress_percent, 0) AS progress_percent,
+                   COALESCE(p.last_updated, NOW()) AS last_updated,
+                   COALESCE(p.is_manual_override, false) AS is_manual_override,
                    p.notes AS notes,
                    li.line_number AS line_number,
-                   li.description AS description, li.unit AS unit,
+                   li.description AS description,
+                   li.unit AS unit,
                    li.quantity AS contract_quantity,
                    li.unit_price AS unit_price
-            FROM contract_line_item_progress p
-            JOIN contract_line_items li ON li.id = p.line_item_id
-            WHERE p.project_id = @projectId
+            FROM contract_line_items li
+            LEFT JOIN contract_line_item_progress p
+                ON p.line_item_id = li.id AND p.project_id = @projectId
+            WHERE li.contract_id = (
+                SELECT id FROM contracts WHERE project_id = @projectId LIMIT 1
+            )
             ORDER BY li.line_number ASC;",
             new { projectId })).ToList();
 
         if (lineItems.Count == 0)
         {
-            // No FMB-driven progress yet. Show all BOQ line items with
-            // 0% progress so the user can edit them.
-            // Cast the constants explicitly to decimal so Dapper sees
-            // matching types for the record (otherwise Postgres infers
-            // 0 as integer, which doesn't match decimal in the record).
-            var allBoq = (await conn.QueryAsync<LineItemProgressRow>(@"
-                SELECT gen_random_uuid() AS id,
-                       li.id AS line_item_id,
-                       0::decimal AS quantity_done,
-                       0::decimal AS progress_percent,
-                       NOW() AS last_updated,
-                       false AS is_manual_override,
-                       NULL AS notes,
-                       li.line_number AS line_number,
-                       li.description AS description, li.unit AS unit,
-                       li.quantity AS contract_quantity,
-                       li.unit_price AS unit_price
-                FROM contract_line_items li
-                WHERE li.contract_id = (
-                    SELECT id FROM contracts WHERE project_id = @projectId LIMIT 1
-                )
-                ORDER BY li.line_number ASC;",
-                new { projectId })).ToList();
-            lineItems = allBoq;
+            // No FMB-driven progress yet AND no BOQ lines exist.
+            // Return an empty list — the UI will show 'no line items'.
+            // The LEFT JOIN above already handles the case where BOQ
+            // lines exist but no progress rows yet (quantity_done=0).
+            lineItems = new List<LineItemProgressRow>();
         }
 
         var contractValue = await conn.QuerySingleOrDefaultAsync<decimal?>(@"
