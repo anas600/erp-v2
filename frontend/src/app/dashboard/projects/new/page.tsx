@@ -35,6 +35,8 @@ interface FormState {
   type: string;
   status: string;
   customerId: string;
+  contractorId: string;          // Sprint 54 — 4-party model
+  consultantId: string;          // Sprint 54 — 4-party model
   contractValue: number;
   startDate: string;
   expectedEndDate: string;
@@ -51,6 +53,8 @@ const EMPTY: FormState = {
   type: "construction",
   status: "draft",
   customerId: "",
+  contractorId: "",
+  consultantId: "",
   contractValue: 0,
   startDate: new Date().toISOString().slice(0, 10),
   expectedEndDate: "",
@@ -65,15 +69,24 @@ export default function NewProjectPage() {
   const { activeCompany } = useAuth();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contractors, setContractors] = useState<Customer[]>([]);
+  const [consultants, setConsultants] = useState<Customer[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeCompany) return;
-    api
-      .get(`/contacts?companyId=${activeCompany.id}&type=customer&limit=200`)
-      .then((res) => setCustomers(res.data || []))
-      .catch(() => setCustomers([]));
+    // Sprint 54 — 4-party model: load all 3 party lists in parallel
+    const load = (type: string) =>
+      api
+        .get(`/contacts?companyId=${activeCompany.id}&type=${type}&limit=200`)
+        .then((res) => res.data || [])
+        .catch(() => []);
+    Promise.all([
+      load("customer").then(setCustomers),
+      load("contractor").then(setContractors),
+      load("consultant").then(setConsultants),
+    ]);
   }, [activeCompany]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
@@ -95,6 +108,8 @@ export default function NewProjectPage() {
         type: form.type,
         status: form.status,
         customerId: form.customerId || null,
+        contractorId: form.contractorId || null,    // Sprint 54
+        consultantId: form.consultantId || null,    // Sprint 54
         contractValue: Number(form.contractValue) || 0,
         startDate: form.startDate || null,
         expectedEndDate: form.expectedEndDate || null,
@@ -189,7 +204,7 @@ export default function NewProjectPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">العميل</label>
+            <label className="block text-sm font-medium mb-1">العميل (مالك المشروع)</label>
             <select
               className="input"
               value={form.customerId}
@@ -208,6 +223,38 @@ export default function NewProjectPage() {
                 لم يتم تحميل قائمة العملاء. أضف عميلاً أولاً من شاشة العملاء.
               </p>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">الجهة المنفذة (المقاول)</label>
+            <select
+              className="input"
+              value={form.contractorId}
+              onChange={(e) => set("contractorId", e.target.value)}
+              disabled={contractors.length === 0}
+            >
+              <option value="">— بدون مقاول —</option>
+              {contractors.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.nameAr || c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">الجهة المشرفة (الاستشاري)</label>
+            <select
+              className="input"
+              value={form.consultantId}
+              onChange={(e) => set("consultantId", e.target.value)}
+              disabled={consultants.length === 0}
+            >
+              <option value="">— بدون استشاري —</option>
+              {consultants.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.nameAr || c.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

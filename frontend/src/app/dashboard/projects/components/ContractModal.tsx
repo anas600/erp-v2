@@ -41,6 +41,9 @@ export interface ContractDto {
   finalInsurancePercent?: number;
   adminFeePercent?: number;
   finalInsuranceReleaseDate?: string | null;
+  // Sprint 54 — additional context
+  siteHandoverDate?: string | null;
+  originalContractValue?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -68,6 +71,9 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
   const [finalInsurancePercent, setFinalInsurancePercent] = useState<string>("0");
   const [adminFeePercent, setAdminFeePercent] = useState<string>("0");
   const [finalInsuranceReleaseDate, setFinalInsuranceReleaseDate] = useState("");
+  // Sprint 54 — multi-party context
+  const [siteHandoverDate, setSiteHandoverDate] = useState("");
+  const [originalContractValue, setOriginalContractValue] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +94,8 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
     setFinalInsurancePercent(contract?.finalInsurancePercent != null ? String(contract.finalInsurancePercent) : "0");
     setAdminFeePercent(contract?.adminFeePercent != null ? String(contract.adminFeePercent) : "0");
     setFinalInsuranceReleaseDate((contract?.finalInsuranceReleaseDate || "").slice(0, 10));
+    setSiteHandoverDate((contract?.siteHandoverDate || "").slice(0, 10));
+    setOriginalContractValue(contract?.originalContractValue != null ? String(contract.originalContractValue) : "");
     setError(null);
     setSuccess(null);
   }, [open, contract]);
@@ -118,6 +126,9 @@ export default function ContractModal({ open, onClose, onSaved, projectId, contr
       finalInsurancePercent: Number(finalInsurancePercent) || 0,
       adminFeePercent: Number(adminFeePercent) || 0,
       finalInsuranceReleaseDate: finalInsuranceReleaseDate || null,
+      // Sprint 54 — multi-party context
+      siteHandoverDate: siteHandoverDate || null,
+      originalContractValue: originalContractValue ? Number(originalContractValue) : null,
     };
 
     setSaving(true);

@@ -46,6 +46,9 @@ public record ContractDto(
     decimal FinalInsurancePercent,        // e.g. 2% final performance bond
     decimal AdminFeePercent,              // e.g. 1.5% paid to owner
     DateTime? FinalInsuranceReleaseDate,  // when the insurance is released
+    // Sprint 54 — additional multi-party context
+    DateTime? SiteHandoverDate,           // تاريخ استلام الموقع
+    decimal? OriginalContractValue,       // القيمة الأصلية قبل الأمر التعديلي
     DateTime CreatedAt,
     DateTime? UpdatedAt
 );
@@ -67,7 +70,10 @@ public record CreateContractRequest(
     // Sprint 53 — additional deductions
     decimal FinalInsurancePercent = 0m,
     decimal AdminFeePercent = 0m,
-    DateTime? FinalInsuranceReleaseDate = null
+    DateTime? FinalInsuranceReleaseDate = null,
+    // Sprint 54 — additional multi-party context
+    DateTime? SiteHandoverDate = null,
+    decimal? OriginalContractValue = null
 );
 
 /// <summary>
@@ -86,7 +92,10 @@ public record UpdateContractRequest(
     // Sprint 53 — additional deductions
     decimal FinalInsurancePercent = 0m,
     decimal AdminFeePercent = 0m,
-    DateTime? FinalInsuranceReleaseDate = null
+    DateTime? FinalInsuranceReleaseDate = null,
+    // Sprint 54 — additional multi-party context
+    DateTime? SiteHandoverDate = null,
+    decimal? OriginalContractValue = null
 );
 
 // ============================================================
