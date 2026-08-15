@@ -59,10 +59,16 @@ public class ProjectProgressService
 
         if (lineItems.Count == 0)
         {
+            // No FMB-driven progress yet. Show all BOQ line items with
+            // 0% progress so the user can edit them.
+            // Cast the constants explicitly to decimal so Dapper sees
+            // matching types for the record (otherwise Postgres infers
+            // 0 as integer, which doesn't match decimal in the record).
             var allBoq = (await conn.QueryAsync<LineItemProgressRow>(@"
                 SELECT gen_random_uuid() AS id,
                        li.id AS line_item_id,
-                       0 AS quantity_done, 0 AS progress_percent,
+                       0::decimal AS quantity_done,
+                       0::decimal AS progress_percent,
                        NOW() AS last_updated,
                        false AS is_manual_override,
                        NULL AS notes,
