@@ -468,10 +468,10 @@ public class FieldMeasurementService
 
     private record FmbEntryRow(
         Guid id, Guid company_id, Guid fmb_id, Guid line_item_id,
-        int line_number, string description, string unit,
         string measurements, decimal initial_total, decimal deductions_total,
         decimal final_total, decimal unit_price, decimal amount,
-        string? notes, DateTime created_at, DateTime? updated_at);
+        string? notes, DateTime created_at, DateTime? updated_at,
+        int line_number, string description, string unit);
 
     private record LineItemLite(
         Guid id, Guid contract_id, int line_number, string description,
