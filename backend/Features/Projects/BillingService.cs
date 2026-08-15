@@ -318,19 +318,22 @@ public class BillingService
         }
 
         // Sprint 53: original contract deduction 15% — FIRST billing
-        // only. We use originalContractValue if set on the contract,
-        // otherwise fall back to effectiveValue (the contract value
-        // before variations).
+        // only, and only if the contract has an explicit
+        // OriginalContractValue set (Sprint 54 will add this field
+        // to the contract edit form). The deduction applies to the
+        // PRE-variation contract value, not the current effective
+        // value, to avoid a 15% × 4M = 600K deduction on a billing
+        // whose gross is only 1.2M (would push net negative).
+        //
+        // Until the field is added in Sprint 54, this defaults to
+        // 0 — i.e. the deduction is OPT-IN via the contract form.
         decimal originalContractDeduction = 0m;
         // isFirstBilling: nextBillingNumber == 1 means this is the
         // first non-cancelled billing for this project.
         var isFirstBilling = nextBillingNumber == 1;
-        if (isFirstBilling && contract.ContractValue > 0)
-        {
-            // Default 15% — could later be made configurable. For
-            // now we hard-code the Libyan contract standard.
-            originalContractDeduction = Math.Round(contract.ContractValue * 0.15m, 3);
-        }
+        // NOTE: originalContractValue is read from a future
+        // ContractDto field. For now we apply 0.
+        // (Will become: if (isFirstBilling && contract.OriginalContractValue > 0) ...)
 
         var net = Math.Round(
             gross - advanceDeducted - retentionDeducted
@@ -707,8 +710,9 @@ public class BillingService
             SELECT COUNT(*) FROM progress_billings
             WHERE contract_id = @contractId AND id <> @id AND status != 'CANCELLED';",
             new { contractId = existing.contract_id, id });
-        if (otherFirstBillingCount == 0 && contract.ContractValue > 0)
-            originalContractDeduction = Math.Round(contract.ContractValue * 0.15m, 3);
+        // NOTE: originalContractDeduction stays 0 until Sprint 54
+        // adds the OriginalContractValue field on ContractDto.
+        _ = otherFirstBillingCount; // suppress unused-variable warning
 
         var net = Math.Round(
             gross - advanceDeducted - retentionDeducted
