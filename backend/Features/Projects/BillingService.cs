@@ -292,7 +292,17 @@ public class BillingService
         //   - original_contract_deduction (15% of original contract
         //     value, applied to FIRST billing only) — typically a
         //     tax / withholding on the pre-variation contract value
-        var advanceTotal = Math.Round(effectiveValue * (contract.AdvancePercent / 100m), 3);
+        // Sprint 58 — advance is on the ORIGINAL contract value, not
+        // the effective value. Variations are added later and don't
+        // get advance payments (per the Libyan construction contract
+        // convention; the Excel shows advance = 20% × 2,369,048 =
+        // 473,810, not 20% × 6,561,447 = 1,312,289). Without this fix,
+        // the first billing's advance deduction would consume the
+        // entire gross, leaving net ≤ 0.
+        var advanceBase = (contract.OriginalContractValue.HasValue && contract.OriginalContractValue.Value > 0)
+            ? contract.OriginalContractValue.Value
+            : contract.ContractValue;
+        var advanceTotal = Math.Round(advanceBase * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
         var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
 
@@ -325,15 +335,25 @@ public class BillingService
         // value, to avoid a 15% × 4M = 600K deduction on a billing
         // whose gross is only 1.2M (would push net negative).
         //
-        // Until the field is added in Sprint 54, this defaults to
-        // 0 — i.e. the deduction is OPT-IN via the contract form.
+        // Sprint 58 — original contract deduction (15% of original
+        // contract value, applied to FIRST billing only). This is a
+        // Libyan construction contract convention: the 15% withholding
+        // is against the PRE-variation contract value, not the
+        // current effective value. Without this, the calculation
+        // gives 15% × 6.5M = 984K which is too large.
+        // If the contract has OriginalContractValue > 0, apply 15% of
+        // that on the first billing. Otherwise default to 0
+        // (opt-in via the contract form).
         decimal originalContractDeduction = 0m;
         // isFirstBilling: nextBillingNumber == 1 means this is the
         // first non-cancelled billing for this project.
         var isFirstBilling = nextBillingNumber == 1;
-        // NOTE: originalContractValue is read from a future
-        // ContractDto field. For now we apply 0.
-        // (Will become: if (isFirstBilling && contract.OriginalContractValue > 0) ...)
+        if (isFirstBilling && contract.OriginalContractValue.HasValue && contract.OriginalContractValue.Value > 0)
+        {
+            // 15% of original contract value
+            originalContractDeduction = Math.Round(
+                contract.OriginalContractValue.Value * 0.15m, 3);
+        }
 
         var net = Math.Round(
             gross - advanceDeducted - retentionDeducted
@@ -688,7 +708,11 @@ public class BillingService
                 existing.contract_id, existing.project_id, gross, newPercent);
         }
 
-        var advanceTotal = Math.Round(effectiveValue * (contract.AdvancePercent / 100m), 3);
+        // Sprint 58 — same fix as above for the UpdateAsync path
+        var advanceBaseUpdate = (contract.OriginalContractValue.HasValue && contract.OriginalContractValue.Value > 0)
+            ? contract.OriginalContractValue.Value
+            : contract.ContractValue;
+        var advanceTotal = Math.Round(advanceBaseUpdate * (contract.AdvancePercent / 100m), 3);
         var remainingAdvance = Math.Max(0m, advanceTotal - previousAdvance);
         var advanceDeducted = Math.Round(Math.Min(gross, remainingAdvance), 3);
 
