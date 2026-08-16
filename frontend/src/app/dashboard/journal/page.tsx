@@ -29,6 +29,10 @@ interface JournalLine {
   description?: string;
   lineNumber: number;
   costCenterId?: string;
+  // Sprint 60 — human-readable cost center fields, returned by
+  // the backend so the UI doesn't have to do a second join.
+  costCenterCode?: string;
+  costCenterName?: string;
 }
 
 interface JournalEntry {
@@ -103,7 +107,7 @@ export default function JournalPage() {
   const [editingEntryNumber, setEditingEntryNumber] = useState<string | null>(null);
 
   const [costCenters, setCostCenters] = useState<
-    { id: string; code: string; nameAr?: string; name: string }[]
+    { id: string; code: string; nameAr?: string; name: string; type?: string }[]
   >([]);
 
   const load = async () => {
@@ -618,6 +622,15 @@ export default function JournalPage() {
                                   <td className="py-1">
                                     <span className="font-mono text-xs text-ink-muted">{l.accountCode}</span>{" "}
                                     {l.accountName}
+                                    {/* Sprint 60 — Cost center badge. The
+                                        backend now returns the code and
+                                        name directly; we just render a
+                                        small chip below the account. */}
+                                    {l.costCenterCode && (
+                                      <div className="text-[10px] text-primary-600 mt-0.5">
+                                        🏷️ {l.costCenterCode} — {l.costCenterName}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-1 text-ink-muted">{l.description || "-"}</td>
                                   <td className="py-1 font-mono" dir="ltr">{formatNumber(l.debit)}</td>
@@ -806,8 +819,14 @@ export default function JournalPage() {
                         {costCenters
                           .filter((c) => c.id && c.code)
                           .map((c) => (
+                            // Sprint 60 — show type in parens so the
+                            // accountant can tell at a glance whether
+                            // a cost center is a department, activity,
+                            // or project. The backend's
+                            // CostCenterDto includes a `type` field
+                            // already (department/activity/project).
                             <option key={c.id} value={c.id}>
-                              {c.code} - {c.nameAr || c.name}
+                              {c.code} - {c.nameAr || c.name} ({c.type === 'department' ? 'قسم' : c.type === 'activity' ? 'نشاط' : 'مشروع'})
                             </option>
                           ))}
                       </select>

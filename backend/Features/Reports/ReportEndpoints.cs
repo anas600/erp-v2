@@ -194,5 +194,21 @@ public static class ReportEndpoints
             var asOf = asOfDate ?? DateTime.UtcNow;
             return Results.Ok(await svc.GetSupplierAgingAsync(companyId, asOf));
         });
+
+        // Sprint 60 — P&L by Cost Center (تقرير المصروفات حسب مركز التكلفة).
+        // Defaults to the company's full life if no date range is given
+        // (the seeder demo data spans 2024 → today, so the default
+        // range captures everything).
+        grp.MapGet("/cost-center-pnl", async (
+            [FromQuery] Guid companyId,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
+            [FromServices] ReportService svc) =>
+        {
+            if (companyId == Guid.Empty) return Results.BadRequest(new { error = "companyId required" });
+            var fromDate = from ?? new DateTime(2020, 1, 1);
+            var toDate = to ?? DateTime.UtcNow;
+            return Results.Ok(await svc.GetCostCenterPnLAsync(companyId, fromDate, toDate));
+        });
     }
 }

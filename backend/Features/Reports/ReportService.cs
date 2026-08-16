@@ -1061,4 +1061,90 @@ public class ReportService
     private record SupplierAgingRow(
         Guid contact_id, string contact_code, string contact_name,
         DateTime invoice_date, decimal outstanding, int days_overdue);
+
+    // ====================================================================
+    // Sprint 60 — P&L by Cost Center
+    // ====================================================================
+
+    /// <summary>
+    /// Returns the P&amp;L grouped by cost center, for the given
+    /// date range. Each row is one cost center; the amount is the
+    /// sum of expense lines (4xxx accounts) tagged with that
+    /// cost center. The list includes cost centers with zero
+    /// activity (amount=0) so the UI can show "set up but unused"
+    /// cost centers.
+    ///
+    /// Reversal filter: we exclude status='reversed' entries AND
+    /// the entries that reverse something else (same logic as
+    /// Project P&L). Without this, a cancelled pair would show
+    /// as +250 + -250 = net 0 anyway, but the movement_count
+    /// would be inflated and confusing.
+    /// </summary>
+    public async Task<CostCenterPnLReport> GetCostCenterPnLAsync(
+        Guid companyId, DateTime fromDate, DateTime toDate)
+    {
+        using var conn = _db.CreateConnection();
+
+        // 1) All cost centers in the company, with their type
+        //    and project link. We LEFT JOIN to activity so
+        //    cost centers with no activity still appear.
+        var allCostCenters = (await conn.QueryAsync<(Guid id, string code, string name, string type, Guid? project_id)>(@"
+            SELECT id, code, name, type, project_id
+            FROM cost_centers
+            WHERE company_id = @companyId
+              AND is_active = true;",
+            new { companyId })).ToList();
+
+        // 2) Activity per cost center, joined to journal lines on
+        //    expense accounts (4xxx). The "amount" per line is
+        //    GREATEST(debit, credit) so it works for both debit
+        //    and credit-side expense lines.
+        var activity = await conn.QueryAsync<(Guid cost_center_id, decimal amount, int movement_count)>(@"
+            SELECT jl.cost_center_id,
+                   SUM(GREATEST(jl.debit, jl.credit)) AS amount,
+                   COUNT(*)::int AS movement_count
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id = jl.journal_entry_id
+            JOIN accounts a ON a.id = jl.account_id
+            WHERE je.company_id = @companyId
+              AND je.status = 'posted'
+              AND je.reverses_entry_id IS NULL
+              AND a.code LIKE '4%'
+              AND jl.cost_center_id IS NOT NULL
+              AND je.entry_date >= @fromDate
+              AND je.entry_date <= @toDate
+            GROUP BY jl.cost_center_id;",
+            new { companyId, fromDate, toDate });
+
+        // 3) Build the report rows. Cost centers with no activity
+        //    in the range get amount=0, movement_count=0.
+        var activityMap = activity.ToDictionary(a => a.cost_center_id, a => (a.amount, a.movement_count));
+        var lines = allCostCenters.Select(cc =>
+        {
+            activityMap.TryGetValue(cc.id, out var a);
+            return new CostCenterPnLLine(
+                CostCenterId: cc.id,
+                CostCenterCode: cc.code,
+                CostCenterName: cc.name,
+                CostCenterType: cc.type,
+                ProjectId: cc.project_id,
+                TotalAmount: a.amount,
+                MovementCount: a.movement_count
+            );
+        })
+        // Order: departments first, then activities, then projects
+        // (within each group, by code)
+        .OrderBy(l => l.CostCenterType switch
+        {
+            "department" => 0,
+            "activity" => 1,
+            "project" => 2,
+            _ => 3
+        })
+        .ThenBy(l => l.CostCenterCode)
+        .ToList();
+
+        var grandTotal = lines.Sum(l => l.TotalAmount);
+        return new CostCenterPnLReport(companyId, fromDate, toDate, lines, grandTotal);
+    }
 }

@@ -29,7 +29,23 @@ public record JournalLineDto(
     decimal Debit,
     decimal Credit,
     string? Description,
-    int LineNumber
+    int LineNumber,
+    // Sprint 60 — Cost center on every line. Previously this field
+    // existed on the create request and the DB column
+    // (journal_lines.cost_center_id) but was dropped from the DTO
+    // when reading the entry back. The accountant could set a cost
+    // center, save, then read the entry and see the cost center
+    // missing — which made the field look broken. Now it's
+    // round-tripped: create with it, read it back, edit it, all
+    // consistent.
+    //
+    // Also include the human-readable code + name so the UI can
+    // display "DPT-ADMIN — الإدارة" without an extra join. The
+    // backend joins cost_centers and projects the fields. If the
+    // line has no cost center, all three fields are null.
+    Guid? CostCenterId = null,
+    string? CostCenterCode = null,
+    string? CostCenterName = null
 );
 
 public record CreateJournalEntryRequest(
