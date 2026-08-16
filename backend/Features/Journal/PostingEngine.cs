@@ -207,9 +207,13 @@ public class PostingEngine
 
         var lines = (await conn.QueryAsync<JournalLineWithAccountRow>(@"
             SELECT jl.id, jl.journal_entry_id, jl.account_id, a.code AS account_code, a.name AS account_name,
-                   jl.debit, jl.credit, jl.description, jl.line_number
+                   jl.debit, jl.credit, jl.description, jl.line_number,
+                   jl.cost_center_id,
+                   cc.code AS cost_center_code,
+                   cc.name AS cost_center_name
             FROM journal_lines jl
             JOIN accounts a ON a.id = jl.account_id
+            LEFT JOIN cost_centers cc ON cc.id = jl.cost_center_id
             WHERE jl.journal_entry_id = @id
             ORDER BY jl.line_number;",
             new { id })).ToList();
@@ -232,7 +236,11 @@ public class PostingEngine
             entry.project_id,
             lines.Select(l => new JournalLineDto(
                 l.id, l.account_id, l.account_code, l.account_name,
-                l.debit, l.credit, l.description, l.line_number)).ToList()
+                l.debit, l.credit, l.description, l.line_number,
+                // Sprint 60 — round-trip the cost center so the
+                // UI can show it in the line breakdown AND the
+                // edit form can pre-populate the dropdown.
+                l.cost_center_id, l.cost_center_code, l.cost_center_name)).ToList()
         );
     }
 
@@ -249,7 +257,10 @@ public class PostingEngine
 
     private record JournalLineWithAccountRow(
         Guid id, Guid journal_entry_id, Guid account_id, string account_code, string account_name,
-        decimal debit, decimal credit, string? description, int line_number);
+        decimal debit, decimal credit, string? description, int line_number,
+        // Sprint 60 — cost center projection. LEFT JOINed from
+        // cost_centers; null when the line has no cost center.
+        Guid? cost_center_id, string? cost_center_code, string? cost_center_name);
 
     private record AccountRow(Guid id, string account_type, string nature);
 }

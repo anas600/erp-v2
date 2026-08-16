@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, Menu, X
+  LayoutDashboard, Building2, BookOpen, FileText, Zap, BarChart3, LogOut, ChevronDown, User, FolderKanban, Users, Package, Inbox, ChevronLeft, FileSpreadsheet, ScrollText, TrendingUp, Scale, Wallet, ArrowRightLeft, CalendarRange, Wrench, Menu, X, Tag
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -125,7 +125,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { href: "/dashboard/reports/supplier-aging", label: "أعمار الدائنين", icon: Users },
         { href: "/dashboard/reports/income-statement", label: "قائمة الدخل", icon: TrendingUp },
         { href: "/dashboard/reports/balance-sheet", label: "الميزانية العمومية", icon: FileSpreadsheet },
-        { href: "/dashboard/reports/intercompany-elimination", label: "استبعاد المعاملات البينية", icon: FileSpreadsheet }
+        { href: "/dashboard/reports/intercompany-elimination", label: "استبعاد المعاملات البينية", icon: FileSpreadsheet },
+        // Sprint 60 — Phase 2. P&L by Cost Center is a horizontal
+        // slice of the income statement: "where did the money go?"
+        // by department / activity / project.
+        { href: "/dashboard/reports/cost-center-pnl", label: "المصروفات حسب مركز التكلفة", icon: Tag }
       ]
     },
     {

@@ -32,7 +32,7 @@ import Link from "next/link";
 import {
   BarChart3, BookOpen, TrendingUp, FileSpreadsheet, Users, Scale, Wallet,
   Layers, FileText, Wrench, AlertCircle, Search, Filter, ChevronRight, Clock,
-  X, Folder, Briefcase
+  X, Folder, Briefcase, Tag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -183,6 +183,25 @@ const REPORTS: ReportEntry[] = [
     priority: "P3",
     status: "working",  // Cycle 3: shipped
     icon: Briefcase,
+  },
+  {
+    // Sprint 60 — Phase 2. The P&L by Cost Center is a
+    // horizontal slice of the income statement: instead of
+    // grouping by account, group by cost center. This lets
+    // the accountant answer "where did the money go?" by
+    // department / activity / project.
+    id: "cost-center-pnl",
+    name: "Expenses by Cost Center",
+    nameAr: "المصروفات حسب مركز التكلفة",
+    description: "Operating expenses grouped by cost center. 3 axes: department, activity, project.",
+    descriptionAr: "المصاريف التشغيلية مجمّعة حسب مركز التكلفة. 3 محاور: قسم، نشاط، مشروع.",
+    path: "/dashboard/reports/cost-center-pnl",
+    module: "accounting",
+    moduleAr: "المحاسبة",
+    priority: "P2",
+    status: "working",  // Sprint 60 Phase 2
+    icon: Tag,
+    speed: "fast",
   },
   {
     id: "contact-statement",

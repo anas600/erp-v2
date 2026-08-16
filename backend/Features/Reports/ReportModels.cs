@@ -215,3 +215,40 @@ public record ContactStatementReport(
     decimal ClosingBalance,
     List<ContactStatementLine> Lines
 );
+
+// ====================================================================
+// Sprint 60 — P&L by Cost Center (تقرير المصروفات حسب مركز التكلفة)
+// ====================================================================
+//
+// One row per cost center that had activity in the date range.
+// A cost center with zero activity is included with amount=0 so the
+// report shows the "shape" of the org — e.g. "DPT-ADMIN is set up
+// but no expenses have been tagged to it yet".
+//
+// The amount is the sum of all debit/credit lines on expense
+// accounts (4xxx prefix) tagged with the cost center. We use
+// GREATEST(debit, credit) per line so that the same convention
+// applies regardless of which side the expense is recorded on
+// (most operational expenses are debit; some accounting flows
+// record them on credit for symmetry).
+//
+// Same reversal filter as Project P&L: we exclude
+// status='reversed' entries AND entries that reverse something
+// else, so a cancelled pair nets to zero.
+public record CostCenterPnLLine(
+    Guid CostCenterId,
+    string CostCenterCode,
+    string CostCenterName,
+    string CostCenterType,    // "department" | "activity" | "project"
+    Guid? ProjectId,          // only set for project-type
+    decimal TotalAmount,
+    int MovementCount         // number of journal lines tagged
+);
+
+public record CostCenterPnLReport(
+    Guid CompanyId,
+    DateTime FromDate,
+    DateTime ToDate,
+    List<CostCenterPnLLine> Lines,
+    decimal GrandTotal
+);

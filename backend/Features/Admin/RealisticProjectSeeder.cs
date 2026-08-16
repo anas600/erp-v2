@@ -1,5 +1,6 @@
 using Dapper;
 using ErpV2.Common;
+using ErpV2.Features.CostCenters;
 using ErpV2.Features.Invoicing;
 using ErpV2.Features.Projects;
 
@@ -54,6 +55,7 @@ public class RealisticProjectSeeder
     private readonly InvoiceService _invoiceSvc;
     private readonly BillingService _billingSvc;
     private readonly ErpV2.Features.Accounts.AccountService _accounts;
+    private readonly CostCenterService _costCenters;
     private readonly ILogger<RealisticProjectSeeder> _log;
 
     public RealisticProjectSeeder(
@@ -62,6 +64,7 @@ public class RealisticProjectSeeder
         InvoiceService invoiceSvc,
         BillingService billingSvc,
         ErpV2.Features.Accounts.AccountService accounts,
+        CostCenterService costCenters,
         ILogger<RealisticProjectSeeder> log)
     {
         _db = db;
@@ -69,6 +72,7 @@ public class RealisticProjectSeeder
         _invoiceSvc = invoiceSvc;
         _billingSvc = billingSvc;
         _accounts = accounts;
+        _costCenters = costCenters;
         _log = log;
     }
 
@@ -301,6 +305,17 @@ public class RealisticProjectSeeder
         var proj = await _projectSvc.CreateAsync(req);
         _log.LogInformation("Created project {Code} (auto-L4-sub-ledgers created)", proj.Code);
 
+        // Sprint 60 — Create 5 cost centers so the demo has data
+        // for the new "P&L by Cost Center" report and the
+        // cost-centre-required validation in journal posting. We
+        // pick a deliberately small, representative set:
+        //   - 2 departments (the most common cost attribution)
+        //   - 2 activities (shows the activity ≠ department axis)
+        //   - 1 project-type (links to the gas station project)
+        // Idempotent: CreateAsync returns the existing record if
+        // (companyId, code) already exists.
+        await CreateDemoCostCentersAsync(companyId, proj.Id);
+
         // Create the original contract (2,369,048 LYD) — the seeder
         // then adds a variation order to bring it up to 6,561,447.494.
         // The contracts table has project_id; the projects table
@@ -309,6 +324,42 @@ public class RealisticProjectSeeder
         var contractId = await CreateContractAsync(companyId, proj.Id);
 
         return proj.Id;
+    }
+
+    /// <summary>
+    /// Sprint 60 — Seed 5 demo cost centers (3 types). The set is
+    /// intentionally small so the demo is easy to scan; the
+    /// infrastructure supports any number of cost centers.
+    /// </summary>
+    private async Task CreateDemoCostCentersAsync(Guid companyId, Guid projectId)
+    {
+        // Format: (code, name-en, name-ar, type, projectId)
+        // The project-type cost center gets the gas-station
+        // project_id; the rest are org-wide (projectId = null).
+        var defs = new (string code, string name, string nameAr, string type, Guid? projId)[]
+        {
+            ("DPT-ADMIN",   "Administration",   "الإدارة العامة",   "department", null),
+            ("DPT-OPS",     "Operations",       "العمليات",         "department", null),
+            ("ACT-MARKETING","Marketing",       "التسويق",          "activity",   null),
+            ("ACT-TRAVEL",  "Travel",           "السفر والتنقل",    "activity",   null),
+            ("CC-PRJ-GAS",  "Gas Station Project", "مشروع نقطة تعبئة الغاز", "project", projectId)
+        };
+        foreach (var (code, name, nameAr, type, projId) in defs)
+        {
+            try
+            {
+                await _costCenters.CreateAsync(new CreateCostCenterRequest(
+                    companyId, code, name, nameAr, type, projId, null));
+                _log.LogInformation("Created cost center {Code} ({Type})", code, type);
+            }
+            catch (Exception ex)
+            {
+                // Idempotent — the seeder runs many times in the
+                // trust-mode test loop. A duplicate-key error here
+                // is fine; any other error is worth surfacing.
+                _log.LogWarning("Cost center {Code} not created: {Msg}", code, ex.Message);
+            }
+        }
     }
 
     private async Task<Guid> CreateContractAsync(Guid companyId, Guid projectId)
