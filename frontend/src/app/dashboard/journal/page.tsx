@@ -14,6 +14,9 @@ interface Account {
   nameAr?: string;
   accountType: string;
   nature: string;
+  level?: number;
+  isPostable?: boolean;
+  isActive?: boolean;
 }
 
 interface JournalLine {
@@ -122,7 +125,37 @@ export default function JournalPage() {
         setEntries(data.items || []);
         setTotalEntries(data.total || 0);
       }
-      setAccounts(accountsRes.data);
+      // Sprint 59 — the accounts endpoint returns a TREE (L1 roots
+      // with nested children). For the journal entry dropdown we
+      // need every postable L4 account. Flatten the tree and keep
+      // only isPostable=true rows so the user can pick any
+      // sub-ledger (cash, bank, AR, AP, expense, project cost, etc.)
+      // The general-ledger page has the same pattern with indented
+      // labels (↳ L4, ‖ L2). We use a similar one here.
+      const rawAccounts: any[] = Array.isArray(accountsRes.data)
+        ? accountsRes.data
+        : (accountsRes.data?.data || []);
+      const flatten = (nodes: any[]): any[] => {
+        const out: any[] = [];
+        const walk = (n: any) => {
+          const { children, ...rest } = n;
+          out.push(rest);
+          if (Array.isArray(children)) children.forEach(walk);
+        };
+        nodes.forEach(walk);
+        return out;
+      };
+      const flat = flatten(rawAccounts);
+      // Keep only postable (L4) and active accounts. The L1/L2/L3
+      // are headers/control accounts and can't be posted to
+      // directly — the system would reject the journal entry.
+      // Sort by code so the dropdown shows accounts in a natural
+      // reading order (1101-CASH-001, 1102-BANK-001, 1103-CUS-001,
+      // 2101-SUP-001, ...).
+      const postable = flat
+        .filter((a) => a.isPostable && a.isActive !== false)
+        .sort((x, y) => String(x.code).localeCompare(String(y.code)));
+      setAccounts(postable);
       setCostCenters(ccRes.data);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -613,11 +646,23 @@ export default function JournalPage() {
                         onChange={(e) => updateLine(idx, "accountId", e.target.value)}
                       >
                         <option value="">- اختر حساب -</option>
-                        {accounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.code} - {a.nameAr || a.name} ({a.nature === "Debit" ? "مدين" : "دائن"})
-                          </option>
-                        ))}
+                        {accounts.map((a) => {
+                          // Sprint 59 — the user reported the
+                          // dropdown only showed L1 accounts. We
+                          // now feed it the flattened list of every
+                          // L4 (postable) account, so the accountant
+                          // can pick any cash/bank/AR/AP/expense
+                          // sub-ledger. The nature suffix (مدين/
+                          // دائن) makes the debit/credit side
+                          // obvious at a glance.
+                          const lvl = a.level ?? 4;
+                          const indent = lvl === 4 ? "↳ " : lvl === 3 ? "  ‖ " : "    ";
+                          return (
+                            <option key={a.id} value={a.id}>
+                              {indent}{a.code} — {a.nameAr || a.name} ({a.nature === "Debit" ? "مدين" : "دائن"})
+                            </option>
+                          );
+                        })}
                       </select>
                       <input
                         type="number"
