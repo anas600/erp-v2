@@ -125,7 +125,31 @@ public class ContactStatementService
                 new { companyId = contact.company_id, contactId });
         }
 
-        var outstanding = invoiceTotals.total - invoiceTotals.paid - voucherTotal;
+        // Sprint 60 — Fix the contact balance double-count.
+        //
+        // OLD formula:  outstanding = total - paid - voucherTotal
+        //
+        // The bug: `paid` is `SUM(i.amount_paid)`. When the user
+        // creates a receipt or payment voucher, the voucher service
+        // writes the paid amount into `invoices.amount_paid` (via
+        // the invoice settlement path in Sprint 25). So `paid` is
+        // ALREADY the voucher total. Subtracting `voucherTotal`
+        // again double-counts the cash flow, making the outstanding
+        // balance look smaller than it really is.
+        //
+        // Concrete example from 2026-08-16 trust-mode test:
+        //   - CUST-001 has one 50,000 LYD sales invoice
+        //   - User creates a receipt voucher for 20,000 LYD
+        //     → `invoices.amount_paid` becomes 20,000
+        //   - User looks at the contact balance card
+        //   - OLD formula: 50,000 - 20,000 - 20,000 = 10,000
+        //     (WRONG — should be 30,000)
+        //   - NEW formula: 50,000 - 20,000 = 30,000
+        //
+        // We still compute and return `voucherTotal` separately so
+        // the UI can show "Voucher Total: 20,000" — the user wants
+        // to see the cash moved, just not subtract it twice.
+        var outstanding = invoiceTotals.total - invoiceTotals.paid;
         return new ContactBalanceDto(
             contactId, contact.name, contact.type,
             invoiceTotals.total, invoiceTotals.paid, voucherTotal,

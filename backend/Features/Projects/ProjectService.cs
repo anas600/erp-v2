@@ -450,6 +450,14 @@ public class ProjectService
         //    it) and the line breakdown. Sales invoices are also
         //    returned here (as a "revenue" line) — we want a
         //    single unified view of all tagged activity.
+        //
+        //    Sprint 60 — Status filter. Exclude 'draft' invoices
+        //    (which means a reversal rolled the invoice back, or the
+        //    user has not posted it yet). Showing draft invoices
+        //    would double-count the cost (once when posted, then
+        //    again as draft after reversal). Same fix for the
+        //    'cancelled' status (Sprint 33 introduced this for
+        //    vendor cancellations).
         var invoiceRows = await conn.QueryAsync<InvoiceCostRow>(@"
             SELECT i.id AS invoice_id, i.invoice_number, i.invoice_type, i.invoice_date,
                    i.party_name, i.total, i.tax_amount, i.subtotal,
@@ -459,6 +467,7 @@ public class ProjectService
             JOIN invoice_lines il ON il.invoice_id = i.id
             LEFT JOIN accounts a ON a.id = il.account_id
             WHERE i.project_id = @projectId
+              AND i.status IN ('posted', 'partiallypaid', 'paid')
             ORDER BY i.invoice_date DESC, i.invoice_number;",
             new { projectId });
         foreach (var r in invoiceRows)
@@ -480,6 +489,28 @@ public class ProjectService
         //    (manual entries, or any JE that the user manually
         //    allocated even if no invoice is involved). We pull
         //    every line on each tagged entry.
+        //
+        //    Sprint 60 — Reversal fix. The OLD query had no status
+        //    filter, which meant a reversed entry AND its reverse
+        //    entry BOTH showed up in the cost tab — once as
+        //    "reversed" (status='reversed') and once as the "new"
+        //    posted entry that cancelled it (status='posted' with
+        //    reverses_entry_id set). The pair should net to zero,
+        //    not double-count.
+        //
+        //    The fix is to include only entries that represent
+        //    ACTIVE cost movement:
+        //      - status = 'posted'  (not 'draft', not 'pending', not 'reversed')
+        //      - reverses_entry_id IS NULL  (not a reverse of something else)
+        //
+        //    This way:
+        //      - Original entry (status flips to 'reversed' on
+        //        reversal) → excluded.
+        //      - Reverse entry (status='posted' but reverses_entry_id
+        //        is set) → also excluded, because the pair should
+        //        net out.
+        //      - The cost tab reflects only the actual non-cancelled
+        //        cost, matching what the GL balances show.
         var jeRows = await conn.QueryAsync<JournalCostRow>(@"
             SELECT je.id AS entry_id, je.entry_number, je.entry_date, je.narration,
                    jl.id AS line_id,
@@ -490,6 +521,8 @@ public class ProjectService
             JOIN journal_lines jl ON jl.journal_entry_id = je.id
             LEFT JOIN accounts a ON a.id = jl.account_id
             WHERE je.project_id = @projectId
+              AND je.status = 'posted'
+              AND je.reverses_entry_id IS NULL
             ORDER BY je.entry_date DESC, je.entry_number;",
             new { projectId });
         foreach (var r in jeRows)
@@ -559,12 +592,19 @@ public class ProjectService
             new { id = projectId });
         if (project is null) return null;
 
-        // 1) Revenue — sum of POSTED sales invoices.
+        // 1) Revenue — sum of sales invoices that count as earned
+        //    revenue. Sprint 60 — added 'partiallypaid' and 'paid' to
+        //    the status filter so the revenue reflects cash-collected
+        //    AND accrual-basis revenue (the protocol reported that
+        //    'paid' invoices were being missed, which made the
+        //    project look less profitable than it really was).
+        //    'draft' and 'cancelled' are still excluded — those
+        //    represent unposted or rejected sales.
         var revenue = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(total), 0) FROM invoices
             WHERE project_id = @projectId
               AND invoice_type = 'sales'
-              AND status = 'posted';",
+              AND status IN ('posted', 'partiallypaid', 'paid');",
             new { projectId }) ?? 0m;
 
         // 2) Costs — group journal lines on expense accounts
@@ -577,6 +617,13 @@ public class ProjectService
         //    journal entry — counting both would double-count.
         //    The JE is the authoritative source of accounting
         //    facts; invoice lines are presentation only.
+        //
+        //    Sprint 60 — Reversal filter. Exclude reversed entries
+        //    (status='reversed') AND the entries that reverse
+        //    something else (reverses_entry_id IS NOT NULL). The
+        //    pair should net to zero; without this filter the
+        //    P&L showed cancelled costs as if they were still
+        //    active.
         var costRows = await conn.QueryAsync<CostGroupRow>(@"
             SELECT a.code AS account_code,
                    COALESCE(a.name, 'بدون اسم') AS account_name,
@@ -586,6 +633,8 @@ public class ProjectService
             JOIN accounts a ON a.id = jl.account_id
             WHERE je.project_id = @projectId
               AND a.code LIKE '54%'
+              AND je.status = 'posted'
+              AND je.reverses_entry_id IS NULL
             GROUP BY a.code, a.name
             ORDER BY a.code;",
             new { projectId });
@@ -597,16 +646,20 @@ public class ProjectService
         )).ToList();
         var totalCosts = costCategories.Sum(c => c.Amount);
 
-        // 3) Counts for the UI badge.
+        // 3) Counts for the UI badge. Sprint 60 — same status
+        //    logic as the revenue / cost queries, so the count
+        //    matches what the user sees in the table.
         var invoiceCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) FROM invoices
             WHERE project_id = @projectId
               AND invoice_type = 'sales'
-              AND status = 'posted';",
+              AND status IN ('posted', 'partiallypaid', 'paid');",
             new { projectId });
         var jeCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(*) FROM journal_entries
-            WHERE project_id = @projectId;",
+            WHERE project_id = @projectId
+              AND status = 'posted'
+              AND reverses_entry_id IS NULL;",
             new { projectId });
 
         var grossProfit = revenue - totalCosts;
