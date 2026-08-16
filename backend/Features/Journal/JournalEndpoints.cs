@@ -94,6 +94,36 @@ public static class JournalEndpoints
             }
         });
 
+        // Sprint 59 — Update a DRAFT journal entry. Only entries in
+        // 'draft' state are editable (manual drafts, or rejected rule
+        // entries that landed in 'draft' via /reject). Posted /
+        // reversed entries are immutable — they belong to the
+        // permanent accounting record and must be undone via /reverse.
+        //
+        // Returns:
+        //   200 OK   — entry updated
+        //   404 NF   — entry didn't exist
+        //   400 Bad  — entry exists but is in a non-draft state, or
+        //              the new request fails validation (period lock,
+        //              unbalanced, etc.)
+        grp.MapPut("/{id:guid}", async (
+            Guid id,
+            [FromBody] CreateJournalEntryRequest req,
+            [FromServices] JournalService svc,
+            HttpContext ctx) =>
+        {
+            try
+            {
+                var userId = ctx.GetUserId();
+                var entry = await svc.UpdateDraftAsync(id, req, userId);
+                return entry is null ? Results.NotFound() : Results.Ok(entry);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         grp.MapPost("/{id:guid}/post", async (Guid id, [FromServices] JournalService svc) =>
         {
             try
