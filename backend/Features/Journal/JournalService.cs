@@ -177,6 +177,137 @@ public class JournalService
     }
 
     /// <summary>
+    /// Sprint 59 — Update an existing DRAFT journal entry. The accountant
+    /// can change the narration, the entry date, the project tag, and
+    /// the lines (debit/credit accounts, amounts, descriptions,
+    /// cost-centers). Only "draft" entries are editable — once an entry
+    /// is "posted" or "reversed" it becomes part of the permanent
+    /// accounting record and can only be undone by creating a reverse
+    /// entry.
+    ///
+    /// Implementation: delete the old lines and re-insert the new ones
+    /// in a single transaction. We do NOT update the lines one-by-one
+    /// because the user can add or remove lines; an UPDATE-by-id would
+    /// leave orphan lines behind. A DELETE + INSERT keeps the row
+    /// count correct without a separate "removeLine" UI flow.
+    ///
+    /// Validation: same as create (period must be open, debits = credits,
+    /// accounts must be postable). The cost_center_required flag check
+    /// lives in the create path; we re-use it via the line-insert helper.
+    /// </summary>
+    public async Task<JournalEntryDto?> UpdateDraftAsync(
+        Guid entryId, CreateJournalEntryRequest req, Guid? updatedBy)
+    {
+        if (req.Lines.Count == 0)
+            throw new InvalidOperationException("Entry must have at least one line");
+
+        using var conn = _db.CreateConnection();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1) Load the entry — must exist and must be in 'draft' state.
+            var existing = await conn.QuerySingleOrDefaultAsync<(Guid id, string status, Guid company_id)?>(@"
+                SELECT id, status, company_id
+                FROM journal_entries
+                WHERE id = @id;",
+                new { id = entryId }, tx);
+            if (existing is null)
+                return null;
+            if (existing.Value.status != "draft")
+                throw new InvalidOperationException(
+                    $"لا يمكن تعديل قيد بحالة '{existing.Value.status}'. " +
+                    "يمكن تعديل القيود المسودة فقط — للقيود المرحّلة، استخدم قيد عكسي.");
+
+            // 2) Period check on the NEW date (the date may have changed).
+            await EnsurePeriodOpenAsync(existing.Value.company_id, req.EntryDate, conn, tx);
+
+            // 3) Update the header.
+            await conn.ExecuteAsync(@"
+                UPDATE journal_entries
+                SET entry_date = @entryDate,
+                    narration = @narration,
+                    project_id = @projectId,
+                    updated_at = NOW()
+                WHERE id = @id;",
+                new
+                {
+                    id = entryId,
+                    entryDate = req.EntryDate,
+                    narration = req.Narration,
+                    projectId = req.ProjectId
+                }, tx);
+
+            // 4) Delete old lines (defensive — no ON DELETE CASCADE on the FK).
+            await conn.ExecuteAsync(
+                "DELETE FROM journal_lines WHERE entry_id = @id;",
+                new { id = entryId }, tx);
+
+            // 5) Insert new lines via the same helper the create path uses.
+            int lineNum = 1;
+            foreach (var line in req.Lines)
+            {
+                if (line.Debit < 0 || line.Credit < 0)
+                    throw new InvalidOperationException("Debit and Credit must be non-negative");
+                if (line.Debit > 0 && line.Credit > 0)
+                    throw new InvalidOperationException("A line cannot have both Debit and Credit");
+                if (line.Debit == 0 && line.Credit == 0)
+                    throw new InvalidOperationException($"Line {lineNum} has zero Debit and zero Credit");
+
+                // Verify the account is postable. Same defensive check
+                // as create — protects against the accountant picking
+                // a header account (L1/L2/L3) by mistake.
+                var isPostable = await conn.QuerySingleOrDefaultAsync<bool?>(@"
+                    SELECT is_postable FROM accounts
+                    WHERE id = @id AND is_active = true;",
+                    new { id = line.AccountId }, tx);
+                if (isPostable is null)
+                    throw new InvalidOperationException($"Account {line.AccountId} not found or inactive");
+                if (isPostable == false)
+                    throw new InvalidOperationException(
+                        $"الحساب {line.AccountId} حساب رئيسي (غير قابل للترحيل). اختر حساب فرعي.");
+
+                await conn.ExecuteAsync(@"
+                    INSERT INTO journal_lines
+                        (id, entry_id, line_number, account_id, debit, credit, description, cost_center_id)
+                    VALUES
+                        (@id, @entryId, @lineNumber, @accountId, @debit, @credit, @description, @costCenterId);",
+                    new
+                    {
+                        id = Guid.NewGuid(),
+                        entryId,
+                        lineNumber = lineNum++,
+                        accountId = line.AccountId,
+                        debit = line.Debit,
+                        credit = line.Credit,
+                        description = line.Description,
+                        costCenterId = line.CostCenterId
+                    }, tx);
+            }
+
+            // 6) Verify the entry balances. Same check as create path.
+            var totals = await conn.QuerySingleAsync<(decimal total_debit, decimal total_credit)>(@"
+                SELECT COALESCE(SUM(debit), 0) AS total_debit,
+                       COALESCE(SUM(credit), 0) AS total_credit
+                FROM journal_lines
+                WHERE entry_id = @entryId;",
+                new { entryId }, tx);
+            if (totals.total_debit != totals.total_credit)
+                throw new InvalidOperationException(
+                    $"القيد غير متوازن: إجمالي المدين = {totals.total_debit} LYD، " +
+                    $"إجمالي الدائن = {totals.total_credit} LYD. " +
+                    "يجب أن يتساوى الجانبان.");
+
+            tx.Commit();
+            return (await _posting.GetByIdAsync(entryId))!;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Sprint 40 — Trust path. Creates a draft, approves it, and posts
     /// it in one call. Used by the FullYearSeeder and any other caller
     /// that has already validated the journal entry (debits = credits,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { FileText, Plus, Loader2, X, CheckCircle, Send, Trash2, RotateCcw, FolderKanban } from "lucide-react";
+import { FileText, Plus, Loader2, X, CheckCircle, Send, Trash2, RotateCcw, FolderKanban, Pencil } from "lucide-react";
 import { formatNumber, formatDate } from "@/lib/utils";
 import ProjectPicker from "../projects/components/ProjectPicker";
 
@@ -94,6 +94,13 @@ export default function JournalPage() {
       { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
     ]
   });
+
+  // Sprint 59 — Edit mode state. When `editingId` is set, the form
+  // is bound to an existing draft journal entry and submit() calls
+  // PUT /api/journal/{id} instead of POST /api/journal. When null,
+  // the form is in "create" mode.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingEntryNumber, setEditingEntryNumber] = useState<string | null>(null);
 
   const [costCenters, setCostCenters] = useState<
     { id: string; code: string; nameAr?: string; name: string }[]
@@ -263,7 +270,7 @@ export default function JournalPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.post("/journal", {
+      const payload = {
         companyId: activeCompany.id,
         entryDate: form.entryDate,
         narration: form.narration,
@@ -278,15 +285,29 @@ export default function JournalPage() {
             description: l.description,
             costCenterId: l.costCenterId || null
           }))
-      });
-      // Brief inline confirmation so the user knows the save worked
-      // (especially helpful when the entry isn't immediately visible
-      // in the table due to large lists or sort order).
-      setSuccessMessage(`تم حفظ القيد ${res.data.entryNumber} كمسودة`);
+      };
+
+      // Sprint 59 — Branch on create vs update. When `editingId` is
+      // set, the form is bound to an existing draft entry, so we
+      // call PUT /api/journal/{id} instead of POST /api/journal.
+      // The payload shape is identical (CreateJournalEntryRequest
+      // is reused server-side to keep the validation single-sourced).
+      let res;
+      if (editingId) {
+        res = await api.put(`/journal/${editingId}`, payload);
+        setSuccessMessage(`تم تحديث القيد ${res.data.entryNumber}`);
+      } else {
+        res = await api.post("/journal", payload);
+        setSuccessMessage(`تم حفظ القيد ${res.data.entryNumber} كمسودة`);
+      }
+
       setForm({ entryDate: new Date().toISOString().slice(0, 10), narration: "", projectId: "", lines: [
         { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
         { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
       ]});
+      // Clear edit state so the next "+ قيد جديد" opens in create mode.
+      setEditingId(null);
+      setEditingEntryNumber(null);
       // Force reload BEFORE closing the modal so the new entry
       // is in `entries` state by the time the user looks at the
       // table. Without this, the modal closes immediately and
@@ -300,6 +321,58 @@ export default function JournalPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  /**
+   * Sprint 59 — Open the form in edit mode, pre-populated with the
+   * selected draft entry's header + lines. The accountant can then
+   * change the narration, the date, the project tag, or any line
+   * (account, debit/credit, description, cost-center). On submit,
+   * the form calls PUT /api/journal/{id}.
+   *
+   * Only draft entries are editable. If the entry is not a draft
+   * (e.g. user clicks Edit on a posted row by mistake), we throw
+   * — the button is hidden in the table for non-draft rows anyway.
+   */
+  const editEntry = async (entry: JournalEntry) => {
+    if (entry.status !== "draft") {
+      setError("لا يمكن تعديل قيد غير مسودة. اعكسه بقيد عكسي بدلاً من ذلك.");
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+    setError(null);
+    setEditingId(entry.id);
+    setEditingEntryNumber(entry.entryNumber);
+    setForm({
+      entryDate: entry.entryDate.slice(0, 10),
+      narration: entry.narration || "",
+      projectId: (entry as any).projectId || "",
+      // The backend always returns at least 1 line for an existing
+      // entry. We re-hydrate all of them; if there are more than
+      // 2, the user will see all rows in the form.
+      lines: entry.lines.length > 0
+        ? entry.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            description: l.description || "",
+            costCenterId: l.costCenterId || ""
+          }))
+        : [{ accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }]
+    });
+    setShowForm(true);
+  };
+
+  /**
+   * Sprint 59 — Close the form and clear edit state. Used by the
+   * modal's "X" close button and the "إلغاء" cancel button so
+   * that the next "+ قيد جديد" opens in create mode (not edit).
+   */
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setEditingEntryNumber(null);
+    setError(null);
   };
 
   const postEntry = async (id: string) => {
@@ -381,7 +454,25 @@ export default function JournalPage() {
             {bulkProcessing ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             ترحيل الكل
           </button>
-          <button onClick={() => setShowForm(true)} className="btn-primary">
+          <button
+            onClick={() => {
+              // Sprint 59 — Reset edit state when opening the "new"
+              // button, so the form is always in create mode.
+              setEditingId(null);
+              setEditingEntryNumber(null);
+              setForm({
+                entryDate: new Date().toISOString().slice(0, 10),
+                narration: "",
+                projectId: "",
+                lines: [
+                  { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" },
+                  { accountId: "", debit: 0, credit: 0, description: "", costCenterId: "" }
+                ]
+              });
+              setShowForm(true);
+            }}
+            className="btn-primary"
+          >
             <Plus size={18} />
             قيد جديد
           </button>
@@ -452,6 +543,17 @@ export default function JournalPage() {
                         <div className="flex items-center gap-1">
                           {e.status === "draft" && (
                             <>
+                              {/* Sprint 59 — Edit (only on drafts). Loads
+                                  the entry into the create form so the
+                                  accountant can change accounts, amounts,
+                                  or narration before posting. */}
+                              <button
+                                onClick={(ev) => { ev.stopPropagation(); editEntry(e); }}
+                                className="text-blue-600 hover:bg-blue-50 p-1 rounded text-sm"
+                                title="تعديل القيد"
+                              >
+                                <Pencil size={14} />
+                              </button>
                               <button
                                 onClick={(ev) => { ev.stopPropagation(); postEntry(e.id); }}
                                 className="text-primary-600 hover:bg-primary-50 p-1 rounded text-sm"
@@ -595,8 +697,14 @@ export default function JournalPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-canvas dark:bg-neutral-900 rounded-card shadow-xl w-full max-w-4xl p-6 my-8">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">قيد يومية جديد</h2>
-              <button onClick={() => setShowForm(false)} className="text-ink-subtle hover:text-ink-muted">
+              {/* Sprint 59 — Modal title changes between "new" and "edit"
+                  mode. In edit mode we show the original entry number
+                  so the accountant can confirm which entry they're
+                  modifying. */}
+              <h2 className="text-lg font-semibold">
+                {editingId ? `تعديل القيد ${editingEntryNumber}` : "قيد يومية جديد"}
+              </h2>
+              <button onClick={closeForm} className="text-ink-subtle hover:text-ink-muted">
                 <X size={20} />
               </button>
             </div>
@@ -731,9 +839,11 @@ export default function JournalPage() {
 
               <div className="flex gap-2 pt-2">
                 <button type="submit" disabled={submitting || !isBalanced} className="btn-primary flex-1">
-                  {submitting ? "جاري الحفظ..." : "حفظ كمسودة"}
+                  {submitting
+                    ? (editingId ? "جاري التحديث..." : "جاري الحفظ...")
+                    : (editingId ? "تحديث القيد" : "حفظ كمسودة")}
                 </button>
-                <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">
+                <button type="button" onClick={closeForm} className="btn-secondary">
                   إلغاء
                 </button>
               </div>
