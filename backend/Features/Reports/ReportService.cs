@@ -592,6 +592,23 @@ public class ReportService
         // We use narration parsing because the actual JE source values
         // vary by event type — the narration always contains the
         // invoice number as the reliable join key.
+        //
+        // Sprint 60 — Reversal filter. The aging report joins the
+        // invoice to its journal entry via narration LIKE match. We
+        // also add `AND je.reverses_entry_id IS NULL` so a reversed
+        // entry is NOT treated as the "posted" anchor for the
+        // invoice — otherwise, after reversing an invoice's posting
+        // JE, the LEFT JOIN could match the reversed entry
+        // (status='reversed', excluded by `je.status='posted'`) OR
+        // the reverse entry (status='posted', narration also
+        // contains the invoice number) which would be misleading
+        // because the reverse entry cancels the original.
+        //
+        // Also added 'paid' to the invoice status filter. A fully
+        // paid invoice has outstanding=0 so the
+        // `(i.total - i.amount_paid) > 0` filter already excludes
+        // it, but we add 'paid' here for clarity / future-proofing
+        // in case the outstanding filter is ever loosened.
         var rows = await conn.QueryAsync<CustomerAgingRow>(@"
             SELECT
                 c.id AS contact_id,
@@ -608,6 +625,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
+             AND je.reverses_entry_id IS NULL
              AND (
                   je.source LIKE 'rule:%'
                OR je.source LIKE 'invoice:%'
@@ -618,7 +636,7 @@ public class ReportService
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'sales'
-              AND i.status IN ('posted', 'partiallypaid')
+              AND i.status IN ('posted', 'partiallypaid', 'paid')
               AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
               AND je.id IS NOT NULL
@@ -705,6 +723,7 @@ public class ReportService
             LEFT JOIN journal_entries je
               ON je.company_id = i.company_id
              AND je.status = 'posted'
+             AND je.reverses_entry_id IS NULL
              AND (
                   je.source LIKE 'rule:%'
                OR je.source LIKE 'invoice:%'
@@ -715,7 +734,7 @@ public class ReportService
              AND je.narration LIKE '%' || i.invoice_number || '%'
             WHERE i.company_id = @companyId
               AND i.invoice_type = 'purchase'
-              AND i.status IN ('posted', 'partiallypaid')
+              AND i.status IN ('posted', 'partiallypaid', 'paid')
               AND (i.total - i.amount_paid) > 0
               AND i.invoice_date <= @asOfDate
               AND je.id IS NOT NULL
